@@ -1,0 +1,11 @@
+roll,admission_date,name,dob,aadhar,father_name,mother_name,class,section,phone,status
+1001,2020-06-10,Priya Kumari,2015-03-15,123456789012,Rajesh Kumari,Anita Kumari,IX,A,+91-98765 43210,Active
+1002,2019-05-20,Rahul Raj,2014-07-22,234567890123,Vikram Raj,Priya Raj,X,B,+91-98765 11111,Active
+1003,2018-04-12,Anita Singh,2013-11-08,345678901234,Arjun Singh,Meera Singh,X, A,+91-98765 22222,Pending
+1004,2021-03-15,Aman Kumar,2016-01-30,456789012345,Suresh Kumar,Divya Kumar,VIII,C,+91-98765 33333,Active
+1005,2019-08-01,Neha Sharma,2015-08-12,567890123456,Vijay Sharma,Priya Sharma,VII,B,+91-98765 44444,Active
+1006,2020-02-05,Raj Patel,2015-02-20,678901234567,Harish Patel,Kavya Patel,IX,A,+91-99876 54321,Active
+1007,2019-09-20,Maya Singh,2014-09-10,789012345678,Rohan Singh,Sneha Singh,VIII,B,+91-97654 32109,Active
+1008,2021-05-01,Vikram Kumar,2016-05-05,890123456789,Arun Kumar,Anjali Kumar,VII,A,+91-96543 21098,Active
+1009,2020-11-12,Pooja Verma,2015-11-25,901234567890,Rakesh Verma,Priya Verma,VI,C,+91-95432 10987,Active
+1010,2022-04-21,Arjun Gupta,2017-04-14,012345678901,Nitin Gupta,Deepika Gupta,V,A,+91-94321 09876,Active

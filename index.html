@@ -1,0 +1,1930 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>School Admin Portal</title>
+
+  <!-- Inter font (optional) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- LOGIN PAGE -->
+  <div id="loginPage" class="login-page">
+    <div class="login-container">
+      <!-- Header Section -->
+      <div class="login-header">
+        <img src="assets/logo.png" alt="School Logo" class="login-logo-main" />
+        <h1 class="login-main-title">KHUSHI PUBLIC SCHOOL</h1>
+        <p class="login-main-subtitle">Portal Access - Select Your Role</p>
+      </div>
+
+      <!-- Three Login Boxes -->
+      <div class="login-boxes-grid">
+        <!-- Admin Portal -->
+        <div class="login-box admin-box">
+          <div class="login-box-icon">👤</div>
+          <h2>Admin Portal</h2>
+          <p class="login-box-desc">School Administrator</p>
+          <form class="login-form" onsubmit="handleLogin(event, 'admin')">
+            <div class="form-group">
+              <input 
+                type="text" 
+                class="loginUsername" 
+                data-role="admin"
+                placeholder="Username" 
+                required 
+                autocomplete="username"
+              />
+            </div>
+            <div class="form-group">
+              <input 
+                type="password" 
+                class="loginPassword" 
+                data-role="admin"
+                placeholder="Password" 
+                required 
+                autocomplete="current-password"
+              />
+            </div>
+            <div class="login-error admin-error"></div>
+            <button type="submit" class="btn btn-primary login-btn">Login</button>
+          </form>
+          <p class="box-demo">Demo: H9m@nshu / admin123</p>
+        </div>
+
+        <!-- Parent Portal -->
+        <div class="login-box parent-box">
+          <div class="login-box-icon">👨‍👩‍👧</div>
+          <h2>Parent Portal</h2>
+          <p class="login-box-desc">Parent / Guardian</p>
+          <form class="login-form" onsubmit="handleLogin(event, 'parent')">
+            <div class="form-group">
+              <input 
+                type="text" 
+                class="loginUsername" 
+                data-role="parent"
+                placeholder="Username" 
+                required 
+                autocomplete="username"
+              />
+            </div>
+            <div class="form-group">
+              <input 
+                type="password" 
+                class="loginPassword" 
+                data-role="parent"
+                placeholder="Password" 
+                required 
+                autocomplete="current-password"
+              />
+            </div>
+            <div class="login-error parent-error"></div>
+            <button type="submit" class="btn btn-primary login-btn">Login</button>
+          </form>
+          <p class="box-demo">Demo: parent1 / parent123</p>
+        </div>
+
+        <!-- Public Portal -->
+        <div class="login-box public-box">
+          <div class="login-box-icon">🌐</div>
+          <h2>Public Portal</h2>
+          <p class="login-box-desc">General Information</p>
+          <div class="public-portal-actions">
+            <p class="public-portal-note">No credentials required</p>
+            <button type="button" class="btn btn-primary login-btn" onclick="accessPublicPortal()">
+              Continue to Portal
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <p class="login-footer">© 2026 KHUSHI PUBLIC SCHOOL. All rights reserved.</p>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar" aria-label="Primary Navigation">
+    <div class="sidebar__brand">
+      <img src="assets/logo.png" alt="School Logo" class="brand-logo" />
+      <div class="brand-text">
+        <strong>KHUSHI PUBLIC SCHOOL</strong>
+        <small>Admin Portal</small>
+      </div>
+      <button class="sidebar__close" id="sidebarClose" aria-label="Close sidebar">✖</button>
+    </div>
+
+    <nav class="menu">
+      <a class="menu__item active" data-view="dashboard">
+        <span class="menu__icon">📊</span> <span>Dashboard</span>
+      </a>
+      <a class="menu__item" data-view="students">
+        <span class="menu__icon">👩‍🎓</span> <span>Students</span>
+      </a>
+      <a class="menu__item" data-view="attendance">
+        <span class="menu__icon">🗓️</span> <span>Attendance</span>
+      </a>
+      <a class="menu__item" data-view="fees">
+        <span class="menu__icon">💳</span> <span>Fees</span>
+      </a>
+      <a class="menu__item" data-view="classes">
+        <span class="menu__icon">🏫</span> <span>Classes</span>
+      </a>
+      <a class="menu__item" data-view="exams">
+        <span class="menu__icon">📝</span> <span>Exams</span>
+      </a>
+      <a class="menu__item" data-view="teachers">
+        <span class="menu__icon">👨‍🏫</span> <span>Teachers</span>
+      </a>
+      <a class="menu__item" data-view="transport">
+        <span class="menu__icon">🚌</span> <span>Transport</span>
+      </a>
+      <a class="menu__item" data-view="notices">
+        <span class="menu__icon">📣</span> <span>Notices</span>
+      </a>
+      <div class="menu__section">Admin</div>
+      <a class="menu__item" data-view="settings">
+        <span class="menu__icon">⚙️</span> <span>Settings</span>
+      </a>
+      <a class="menu__item" data-view="audit">
+        <span class="menu__icon">🔍</span> <span>Audit Logs</span>
+      </a>
+    </nav>
+
+    <div class="sidebar__footer">
+      <button id="themeToggle" class="btn btn-ghost w-100" title="Toggle theme">
+        <span id="themeIcon">🌙</span> Theme
+      </button>
+      <div class="version">v1.0.0</div>
+    </div>
+  </aside>
+
+  <!-- MAIN APP WRAPPER -->
+  <div class="app">
+    <!-- TOPBAR -->
+    <header class="topbar" id="topbar">
+      <button class="icon-btn" id="sidebarOpen" aria-label="Open sidebar">☰</button>
+
+      <form class="topbar__search" role="search" onsubmit="return false;">
+        <input type="search" placeholder="Search students, receipts, classes..." aria-label="Search" />
+        <button class="icon-btn" aria-label="Search">🔎</button>
+      </form>
+
+      <div class="topbar__right">
+        <button class="btn btn-primary" id="btnQuickAdd">+ Add Student</button>
+        <button class="icon-btn" id="btnNotifications" aria-label="Notifications">🔔</button>
+        <div class="avatar" title="Admin">
+          <img src="assets/admin.jpg" alt="Admin" />
+        </div>
+        <button class="btn btn-ghost" id="btnLogout" title="Logout">🚪 Logout</button>
+      </div>
+    </header>
+
+    <!-- CONTENT VIEWS -->
+    <main class="content" id="adminContent">
+      <!-- DASHBOARD -->
+      <section class="view" id="view-dashboard" aria-labelledby="dash-title">
+        <div class="page-header">
+          <h1 id="dash-title">Dashboard</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="btnExportCSV">Export CSV</button>
+            <button class="btn" id="btnPrint">🖨️ Print</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi__title">Total Students</div>
+            <div class="kpi__value" id="kpiStudents">1,254</div>
+            <div class="kpi__delta positive">▲ 2.1% MoM</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Attendance Today</div>
+            <div class="kpi__value" id="kpiAttendance">94.2%</div>
+            <div class="kpi__delta neutral">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Fees Collected (Feb)</div>
+            <div class="kpi__value" id="kpiFees">₹ 8.7L</div>
+            <div class="kpi__delta positive">▲ 5.3%</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Issues Open</div>
+            <div class="kpi__value" id="kpiIssues">6</div>
+            <div class="kpi__delta negative">▼ +2</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card__header">
+              <h3>Admissions (Last 6 Months)</h3>
+              <div class="card__actions">
+                <select id="admissionsRange">
+                  <option value="6">6 months</option>
+                  <option value="12">12 months</option>
+                </select>
+              </div>
+            </div>
+            <canvas id="chartAdmissions" height="120" aria-label="Admissions line chart"></canvas>
+          </div>
+
+          <div class="card">
+            <div class="card__header">
+              <h3>Attendance by Class (Today)</h3>
+            </div>
+            <canvas id="chartAttendance" height="120" aria-label="Attendance bar chart"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h3>Upcoming Exams & Notices</h3>
+            <div class="card__actions">
+              <button class="btn btn-ghost small">View All</button>
+            </div>
+          </div>
+          <ul class="list">
+            <li><span class="tag">Exam</span> Class X Pre-Boards – Feb 15</li>
+            <li><span class="tag">Exam</span> Class XII Practical – Feb 20–22</li>
+            <li><span class="tag warn">Notice</span> Parent–Teacher Meeting – Mar 02</li>
+            <li><span class="tag info">Transport</span> Route changes for Ariari – from Mar 01</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- STUDENTS -->
+      <section class="view hidden" id="view-students" aria-labelledby="students-title">
+        <div class="page-header">
+          <h1 id="students-title">Students</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btnAddStudent">+ Add Student</button>
+            <button class="btn" id="btnImportCSV">Import CSV</button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="filters">
+            <select id="filterClass">
+              <option value="">All Classes</option>
+              <option>Nursery</option><option>LKG</option><option>UKG</option>
+              <option>I</option><option>II</option><option>III</option>
+              <option>IV</option><option>V</option><option>VI</option>
+              <option>VII</option><option>VIII</option><option>IX</option><option>X</option>
+            </select>
+            <select id="filterSection">
+              <option value="">All Sections</option>
+              <option>A</option><option>B</option><option>C</option>
+            </select>
+            <select id="filterStatus">
+              <option value="">All Status</option>
+              <option>Active</option>
+              <option>Alumni</option>
+              <option>Pending</option>
+            </select>
+          </div>
+          <div class="toolbar__right">
+            <input type="search" id="searchStudent" placeholder="Search by name, admission no., phone…" />
+            <button class="btn btn-ghost" id="btnBulkSMS">Send SMS</button>
+            <button class="btn btn-ghost" id="btnBulkExport">Export</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table" id="studentsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="chkAll" aria-label="Select all" /></th>
+                <th>Admission No.</th>
+                <th>Name</th>
+                <th>Class</th>
+                <th>Section</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Fees</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="studentsBody">
+              <!-- Rows injected via JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination">
+          <!-- Pagination buttons injected via JS -->
+        </div>
+      </section>
+
+      <!-- PLACEHOLDER VIEWS -->
+      <section class="view hidden" id="view-attendance"><div class="placeholder">📅 Attendance module coming soon</div></section>
+      <section class="view hidden" id="view-fees" aria-labelledby="fees-title">
+        <div class="page-header">
+          <h1 id="fees-title">Fees</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="feesBtnCollect">+ Record Payment</button>
+            <button class="btn" id="feesBtnExport">Export (CSV)</button>
+            <button class="btn btn-ghost" id="feesBtnHeads">Fee Heads</button>
+            <button class="btn btn-ghost" id="feesBtnConcession">Concessions</button>
+            <button class="btn btn-ghost" id="feesBtnImport">Import</button>
+          </div>
+        </div>
+      
+        <!-- KPI / Dashboard -->
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi__title">Collected (This Month)</div>
+            <div class="kpi__value" id="feesKpiCollected">₹ 0</div>
+            <div class="kpi__delta" id="feesKpiCollectedDelta">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Outstanding (This Month)</div>
+            <div class="kpi__value" id="feesKpiOutstanding">₹ 0</div>
+            <div class="kpi__delta negative" id="feesKpiOutstandingCount">0 dues</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Overdue (Aging > 30d)</div>
+            <div class="kpi__value" id="feesKpiOverdue">₹ 0</div>
+            <div class="kpi__delta negative" id="feesKpiOverdueCount">0 students</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Receipts (This Month)</div>
+            <div class="kpi__value" id="feesKpiReceipts">0</div>
+            <div class="kpi__delta" id="feesKpiReceiptsDelta">—</div>
+          </div>
+        </div>
+      
+        <!-- Filters -->
+        <div class="toolbar">
+          <div class="filters">
+            <select id="feesFilterClass" title="Class">
+              <option value="">All Classes</option>
+              <option>Nursery</option><option>LKG</option><option>UKG</option>
+              <option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option>
+              <option>VI</option><option>VII</option><option>VIII</option><option>IX</option><option>X</option>
+            </select>
+            <select id="feesFilterSection" title="Section">
+              <option value="">All Sections</option><option>A</option><option>B</option><option>C</option>
+            </select>
+            <input id="feesFilterMonth" type="month" />
+            <select id="feesFilterStatus" title="Status">
+              <option value="">All</option>
+              <option value="due">Due</option>
+              <option value="partial">Partial</option>
+              <option value="paid">Paid</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </div>
+          <div class="toolbar__right">
+            <input type="search" id="feesSearch" placeholder="Search by name / admission no. / phone…" />
+            <button class="btn btn-ghost" id="feesBtnAging">Aging Report</button>
+          </div>
+        </div>
+      
+        <!-- Dues Table -->
+        <div class="table-wrap">
+          <table class="table" id="feesTable">
+            <thead>
+              <tr>
+                <th>Admission No.</th>
+                <th>Name</th>
+                <th>Class</th>
+                <th>Phone</th>
+                <th>Month</th>
+                <th>Heads</th>
+                <th>Due</th>
+                <th>Paid</th>
+                <th>Balance</th>
+                <th>Last Receipt</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="feesBody"><!-- rows injected --></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="feesPagination"><!-- buttons --></div>
+      
+        <!-- Receipts (latest 10) -->
+        <div class="card card-mt-16">
+          <div class="card__header">
+            <h3>Recent Receipts</h3>
+            <div class="card__actions">
+              <button class="btn btn-ghost" id="feesBtnReceiptsExport">Export Receipts</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="feesReceiptsTable">
+              <thead>
+                <tr>
+                  <th>No.</th><th>Date</th><th>Admission No.</th><th>Name</th><th>Method</th><th>Amount</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="feesReceiptsBody"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+      <!-- MODAL: Record Payment -->
+      <dialog class="modal" id="modalRecordPayment">
+        <form method="dialog" class="modal__content" id="formRecordPayment">
+          <header class="modal__header">
+            <h3>Record Payment</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+      
+          <div class="grid-2 align-items-end">
+            <!-- Student search / admission number -->
+            <label>
+              <span>Student (type Admission No./Name/Phone)</span>
+              <input type="search" id="rpStudentSearch" placeholder="e.g., 1007 or Priya or +91-9..." autocomplete="off" />
+              <small class="muted">Press ↓ to open list, Enter to select</small>
+              <div id="rpStudentList" class="dropdown d-none"></div>
+            </label>
+      
+            <div class="grid-2">
+              <label>
+                <span>Admission No.</span>
+                <input type="text" name="roll" id="rpRoll" required />
+              </label>
+              <label>
+                <span>Month</span>
+                <div class="flex gap-6">
+                  <button type="button" class="icon-btn" id="rpMonthPrev" title="Previous month">◀</button>
+                  <input type="month" name="month" id="rpMonth" required class="flex-1" />
+                  <button type="button" class="icon-btn" id="rpMonthNext" title="Next month">▶</button>
+                </div>
+              </label>
+            </div>
+          </div>
+      
+          <div class="grid-2">
+            <label><span>Student</span><input type="text" id="rpName" disabled /></label>
+            <label><span>Class</span><input type="text" id="rpClass" disabled /></label>
+          </div>
+      
+          <div class="grid-2">
+            <label>
+              <span>Payment Method</span>
+              <select name="method" id="rpMethod" required>
+                <option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option>
+              </select>
+            </label>
+            <label>
+              <span>Txn Ref (optional)</span>
+              <input type="text" name="ref" id="rpRef" placeholder="UPI/Txn/Ref No." />
+            </label>
+          </div>
+      
+          <div class="card card-m12-14">
+            <div class="card__header">
+              <h3>Heads & Amounts</h3>
+              <div class="card__actions">
+                <span class="badge d-none" id="rpConcessionBadge"></span>
+              </div>
+            </div>
+            <div class="p-12">
+              <div id="rpHeads"><!-- injected head rows --></div>
+      
+              <div class="grid-2 mt-10">
+                <label><span>Discount (₹)</span><input type="number" min="0" step="1" id="rpDiscount" value="0" /></label>
+                <label><span>Late Fee (₹)</span><input type="number" min="0" step="1" id="rpLateFee" value="0" /></label>
+              </div>
+      
+              <!-- Quick pay row -->
+              <div class="actions justify-end gap-8 mt-10">
+                <button type="button" class="btn btn-ghost small" id="rpBtnClear">Clear</button>
+                <button type="button" class="btn btn-ghost small" id="rpBtnHalf">Pay 50%</button>
+                <button type="button" class="btn small" id="rpBtnExact">Pay Exact Due</button>
+              </div>
+      
+              <div class="mt-8 flex justify-end gap-16 align-center fw-800">
+                <div>Subtotal: <span id="rpSubtotal">₹ 0</span></div>
+                <div>Net Due: <span id="rpTotalDue">₹ 0</span></div>
+                <div>Pay Now: <input type="number" min="0" step="1" id="rpPayNow" value="0" class="w-160"/></div>
+              </div>
+      
+              <div id="rpError" class="note error-note d-none mt-6"></div>
+            </div>
+          </div>
+      
+          <footer class="modal__footer">
+            <div class="muted flex-1" id="rpStatus"></div>
+            <div class="flex gap-8">
+              <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+              <button class="btn" id="rpSaveNoPrint" value="submit">Save</button>
+              <button class="btn btn-primary" id="rpSaveAndPrint" value="submit">Save & Print</button>
+            </div>
+          </footer>
+        </form>
+      </dialog>
+      
+      <!-- MODAL: Fee Heads / Structures -->
+      <dialog class="modal" id="modalFeeHeads">
+        <form method="dialog" class="modal__content" id="formFeeHeads">
+          <header class="modal__header">
+            <h3>Fee Heads & Class-wise Structure</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+            <button class="btn btn-ghost" id="feesBtnLateRules">Late Fee Rules</button>
+          </header>
+          <div class="p-12">
+            <p class="muted">Heads: Tuition, Transport, Lab/IT, Activity etc. Map monthly amounts per class.</p>
+            <div id="fhEditor"><!-- injected editor --></div>
+          </div>
+          <footer class="modal__footer">
+            <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+            <button class="btn btn-primary" value="submit">Save</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Late Fee Rules -->
+      <dialog class="modal" id="modalLateRules">
+         <form method="dialog" class="modal__content" id="formLateRules">
+         <header class="modal__header">
+        <h3>Late Fee Rules</h3>
+      <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+       </header>
+
+      <div class="p-12 grid gap-12">
+      <div class="grid-2">
+        <label>
+          <span>Cut-off Day (1–31)</span>
+          <input type="number" id="lfCutoffDay" min="1" max="31" required />
+        </label>
+        <label>
+          <span>Grace Days</span>
+          <input type="number" id="lfGraceDays" min="0" step="1" required />
+        </label>
+      </div>
+
+      <div class="grid-2">
+        <label>
+          <span>Monthly Cap (₹)</span>
+          <input type="number" id="lfCap" min="0" step="1" required />
+        </label>
+        <label>
+          <span>Start After (days past due to start charging)</span>
+          <input type="number" id="lfStartAfter" min="0" step="1" />
+        </label>
+      </div>
+
+      <fieldset class="fieldset-custom">
+        <legend class="legend-custom">Per-day Slabs</legend>
+        <p class="muted m-4-0-8">
+          Example: 1–10 days = ₹10/day, 11+ days = ₹20/day.
+        </p>
+        <div id="lfSlabsWrap" class="grid gap-8"></div>
+        <button type="button" class="btn btn-ghost small" id="lfAddSlab">+ Add Slab</button>
+      </fieldset>
+
+      <fieldset class="fieldset-custom">
+        <legend class="legend-custom">Counting Days</legend>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfSkipSat" /> Skip Saturdays
+        </label>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfSkipSun" /> Skip Sundays
+        </label>
+        <label>
+          <span>Holiday Dates (comma-separated YYYY-MM-DD)</span>
+          <input type="text" id="lfHolidays" placeholder="2026-03-08,2026-04-14" />
+        </label>
+        <label>
+          <span>If cut-off lands on weekend/holiday</span>
+          <select id="lfShiftRule">
+            <option value="none">Do not shift</option>
+            <option value="nextBusiness">Shift to next business day</option>
+            <option value="prevBusiness">Shift to previous business day</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset class="fieldset-custom">
+        <legend class="legend-custom">Apply To Heads</legend>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfApplyTuition" /> Tuition
+        </label>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfApplyTransport" /> Transport
+        </label>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfApplyLab" /> Lab/IT
+        </label>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfApplyActivity" /> Activity
+        </label>
+        <label class="flex gap-8 align-center">
+          <input type="checkbox" id="lfApplyMiscellaneous" /> Miscellaneous
+        </label>
+      </fieldset>
+
+      <details>
+        <summary><strong>Per-class overrides (optional)</strong></summary>
+        <p class="muted">JSON mapping (advanced). Example:
+          <code>{"IX":{"cap":300},"X":{"cutoffDay":12}}</code>
+        </p>
+        <textarea id="lfClassOverrides" rows="4" placeholder='{}' class="w-100"></textarea>
+      </details>
+    </div>
+
+    <footer class="modal__footer">
+      <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+      <button class="btn btn-primary" value="submit">Save</button>
+    </footer>
+    </form>
+    </dialog>
+      
+      <!-- MODAL: Concessions -->
+      <dialog class="modal" id="modalConcession">
+        <form method="dialog" class="modal__content" id="formConcession">
+          <header class="modal__header">
+            <h3>Assign Concession</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="grid-2 p-12">
+            <label><span>Admission No.</span><input type="text" id="ccRoll" required></label>
+            <label><span>Type</span>
+              <select id="ccType"><option value="percent">Percent %</option><option value="flat">Flat ₹</option></select>
+            </label>
+            <label><span>Value</span><input type="number" id="ccValue" min="0" step="1" required></label>
+            <label><span>Note</span><input type="text" id="ccNote" placeholder="Merit / Sibling / Need-based"></label>
+          </div>
+          <footer class="modal__footer">
+            <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+            <button class="btn btn-primary" value="submit">Save</button>
+          </footer>
+        </form>
+      </dialog>
+      
+      <!-- MODAL: Import -->
+      <dialog class="modal" id="modalFeesImport">
+        <form method="dialog" class="modal__content" id="formFeesImport">
+          <header class="modal__header">
+            <h3>Import Fee Heads / Receipts</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <p class="muted">CSV templates:
+              <a href="#" id="tmplHeads">heads_template.csv</a> ·
+              <a href="#" id="tmplReceipts">receipts_template.csv</a>
+            </p>
+            <input type="file" accept=".csv" />
+          </div>
+          <footer class="modal__footer">
+            <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+            <button class="btn btn-primary" value="submit">Upload</button>
+          </footer>
+        </form>
+      </dialog>
+      
+      <!-- PRINT RECEIPT (hidden, print-only) -->
+      <section id="receiptPrintRoot" aria-hidden="true" class="d-none"></section>
+      <section class="view hidden" id="view-classes" aria-labelledby="classes-title">
+        <div class="page-header">
+          <h1 id="classes-title">Classes</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="classBtnCreate">+ Create Class</button>
+            <button class="btn btn-ghost" id="classBtnExport">Export (CSV)</button>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="toolbar">
+          <div class="filters">
+            <select id="classFilterGrade" title="Grade">
+              <option value="">All Grades</option>
+            </select>
+            <select id="classFilterTeacher" title="Class Teacher">
+              <option value="">All Teachers</option>
+            </select>
+          </div>
+          <div class="toolbar__right">
+            <input type="search" id="classSearch" placeholder="Search by class, section…" />
+          </div>
+        </div>
+
+        <!-- Classes Table -->
+        <div class="card">
+          <div class="card__header">
+            <h3>Classes & Sections</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  <th>Section</th>
+                  <th>Class Teacher</th>
+                  <th>Students</th>
+                  <th>Subjects</th>
+                  <th>Capacity</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="classesTableBody"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL: Create/Edit Class -->
+      <dialog class="modal" id="modalCreateClass">
+        <form method="dialog" class="modal__content" id="formCreateClass">
+          <header class="modal__header">
+            <h3>Create Class</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="grid-2 p-12">
+            <label>
+              <span>Grade (Class)</span>
+              <select id="className" required>
+                <option>Nursery</option><option>LKG</option><option>UKG</option><option>I</option><option>II</option><option>III</option><option>IV</option>
+                <option>V</option><option>VI</option><option>VII</option><option>VIII</option><option>IX</option><option>X</option>
+              </select>
+            </label>
+            <label>
+              <span>Section</span>
+              <select id="classSection" required>
+                <option>A</option><option>B</option><option>C</option><option>D</option>
+              </select>
+            </label>
+            <label>
+              <span>Class Teacher</span>
+              <select id="classTeacher" required><!-- options injected --></select>
+            </label>
+            <label>
+              <span>Capacity</span>
+              <input type="number" id="classCapacity" min="1" value="40" required />
+            </label>
+            <label class="grid-2 gc-1--1">
+              <span>Subjects & Teacher Assignment</span>
+              <div id="classSubjectsWrap" class="grid gap-8 mt-8">
+                <!-- subject-teacher pairs injected -->
+              </div>
+              <button type="button" class="btn btn-ghost small" id="classBtnAddSubject">+ Add Subject</button>
+            </label>
+            <label>
+              <span>Status</span>
+              <select id="classStatus">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" value="submit">Create</button>
+          </footer>
+        </form>
+      </dialog>
+      
+      <!-- EXAMS VIEW -->
+      <section class="view hidden" id="view-exams" aria-labelledby="exams-title">
+        <div class="page-header">
+          <h1 id="exams-title">Exams</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="examBtnCreate">+ Create Exam</button>
+            <button class="btn btn-ghost" id="examBtnExport">Export (CSV)</button>
+          </div>
+        </div>
+
+        <!-- KPI -->
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi__title">Total Exams</div>
+            <div class="kpi__value" id="examKpiTotal">0</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Average Class Score</div>
+            <div class="kpi__value" id="examKpiAvgScore">0%</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="toolbar">
+          <div class="filters">
+            <select id="examFilterClass" title="Class">
+              <option value="">All Classes</option>
+            </select>
+            <select id="examFilterSubject" title="Subject">
+              <option value="">All Subjects</option>
+            </select>
+          </div>
+          <div class="toolbar__right">
+            <input type="search" id="examSearch" placeholder="Search by exam name…" />
+          </div>
+        </div>
+
+        <!-- Exams Table -->
+        <div class="card">
+          <div class="card__header">
+            <h3>Exams List</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Exam Name</th>
+                  <th>Class</th>
+                  <th>Subject</th>
+                  <th>Date</th>
+                  <th>Total Marks</th>
+                  <th>Marks Entered</th>
+                  <th>Avg Score</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="examsTableBody"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL: Create/Edit Exam -->
+      <dialog class="modal" id="modalCreateExam">
+        <form method="dialog" class="modal__content" id="formCreateExam">
+          <header class="modal__header">
+            <h3>Create Exam</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="grid-2 p-12">
+            <label>
+              <span>Exam Name</span>
+              <input type="text" id="examName" placeholder="Mid-term, Final, etc." required />
+            </label>
+            <label>
+              <span>Date</span>
+              <input type="date" id="examDate" required />
+            </label>
+            <label>
+              <span>Class</span>
+              <select id="examClass" required>
+                <option>Nursery</option><option>LKG</option><option>UKG</option><option>I</option><option>II</option><option>III</option><option>IV</option>
+                <option>V</option><option>VI</option><option>VII</option><option>VIII</option><option>IX</option><option>X</option>
+              </select>
+            </label>
+            <label>
+              <span>Subject</span>
+              <input type="text" id="examSubject" placeholder="Math, English, Science..." required />
+            </label>
+            <label>
+              <span>Total Marks</span>
+              <input type="number" id="examTotalMarks" min="1" step="1" value="100" required />
+            </label>
+            <label>
+              <span>Passing Marks</span>
+              <input type="number" id="examPassingMarks" min="0" step="1" value="40" required />
+            </label>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" value="submit">Create</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Enter Marks -->
+      <dialog class="modal" id="modalEnterMarks">
+        <form method="dialog" class="modal__content" id="formEnterMarks">
+          <header class="modal__header">
+            <h3>Enter Marks</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <p class="muted" id="marksExamInfo">Exam: Mid-term | Class: IX | Subject: Math</p>
+            <div class="table-wrap maxh-400 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Roll</th>
+                    <th>Name</th>
+                    <th>Marks</th>
+                    <th>Grade</th>
+                  </tr>
+                </thead>
+                <tbody id="marksTableBody"><!-- rows injected --></tbody>
+              </table>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" value="submit">Save Marks</button>
+          </footer>
+        </form>
+      </dialog>
+      
+      <!-- TEACHERS VIEW -->
+      <section class="view hidden" id="view-teachers" aria-labelledby="teachers-title">
+        <div class="page-header">
+          <h1 id="teachers-title">Teachers</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="teacherBtnAdd">+ Add Teacher</button>
+            <button class="btn btn-ghost" id="teacherBtnExport">Export (CSV)</button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="toolbar toolbar-bb">
+          <div class="flex gap-16">
+            <button class="tab-btn active" data-tab="teachers-tab">👥 Teachers</button>
+            <button class="tab-btn" data-tab="attendance-tab">✓ Attendance</button>
+            <button class="tab-btn" data-tab="salary-tab">💰 Salary</button>
+          </div>
+        </div>
+
+        <!-- Teachers Tab -->
+        <div id="teachers-tab" class="tab-content">
+          <div class="card">
+            <div class="card__header">
+              <h3>Staff List</h3>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Subjects</th>
+                    <th>Join Date</th>
+                    <th>Monthly Salary</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="teachersTableBody"><!-- rows injected --></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Attendance Tab -->
+        <div id="attendance-tab" class="tab-content d-none">
+          <div class="card">
+            <div class="card__header">
+              <h3>Mark Attendance</h3>
+            </div>
+            <div class="p-12">
+              <div class="grid-2 mb-16">
+                <label>
+                  <span>Date</span>
+                  <input type="date" id="attDatePicker" />
+                </label>
+                <div class="flex align-end gap-8">
+                  <button class="btn btn-primary" id="attBtnLoad">Load Date</button>
+                  <button class="btn btn-ghost" id="attBtnMarkAll">Mark All Present</button>
+                </div>
+              </div>
+              <div class="table-wrap maxh-500 ovy-auto">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Status</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody id="attendanceTableBody"><!-- rows injected --></tbody>
+                </table>
+              </div>
+              <button class="btn btn-primary mt-12" id="attBtnSave">Save Attendance</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Salary Tab -->
+        <div id="salary-tab" class="tab-content d-none">
+          <div class="grid-2">
+            <div class="card">
+              <div class="card__header">
+                <h3>Salary Payments</h3>
+              </div>
+              <div class="table-wrap maxh-400 ovy-auto">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Teacher</th>
+                      <th>Month</th>
+                      <th>Amount</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="salaryTableBody"><!-- rows injected --></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h3>Process Salaries</h3>
+              </div>
+              <div class="p-12">
+                <label>
+                  <span>Month</span>
+                  <input type="month" id="salaryMonth" />
+                </label>
+                <p class="muted mt-12">This will mark all teachers' salaries for the selected month as paid.</p>
+                <button class="btn btn-primary w-100 mt-12" id="salaryBtnProcess">Process Monthly Salary</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL: Add/Edit Teacher -->
+      <dialog class="modal" id="modalAddTeacher">
+        <form method="dialog" class="modal__content" id="formAddTeacher">
+          <header class="modal__header">
+            <h3>Add Teacher</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="grid-2 p-12">
+            <label>
+              <span>Full Name</span>
+              <input type="text" id="teacherName" required />
+            </label>
+            <label>
+              <span>Phone</span>
+              <input type="tel" id="teacherPhone" placeholder="+91-" required />
+            </label>
+            <label>
+              <span>Email</span>
+              <input type="email" id="teacherEmail" />
+            </label>
+            <label>
+              <span>Subjects (comma-separated)</span>
+              <input type="text" id="teacherSubjects" placeholder="Math, English" required />
+            </label>
+            <label>
+              <span>Join Date</span>
+              <input type="date" id="teacherJoinDate" required />
+            </label>
+            <label>
+              <span>Monthly Salary (₹)</span>
+              <input type="number" id="teacherSalary" min="0" step="100" required />
+            </label>
+            <label>
+              <span>Status</span>
+              <select id="teacherStatus">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="leave">On Leave</option>
+              </select>
+            </label>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" value="submit">Save</button>
+          </footer>
+        </form>
+      </dialog>
+      
+      <section class="view hidden" id="view-transport" aria-labelledby="transport-title">
+  <div class="page-header">
+    <h1 id="transport-title">Transport</h1>
+    <div class="page-actions">
+      <button class="btn btn-primary" id="trBtnAssign">+ Assign Student</button>
+      <button class="btn btn-ghost" id="trBtnAddRoute">+ Route</button>
+      <button class="btn btn-ghost" id="trBtnAddVehicle">+ Vehicle</button>
+      <button class="btn btn-ghost" id="trBtnAddDriver">+ Driver</button>
+      <button class="btn" id="trBtnExport">Export (CSV)</button>
+      <button class="btn btn-ghost" id="trBtnImport">Import</button>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi__title">Active Routes</div>
+      <div class="kpi__value" id="trKpiRoutes">0</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__title">Vehicles</div>
+      <div class="kpi__value" id="trKpiVehicles">0</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__title">Assigned Students</div>
+      <div class="kpi__value" id="trKpiAssigned">0</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__title">Transport Fees (Month)</div>
+      <div class="kpi__value" id="trKpiFeesMonth">₹ 0</div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="toolbar">
+    <div class="filters">
+      <select id="trFilterRoute" title="Route">
+        <option value="">All Routes</option>
+      </select>
+      <select id="trFilterStatus" title="Status">
+        <option value="">All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+      <input type="month" id="trFilterMonth" />
+    </div>
+    <div class="toolbar__right">
+      <input type="search" id="trSearch" placeholder="Search by student / admission no. / stop / vehicle…" />
+      <button class="btn btn-ghost" id="trBtnAging">Dues Aging</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Routes table -->
+    <div class="card">
+      <div class="card__header">
+        <h3>Routes</h3>
+        <div class="card__actions">
+          <button class="btn btn-ghost small" id="trBtnRoutesCSV">Export Routes</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="trRoutesTable">
+          <thead>
+            <tr>
+              <th>Route</th>
+              <th>Stops</th>
+              <th>Pickup Time</th>
+              <th>Drop Time</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="trRoutesBody"><!-- rows injected --></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Vehicles / Drivers table -->
+    <div class="card">
+      <div class="card__header">
+        <h3>Vehicles & Drivers</h3>
+        <div class="card__actions">
+          <button class="btn btn-ghost small" id="trBtnVehiclesCSV">Export Vehicles</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="trVehiclesTable">
+          <thead>
+            <tr>
+              <th>Vehicle</th>
+              <th>Reg No.</th>
+              <th>Capacity</th>
+              <th>Driver</th>
+              <th>Phone</th>
+              <th>Route</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="trVehiclesBody"><!-- rows injected --></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <!-- MODAL: Add/Update Route -->
+  <dialog class="modal" id="modalTrRoute">
+    <form method="dialog" class="modal__content" id="formTrRoute">
+      <header class="modal__header">
+        <h3>Route</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <div class="grid-2 p-12 gap-12">
+        <label><span>Route ID</span><input type="text" id="trRouteId" required /></label>
+        <label><span>Name</span><input type="text" id="trRouteName" placeholder="Ariari Morning" required /></label>
+        <label><span>Pickup Time</span><input type="time" id="trRoutePickup" required /></label>
+        <label><span>Drop Time</span><input type="time" id="trRouteDrop" required /></label>
+        <label class="grid-2 gc-1--1">
+          <span>Stops (comma-separated)</span>
+          <input type="text" id="trRouteStops" placeholder="Ariari Chowk, Khushalganj, ..."/>
+        </label>
+        <label>
+          <span>Status</span>
+          <select id="trRouteStatus">
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+      </div>
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Save</button>
+      </footer>
+    </form>
+  </dialog>
+  
+  <!-- MODAL: Add/Update Vehicle -->
+  <dialog class="modal" id="modalTrVehicle">
+    <form method="dialog" class="modal__content" id="formTrVehicle">
+      <header class="modal__header">
+        <h3>Vehicle</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <div class="grid-2 p-12 gap-12">
+        <label><span>Vehicle ID</span><input type="text" id="trVehicleId" required /></label>
+        <label><span>Label</span><input type="text" id="trVehicleLabel" placeholder="Bus #3" required /></label>
+        <label><span>Reg No.</span><input type="text" id="trVehicleReg" placeholder="BR-xx-xx-xxxx" required /></label>
+        <label><span>Capacity</span><input type="number" min="1" id="trVehicleCap" required /></label>
+        <label><span>Driver Name</span><input type="text" id="trDriverName" required /></label>
+        <label><span>Driver Phone</span><input type="text" id="trDriverPhone" placeholder="+91-..." required /></label>
+        <label><span>Route</span>
+          <select id="trVehicleRoute"><!-- options injected --></select>
+        </label>
+        <label><span>Status</span>
+          <select id="trVehicleStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </label>
+      </div>
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Save</button>
+      </footer>
+    </form>
+  </dialog>
+  
+  <!-- MODAL: Assign Student to Route/Stop -->
+  <dialog class="modal" id="modalTrAssign">
+    <form method="dialog" class="modal__content" id="formTrAssign">
+      <header class="modal__header">
+        <h3>Assign Student</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <div class="grid-2 p-12 gap-12">
+        <label><span>Admission No.</span><input type="text" id="trAssignRoll" required /></label>
+        <label><span>Route</span><select id="trAssignRoute" required><!-- injected --></select></label>
+        <label><span>Stop</span><select id="trAssignStop" required><!-- injected --></select></label>
+        <label><span>Monthly Fee (₹)</span><input type="number" id="trAssignFee" min="0" step="1" required /></label>
+        <label><span>Status</span>
+          <select id="trAssignStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </label>
+      </div>
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Save</button>
+      </footer>
+    </form>
+  </dialog>
+  
+  <!-- MODAL: Transport Import -->
+  <dialog class="modal" id="modalTrImport">
+    <form method="dialog" class="modal__content" id="formTrImport">
+      <header class="modal__header">
+        <h3>Import Transport Data</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <div class="p-12">
+        <p class="muted">
+          CSV templates:
+          <a href="#" id="tmplTrRoutes">routes_template.csv</a> ·
+          <a href="#" id="tmplTrVehicles">vehicles_template.csv</a> ·
+          <a href="#" id="tmplTrAssign">assignments_template.csv</a>
+        </p>
+        <input type="file" id="trImportFile" accept=".csv" />
+      </div>
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Upload</button>
+      </footer>
+    </form>
+  </dialog>
+  
+  <!-- MODAL: Transport Export -->
+  <dialog class="modal" id="modalTrExport">
+    <form method="dialog" class="modal__content" id="formTrExport">
+      <header class="modal__header">
+        <h3>Export Transport Data</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <div class="p-12">
+        <p class="muted">Select what to export:</p>
+        <div class="flex gap-12 flex-wrap">
+          <label><input type="checkbox" id="exportRoutes" checked /> Routes</label>
+          <label><input type="checkbox" id="exportVehicles" checked /> Vehicles</label>
+          <label><input type="checkbox" id="exportAssignments" checked /> Assignments</label>
+        </div>
+      </div>
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Download CSV</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Assignments (students on routes) -->
+  <div class="card mt-12">
+    <div class="card__header">
+      <h3>Student Assignments</h3>
+      <div class="card__actions">
+        <button class="btn btn-ghost small" id="trBtnAssignmentsCSV">Export Assignments</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="trAssignTable">
+        <thead>
+          <tr>
+            <th>Admission No.</th>
+            <th>Name</th>
+            <th>Class</th>
+            <th>Phone</th>
+            <th>Route</th>
+            <th>Stop</th>
+            <th>Fee (₹/mo)</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="trAssignBody"><!-- rows injected --></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Map placeholder -->
+  <div class="card mt-12">
+    <div class="card__header">
+      <h3>Route Map (Preview)</h3>
+      <div class="card__actions">
+        <button class="btn btn-ghost small" id="trBtnOpenMap">Open in Map Provider</button>
+      </div>
+    </div>
+    <div id="trMapPlaceholder" class="placeholder">🗺️ Map integration (Leaflet/Google Maps) can be connected here</div>
+  </div>
+</section>
+
+      <!-- NOTICES VIEW -->
+      <section class="view hidden" id="view-notices" aria-labelledby="notices-title">
+        <div class="page-header">
+          <h1 id="notices-title">Notices</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="noticeBtnCreate">+ Create Notice</button>
+            <button class="btn btn-ghost" id="noticeBtnExport">Export (CSV)</button>
+          </div>
+        </div>
+
+        <!-- KPI -->
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi__title">Total Notices</div>
+            <div class="kpi__value" id="noticeKpiTotal">0</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">Active Notices</div>
+            <div class="kpi__value" id="noticeKpiActive">0</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__title">High Priority</div>
+            <div class="kpi__value" id="noticeKpiHighPriority">0</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="toolbar">
+          <div class="filters">
+            <select id="noticeFilterStatus" title="Status">
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <select id="noticeFilterPriority" title="Priority">
+              <option value="">All Priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <select id="noticeFilterAudience" title="Audience">
+              <option value="">All Audience</option>
+              <option value="all">All</option>
+              <option value="students">Students</option>
+              <option value="parents">Parents</option>
+              <option value="staff">Staff</option>
+            </select>
+          </div>
+          <div class="toolbar__right">
+            <input type="search" id="noticeSearch" placeholder="Search notices…" />
+          </div>
+        </div>
+
+        <!-- Notices Table -->
+        <div class="card">
+          <div class="card__header">
+            <h3>Notices List</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Description</th>
+                  <th>Author</th>
+                  <th>Date</th>
+                  <th>Priority</th>
+                  <th>Audience</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="noticesTableBody"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL: Create/Edit Notice -->
+      <dialog class="modal" id="modalCreateNotice">
+        <form method="dialog" class="modal__content" id="formCreateNotice">
+          <header class="modal__header">
+            <h3>Create Notice</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="grid-2 p-12 gap-12">
+            <label class="gc-1--1">
+              <span>Title</span>
+              <input type="text" id="noticeTitle" placeholder="Notice title" required />
+            </label>
+            <label class="gc-1--1">
+              <span>Description</span>
+              <textarea id="noticeDescription" placeholder="Notice description" rows="4" required></textarea>
+            </label>
+            <label>
+              <span>Author</span>
+              <input type="text" id="noticeAuthor" placeholder="Your name" required />
+            </label>
+            <label>
+              <span>Date</span>
+              <input type="date" id="noticeDate" required />
+            </label>
+            <label>
+              <span>Priority</span>
+              <select id="noticePriority" required>
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label>
+              <span>Audience</span>
+              <select id="noticeAudience" required>
+                <option value="all" selected>All</option>
+                <option value="students">Students</option>
+                <option value="parents">Parents</option>
+                <option value="staff">Staff</option>
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select id="noticeStatus" required>
+                <option value="active" selected>Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" value="submit">Create</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Parent Pay Fee -->
+      <dialog class="modal" id="modalParentPayFee">
+        <form method="dialog" class="modal__content" id="formParentPayFee">
+          <header class="modal__header">
+            <h3>Pay Fee Online with Razorpay</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12 grid gap-12">
+            <div class="p-12 chip-bg br-8">
+              <p><strong>Student:</strong> <span id="payFeeStudentName">-</span></p>
+              <p><strong>Admission No.:</strong> <span id="payFeeRoll">-</span></p>
+              <p><strong>Total Due:</strong> <span id="payFeeTotalDue" class="fs-18 primary bold">₹0</span></p>
+            </div>
+            
+            <label>
+              <span>Amount to Pay (₹)</span>
+              <input type="number" id="payFeeAmount" min="1" step="1" placeholder="Enter amount" required />
+            </label>
+            
+            <label>
+              <span>Full Name</span>
+              <input type="text" id="payFeeFullName" placeholder="Enter your full name" required />
+            </label>
+            
+            <label>
+              <span>Email Address</span>
+              <input type="email" id="payFeeEmail" placeholder="Enter your email" required />
+            </label>
+            
+            <label>
+              <span>Phone Number</span>
+              <input type="tel" id="payFeePhone" placeholder="Enter your phone number" required />
+            </label>
+            
+            <div class="p-12 chip-bg br-8 bl-3-primary">
+              <strong>✓ Secure Payment:</strong> Powered by Razorpay. We accept UPI, Credit Cards, Debit Cards, Net Banking & Digital Wallets.
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+            <button class="btn btn-primary" type="submit" id="payFeeSubmitBtn">Pay with Razorpay</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <section class="view hidden" id="view-settings" aria-labelledby="settings-title">
+        <div class="page-header">
+          <h1 id="settings-title">Settings</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="settingsSaveBtn">Save Settings</button>
+          </div>
+        </div>
+      
+        <div class="card mb-12">
+          <div class="card__header"><h3>General</h3></div>
+          <div class="grid-2 p-12 gap-12">
+            <label>
+              <span>Theme</span>
+              <select id="setTheme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+      
+            <label>
+              <span>Currency Symbol</span>
+              <input type="text" id="setCurrency" placeholder="₹" maxlength="3" />
+            </label>
+      
+            <label>
+              <span>Number Format (locale)</span>
+              <select id="setLocale">
+                <option value="en-IN">en-IN (India)</option>
+                <option value="en-US">en-US</option>
+                <option value="hi-IN">hi-IN</option>
+              </select>
+            </label>
+      
+            <label>
+              <span>Students Page Size</span>
+              <input type="number" id="setStudentsPageSize" min="5" step="5" placeholder="10" />
+            </label>
+      
+            <label>
+              <span>Default Fees Month</span>
+              <input type="month" id="setDefaultFeesMonth" />
+            </label>
+      
+            <label class="flex align-center gap-8">
+              <input type="checkbox" id="setChartAnimation" />
+              <span>Enable chart animations</span>
+            </label>
+          </div>
+        </div>
+      <!-- Here is 1at div settings -->
+        <div class="card mb-12">
+          <div class="card__header"><h3>Backups</h3></div>
+          <div class="p-12 flex gap-8 flex-wrap">
+            <button class="btn btn-ghost" id="settingsExportBackupBtn">Export Full Backup (JSON)</button>
+            <label class="btn btn-ghost inline-flex align-center gap-8 pointer">
+              Import Backup (JSON)
+              <input type="file" id="settingsImportBackupInput" accept=".json" class="d-none" />
+            </label>
+            <div class="muted">Backup includes students, fees, receipts, heads, and settings.</div>
+          </div>
+        </div>
+        <!-- Here is 2nd div settings -->
+        <div class="card mb-12">
+          <div class="card__header"><h3>School Profile</h3></div>
+          <div class="grid-2 p-12 gap-12">
+            <label>
+              <span>School Name</span>
+              <input type="text" id="setSchoolName" placeholder="KHUSHI PUBLIC SCHOOL" />
+            </label>
+            <label>
+              <span>Tagline (optional)</span>
+              <input type="text" id="setSchoolTagline" placeholder="Admin Portal" />
+            </label>
+            <label>
+              <span>Address</span>
+              <input type="text" id="setSchoolAddress" placeholder="Sheikhpura, Bihar" />
+            </label>
+            <label>
+              <span>Phone</span>
+              <input type="text" id="setSchoolPhone" placeholder="+91-XXXXXXXXXX" />
+            </label>
+            <label>
+              <span>Email</span>
+              <input type="email" id="setSchoolEmail" placeholder="info@school.org" />
+            </label>
+            <label>
+              <span>Logo URL (optional)</span>
+              <input type="url" id="setSchoolLogo" placeholder="assets/logo.png" />
+            </label>
+          </div>
+        </div>
+      
+        <div class="card border-danger">
+          <div class="card__header"><h3 class="danger">Danger Zone</h3></div>
+          <div class="p-12 flex gap-12 align-center justify-between">
+            <div>
+              <div><strong>Reset App Data</strong></div>
+              <div class="muted">Clears localStorage for this portal. You’ll lose all unsaved changes.</div>
+            </div>
+            <button class="btn btn-ghost border-err danger" id="settingsResetBtn">Reset Data</button>
+          </div>
+        </div>
+      </section>
+      <section class="view hidden" id="view-audit"><div class="placeholder">🔍 Audit logs coming soon</div></section>
+
+    </main>
+  </div>
+
+  <!-- PARENT PORTAL VIEW (Outside .app wrapper) -->
+  <section class="view hidden" id="view-parent" aria-labelledby="parent-title">
+    <div style="padding:24px; max-width:1200px; margin:0 auto;">
+      <div class="page-header">
+        <h1 id="parent-title">My Child's Dashboard</h1>
+        <div class="page-actions">
+          <button class="btn btn-ghost" id="parentBtnLogout">Logout</button>
+        </div>
+      </div>
+
+      <!-- Child Selector (for parents with multiple children) -->
+      <div id="parentChildSelector" class="hidden" style="margin-bottom:20px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; gap:12px;">
+        <label for="parentChildSelect" style="font-weight:bold;">Select Child:</label>
+        <select id="parentChildSelect" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:14px;">
+          <!-- options injected by JS -->
+        </select>
+      </div>
+
+      <!-- Welcome Message -->
+      <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:24px; margin-bottom:24px;">
+        <h2 id="parentWelcome">Welcome!</h2>
+        <p id="parentGreeting">View your child's academic progress and other important information.</p>
+      </div>
+
+      <!-- Parent KPIs -->
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi__title">Child's Name</div>
+          <div class="kpi__value" id="parentChildName">-</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__title">Class/Section</div>
+          <div class="kpi__value" id="parentChildClass">-</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__title">Fees Due</div>
+          <div class="kpi__value" id="parentFeesDue">-</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__title">Attendance</div>
+          <div class="kpi__value" id="parentAttendance">-</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="toolbar" style="margin-bottom:0; border-bottom:2px solid var(--border);">
+        <div style="display:flex; gap:16px;">
+          <button class="tab-btn active" data-tab="parent-info-tab">📋 Info</button>
+          <button class="tab-btn" data-tab="parent-fees-tab">💳 Fees</button>
+          <button class="tab-btn" data-tab="parent-attendance-tab">✓ Attendance</button>
+          <button class="tab-btn" data-tab="parent-notices-tab">📣 Notices</button>
+        </div>
+      </div>
+
+      <!-- Student Info Tab -->
+      <div id="parent-info-tab" class="tab-content">
+        <div class="card">
+          <div class="card__header"><h3>Student Information</h3></div>
+          <div style="padding:16px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));">
+            <div><strong>Admission No.:</strong> <span id="parentRoll">-</span></div>
+            <div><strong>Name:</strong> <span id="parentName">-</span></div>
+            <div><strong>Class:</strong> <span id="parentClass">-</span></div>
+            <div><strong>Section:</strong> <span id="parentSection">-</span></div>
+            <div><strong>Status:</strong> <span id="parentStatus">-</span></div>
+            <div><strong>Phone:</strong> <span id="parentPhone">-</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fees Tab -->
+      <div id="parent-fees-tab" class="tab-content hidden">
+        <div class="card">
+          <div class="card__header">
+            <h3>Fee Details</h3>
+            <div class="card__actions">
+              <button class="btn btn-primary small" id="parentBtnPayFee">💳 Pay Fee</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Tuition</th>
+                  <th>Transport</th>
+                  <th>Miscellaneous</th>
+                  <th>Other</th>
+                  <th>Total</th>
+                  <th>Paid</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="parentFeesTable"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attendance Tab -->
+      <div id="parent-attendance-tab" class="tab-content hidden">
+        <div class="card">
+          <div class="card__header"><h3>Attendance Summary</h3></div>
+          <div style="padding:16px;">
+            <p><strong>Present:</strong> <span id="parentAttendancePresent">0</span></p>
+            <p><strong>Absent:</strong> <span id="parentAttendanceAbsent">0</span></p>
+            <p><strong>Leave:</strong> <span id="parentAttendanceLeave">0</span></p>
+            <p><strong>Percentage:</strong> <span id="parentAttendancePercentage">0%</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notices Tab -->
+      <div id="parent-notices-tab" class="tab-content hidden">
+        <div class="card">
+          <div class="card__header"><h3>Important Notices</h3></div>
+          <div id="parentNoticesList" style="padding:16px;"><!-- notices injected --></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PUBLIC PORTAL VIEW (Outside .app wrapper) -->
+  <section class="view hidden" id="view-public" aria-labelledby="public-title">
+    <div style="padding:0;">
+      <!-- Public Header -->
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:40px 24px; text-align:center; margin-bottom:32px;">
+        <h1 id="public-title">KHUSHI PUBLIC SCHOOL</h1>
+        <p style="font-size:18px; margin:8px 0;">Excellence in Education</p>
+        <button class="btn btn-light" id="publicBtnLogout">Logout</button>
+      </div>
+
+      <div style="padding:0 24px;">
+        <!-- About Section -->
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card__header"><h2>About Our School</h2></div>
+          <div style="padding:16px;">
+            <p>KHUSHI PUBLIC SCHOOL is dedicated to providing quality education and fostering the holistic development of students. With a commitment to academic excellence and character building, we strive to create an environment where every child can flourish.</p>
+            <p style="margin-top:12px;">Located in Sheikhpura, Bihar, our school offers comprehensive education from Nursery to Class X.</p>
+          </div>
+        </div>
+
+        <!-- Contact Section -->
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card__header"><h2>Contact Information</h2></div>
+          <div style="padding:16px; display:grid; gap:12px;">
+            <p><strong>📍 Address:</strong> Sheikhpura, Bihar</p>
+            <p><strong>📞 Phone:</strong> +91-XXXXXXXXXX</p>
+            <p><strong>📧 Email:</strong> info@khushischool.edu</p>
+            <p><strong>🌐 Website:</strong> www.khushischool.edu</p>
+          </div>
+        </div>
+
+        <!-- Notices Section -->
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card__header"><h2>Latest Announcements</h2></div>
+          <div id="publicNoticesList" style="padding:16px;"><!-- notices injected --></div>
+        </div>
+
+        <!-- Admissions Section -->
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card__header"><h2>Admissions</h2></div>
+          <div style="padding:16px;">
+            <p>We welcome applications for admission to all classes. For inquiries about the admission process, fees, and other details, please contact our admission office.</p>
+            <p style="margin-top:12px;"><strong>Admission Process:</strong></p>
+            <ul style="margin:8px 0 0 20px;">
+              <li>Submission of application form</li>
+              <li>Entrance test (for Classes I onwards)</li>
+              <li>Interview with parents</li>
+              <li>Announcement of result</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="card">
+          <div class="card__header"><h2>Quick Links</h2></div>
+          <div style="padding:16px; display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+            <button class="btn btn-primary" style="cursor:pointer;">Parent Portal</button>
+            <button class="btn btn-primary" style="cursor:pointer;">Fee Payment</button>
+            <button class="btn btn-primary" style="cursor:pointer;">Admissions</button>
+            <button class="btn btn-primary" style="cursor:pointer;">Contact Us</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL: Add Student -->
+  <dialog class="modal" id="modalAddStudent">
+    <form method="dialog" class="modal__content" id="formAddStudent">
+      <header class="modal__header">
+        <h3>Add Student</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+
+      <div class="grid-2">
+        <label>
+          <span>Full Name</span>
+          <input type="text" name="name" required />
+        </label>
+        <label>
+          <span>Admission No.</span>
+          <input type="text" name="roll" required />
+        </label>
+        <label>
+          <span>Admission Date</span>
+          <input type="date" name="admission_date" />
+        </label>
+        <label>
+          <span>Date of Birth</span>
+          <input type="date" name="dob" />
+        </label>
+        <label>
+          <span>Aadhar Number</span>
+          <input type="text" name="aadhar" placeholder="12-digit number" maxlength="12" />
+        </label>
+        <label>
+          <span>Father's Name</span>
+          <input type="text" name="father_name" />
+        </label>
+        <label>
+          <span>Mother's Name</span>
+          <input type="text" name="mother_name" />
+        </label>
+        <label>
+          <span>Class</span>
+          <select name="class" required>
+            <option>Nursery</option><option>LKG</option><option>UKG</option><option>I</option><option>II</option><option>III</option><option>IV</option>
+            <option>V</option><option>VI</option><option>VII</option><option>VIII</option><option>IX</option><option>X</option>
+          </select>
+        </label>
+        <label>
+          <span>Section</span>
+          <select name="section" required><option>A</option><option>B</option><option>C</option></select>
+        </label>
+        <label>
+          <span>Parent Phone</span>
+          <input type="tel" name="phone" placeholder="+91-" required />
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status"><option>Active</option><option>Pending</option><option>Alumni</option></select>
+        </label>
+      </div>
+
+      <footer class="modal__footer">
+        <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+        <button class="btn btn-primary" value="submit">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Import CSV -->
+  <dialog class="modal" id="modalImportCSV">
+    <form method="dialog" class="modal__content" id="formImportCSV">
+      <header class="modal__header">
+        <h3>Import Students (CSV)</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+      <p class="muted">Columns: roll (Admission No.), name, dob, aadhar, father_name, mother_name, class, section, phone, status</p>
+      <input type="file" accept=".csv" />
+      <footer class="modal__footer">
+        <button class="btn btn-ghost" value="cancel"" type="button">Cancel</button>
+        <button class="btn btn-primary" value="submit">Upload</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Chart.js CDN (optional for charts) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- jsPDF for PDF generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Razorpay Payment Gateway -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+  <!-- App Script -->
+  <script src="script.js"></script>
+  
+</body>
+</html>
