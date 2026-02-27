@@ -15,6 +15,34 @@
 .danger { color: #b91c1c !important; }
 .border-err { border-color: #ef4444 !important; }
 .justify-between { justify-content: space-between; }
+/* Additional utilities for layout and portal sections */
+.p-24 { padding: 24px; }
+.mb-20 { margin-bottom: 20px; }
+.mb-24 { margin-bottom: 24px; }
+.p-16 { padding: 16px; }
+.m-8-0 { margin: 8px 0; }
+.bg-card { background: var(--card); }
+.public-banner { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 24px; text-align: center; margin-bottom: 32px; }
+.welcome-banner { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:24px; margin-bottom:24px; }
+.parent-container { padding:24px; max-width:1200px; margin:0 auto; }
+.parent-child-selector { margin-bottom:20px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; gap:12px; }
+.parent-info-grid { padding:16px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); }
+.quick-links-grid { padding:16px; display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+
+/* Utility for select used in parent portal */
+.select-flex {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.mb-0 { margin-bottom: 0; }
+.ml-20 { margin-left: 20px; }
+.m-8-0-0-20 { margin: 8px 0 0 20px; }
+.px-24 { padding-left: 24px; padding-right: 24px; }
 /* Utility classes for migrated inline styles (continued) */
 .gap-12 { gap: 12px; }
 .flex-wrap { flex-wrap: wrap; }
@@ -271,6 +299,70 @@ body.login-mode {
 .kpi__delta.positive { color: #10b981; }
 .kpi__delta.negative { color: #ef4444; }
 .kpi__delta.neutral  { color: var(--muted); }
+
+/* Server Status Topbar */
+.server-status-topbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+html[data-theme="dark"] .server-status-topbar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.server-status-topbar:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] .server-status-topbar:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.server-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse-red 2s infinite;
+  flex-shrink: 0;
+}
+
+.server-status-dot.connected {
+  background: #10b981;
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3); }
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3); }
+}
+
+.server-status-label {
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.server-status-topbar.connected {
+  color: #10b981;
+}
+
+.server-status-topbar.disconnected {
+  color: #ef4444;
+}
 
 /* Grid */
 .grid-2 {
@@ -693,6 +785,7 @@ html[data-theme="dark"] .icon-btn[value="cancel"]:hover {
   border: none;
   border-radius: 8px;
   transition: all 0.2s ease;
+  pointer-events: auto; /* ensure clickable even if parent is problematic */
 }
 
 .login-btn:active {

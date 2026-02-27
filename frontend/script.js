@@ -11,6 +11,45 @@
    Author: Himanshu Kumar
    ============================ */
 
+console.log('📜 script.js loading...');
+
+// global error catching (helps debug freezes)
+window.addEventListener('error', e => {
+  console.error('Global error caught:', e.message, e.filename + ':' + e.lineno);
+  // Don't show alert - it blocks the page
+  // alert('An error occurred: ' + e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled promise rejection:', e.reason);
+  // Don't show alert - it blocks the page  
+  // alert('An unhandled promise rejection occurred: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+
+// ===========================
+// AUTHENTICATION CHECK
+// ===========================
+window.addEventListener('load', () => {
+  // Check if user is authenticated
+  const isAuthenticated = localStorage.getItem('isAuthenticated');
+  if (isAuthenticated !== 'true') {
+    // Redirect to login page
+    window.location.href = 'login.html';
+  }
+});
+
+// ===========================
+// GLOBAL API CONFIGURATION
+// ===========================
+// Dynamically determine API URL based on current location
+    const API_URL = (() => {
+      // If backend is on same host (e.g., hosted together)
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://' + window.location.hostname + ':5000/api';
+      }
+      // For production/deployed scenarios
+      return 'http://localhost:5000/api';
+    })();
+
 // ---------- Global State ----------
 const AppState = {
   theme: 'system',
@@ -104,18 +143,169 @@ const AppState = {
 const STORAGE_KEY = 'khushi_school_admin';
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState)); }
 
+// helper that performs fetch with a timeout (default 5s)
+async function fetchWithTimeout(url, opts = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { signal: controller.signal, ...opts });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // Fetch students from backend API and update AppState.students
 async function fetchStudentsFromBackend() {
   try {
-    const response = await fetch('http://localhost:3001/api/students');
-    if (!response.ok) throw new Error('Failed to fetch students');
+    console.log('[API] Fetching students from:', API_URL + '/students');
+    const response = await fetchWithTimeout(`${API_URL}/students`, {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch students: ${response?.status || 'no response'}`);
     const students = await response.json();
-    AppState.students = students;
-    AppState.kpi.totalStudents = students.length;
-    // Optionally, trigger UI update here if needed
-    console.log('Loaded students from backend:', students);
+    
+    // Map database fields to AppState format
+    const backendList = students.map(s => ({
+      id: s.id,
+      roll: s.roll_no,               // Map roll_no to roll
+      admission_date: s.admission_date || '',
+      aadhar: s.aadhar_number || '',
+      name: s.name,
+      email: s.email || '',
+      phone: s.phone || '',
+      class: s.class_name || '',     // Map class_name to class
+      section: s.section || '',
+      dob: s.date_of_birth || '',
+      address: s.address || '',
+      father_name: s.father_name || '',
+      mother_name: s.mother_name || '',
+      status: s.status || 'Active',  // Persisted status or default
+      created_at: s.created_at,
+      updated_at: s.updated_at
+    }));
+    // if there are any students already in local state that the backend
+    // did not return (e.g. added while offline), keep them so they don't
+    // vanish unexpectedly.
+    const backendIds = new Set(backendList.map(s => s.id));
+    const localOnly = AppState.students.filter(s => s.id == null || !backendIds.has(s.id));
+
+    // also, merge fields from local students into backend list where the
+    // backend version is missing something useful. this helps when a user
+    // edits a record while offline: the UI won't lose their changes when the
+    // backend list (still old) comes back.
+    const byId = {};
+    backendList.forEach(s => { if(s.id!=null) byId[s.id] = s; });
+    AppState.students.forEach(ls => {
+      if(ls.id != null && byId[ls.id]){
+        const bs = byId[ls.id];
+        // prefer non-empty fields from local state
+        ['admission_date','name','class','section','phone','status'].forEach(f=>{
+          if((bs[f]===undefined || bs[f]==='' || bs[f]===null) && ls[f]){
+            bs[f] = ls[f];
+          }
+        });
+      }
+    });
+
+    AppState.students = backendList.concat(localOnly);
+    
+    AppState.kpi.totalStudents = AppState.students.length;
+    console.log('Loaded students from backend:', AppState.students);
+    return AppState.students;
   } catch (e) {
     console.warn('Could not load students from backend:', e);
+    return [];
+  }
+}
+
+// ---------- Server Connection Check ----------
+let serverStatusCheckInterval = null;
+let isServerConnected = false;
+
+async function checkServerConnection() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    // Compute base address by stripping trailing "/api" so we can hit a simple
+    // health or root URL that exists regardless of api path configuration.
+    const base = API_URL.replace(/\/api$/, '');
+
+    // The backend exposes `/health` which responds quickly without CORS issues.
+    const response = await fetch(base + '/health', {
+      method: 'GET',
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    const isConnected = response && response.ok;
+    updateServerStatus(isConnected);
+    console.log('Server check:', isConnected ? 'Connected ✓' : 'Disconnected ✗');
+  } catch (e) {
+    console.warn('Server connection check failed:', e.message);
+    updateServerStatus(false);
+  }
+}
+
+function updateServerStatus(isConnected) {
+  isServerConnected = isConnected;
+  if(isConnected){
+    // attempt to push any receipts that were saved while offline
+    if (typeof syncPendingReceipts === 'function') {
+      syncPendingReceipts();
+    }
+  }
+  const statusTopbar = document.getElementById('serverStatusTopbar');
+  const statusDot = document.getElementById('serverStatusDot');
+  const statusLabel = document.getElementById('serverStatusLabel');
+  
+  // also update login page indicator if present
+  const loginStatusTopbar = document.getElementById('loginServerStatusTopbar');
+  const loginStatusDot = document.getElementById('loginServerStatusDot');
+  const loginStatusLabel = document.getElementById('loginServerStatusLabel');
+  
+  if (statusTopbar && statusDot && statusLabel) {
+    if (isConnected) {
+      statusDot.classList.add('connected');
+      statusDot.classList.remove('disconnected');
+      statusLabel.textContent = 'Online';
+      statusTopbar.classList.add('connected');
+      statusTopbar.classList.remove('disconnected');
+    } else {
+      statusDot.classList.remove('connected');
+      statusDot.classList.add('disconnected');
+      statusLabel.textContent = 'Offline';
+      statusTopbar.classList.remove('connected');
+      statusTopbar.classList.add('disconnected');
+    }
+  }
+  
+  if (loginStatusDot && loginStatusLabel) {
+    if (isConnected) {
+      loginStatusDot.classList.add('connected');
+      loginStatusDot.classList.remove('disconnected');
+      loginStatusLabel.textContent = 'Online';
+    } else {
+      loginStatusDot.classList.remove('connected');
+      loginStatusDot.classList.add('disconnected');
+      loginStatusLabel.textContent = 'Offline';
+    }
+  }
+}
+
+function startServerStatusCheck() {
+  // Initial check
+  checkServerConnection();
+  
+  // Check every 10 seconds
+  if (serverStatusCheckInterval) clearInterval(serverStatusCheckInterval);
+  serverStatusCheckInterval = setInterval(checkServerConnection, 10000);
+}
+
+function stopServerStatusCheck() {
+  if (serverStatusCheckInterval) {
+    clearInterval(serverStatusCheckInterval);
+    serverStatusCheckInterval = null;
   }
 }
 
@@ -142,8 +332,8 @@ function loadState() {
     seedDemoData();
     saveState();
   }
-  // Always try to fetch students from backend
-  fetchStudentsFromBackend();
+  // Always try to fetch students from backend (async, don't block)
+  fetchStudentsFromBackend().catch(e => console.warn('[WARN] Background data fetch failed:', e));
 }
 
 // ---------- Authentication ----------
@@ -198,14 +388,16 @@ function accessPublicPortal() {
   localStorage.setItem(AUTH_KEY, 'true');
   localStorage.setItem(ROLE_KEY, 'public');
   localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
-  document.getElementById('loginPage').classList.add('hidden');
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) loginPage.classList.add('hidden');
   document.body.style.overflow = 'auto';
-  // Reset all forms
+  // Reset all forms (if any)
   document.querySelectorAll('.login-form').forEach(f => f.reset());
   switchRole('public');
 }
 
 function handleLogin(event, role) {
+  console.log('handleLogin invoked', role, event);
   event.preventDefault();
   
   // Get form fields for this specific role
@@ -228,9 +420,9 @@ function handleLogin(event, role) {
     localStorage.setItem(AUTH_KEY, 'true');
     localStorage.setItem(ROLE_KEY, 'public');
     localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
-    document.getElementById('loginPage').classList.add('hidden');
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
     document.body.style.overflow = 'auto';
-    // Reset all forms
     document.querySelectorAll('.login-form').forEach(f => f.reset());
     switchRole('public');
     return;
@@ -244,9 +436,9 @@ function handleLogin(event, role) {
     localStorage.setItem(ROLE_KEY, role);
     localStorage.setItem(USER_KEY, JSON.stringify({ ...user, role }));
     errorDiv.classList.remove('show');
-    document.getElementById('loginPage').classList.add('hidden');
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
     document.body.style.overflow = 'auto';
-    // Reset all forms
     document.querySelectorAll('.login-form').forEach(f => f.reset());
     switchRole(role);
   } else {
@@ -257,31 +449,110 @@ function handleLogin(event, role) {
 
 function handleLogout() {
   if (confirm('Are you sure you want to logout?')) {
+    stopServerStatusCheck();
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(ROLE_KEY);
     localStorage.removeItem(USER_KEY);
-    document.getElementById('loginPage').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-    // Reset all forms
-    document.querySelectorAll('.login-form').forEach(f => f.reset());
-    // Clear any error messages
-    document.querySelectorAll('.login-error').forEach(e => e.classList.remove('show'));
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('user');
+    
+    // Call backend logout endpoint
+    fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    }).catch(err => console.error('Logout error:', err)).finally(() => {
+      // Redirect to login page
+      window.location.href = 'login.html';
+    });
   }
 }
 
 function initializeAuth() {
-  if (isAuthenticated()) {
-    document.getElementById('loginPage').classList.add('hidden');
-    document.body.style.overflow = 'auto';
-  } else {
-    document.getElementById('loginPage').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
+  // always treat the user as admin-authenticated; remove login page if it exists
+  localStorage.setItem(AUTH_KEY, 'true');
+  localStorage.setItem(ROLE_KEY, 'admin');
+
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) {
+    // remove from DOM entirely, no need for hidden toggling
+    loginPage.parentNode.removeChild(loginPage);
   }
-  
-  // Setup logout button
+  document.body.style.overflow = 'auto';
+
+  // Display logged-in user's name in topbar
+  try {
+    displayUserInfo();
+  } catch (e) {
+    console.warn('⚠️ displayUserInfo error:', e);
+  }
+
+  // Setup logout button (still works if present)
   const logoutBtn = document.getElementById('btnLogout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', handleLogout);
+    console.log('✓ Logout button handler attached');
+  }
+
+  // Setup server status topbar click to manually check
+  const serverStatusTopbar = document.getElementById('serverStatusTopbar');
+  if (serverStatusTopbar) {
+    serverStatusTopbar.addEventListener('click', checkServerConnection);
+    console.log('✓ Server status topbar handler attached');
+  }
+  
+  // Auto-check server connection on initialization
+  console.log('Starting auto server connection check...');
+  checkServerConnection();
+}
+
+function displayUserInfo() {
+  const userDisplayEl = document.getElementById('userDisplayName');
+  const userStr = localStorage.getItem('user');
+  if (userDisplayEl && userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      const displayName = user.full_name || user.username || 'Admin';
+      userDisplayEl.textContent = displayName;
+    } catch (e) {
+      userDisplayEl.textContent = 'Admin';
+    }
+  }
+}
+
+// ---------- Login helpers ----------
+function initLoginHandlers() {
+  // attach submit listeners to forms; rely on data-role attribute
+  document.querySelectorAll('.login-form').forEach(form => {
+    const role = form.dataset.role;
+    if (!role) return;
+    form.addEventListener('submit', e => {
+      console.log('login form submit for role', role, e);
+      handleLogin(e, role);
+    });
+  });
+
+  // as a safety net, also watch the login buttons directly so we can log clicks
+  document.querySelectorAll('.login-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      console.log('login button clicked', btn);
+      // ensure the surrounding form is submitted in case default prevented
+      const form = btn.closest('form');
+      if (form) {
+        const role = form.dataset.role;
+        if (role) {
+          handleLogin({ preventDefault: () => {}, target: form }, role);
+        }
+      }
+    });
+  });
+
+  // server check button on login page
+  const loginCheckBtn = document.getElementById('btnLoginCheckServer');
+  if (loginCheckBtn) {
+    loginCheckBtn.addEventListener('click', async () => {
+      await checkServerConnection();
+      alert(isServerConnected ? 'Server is Online' : 'Server is Offline');
+    });
   }
 }
 
@@ -300,14 +571,18 @@ function switchRole(role) {
     // Show admin interface
     if (sidebar) sidebar.classList.remove('hidden');
     if (app) app.classList.remove('hidden');
+    // Start server status monitoring for admin
+    startServerStatusCheck();
     switchView('dashboard');
   } else if (role_val === 'parent') {
     // Hide admin UI, show parent portal
+    stopServerStatusCheck();
     if (sidebar) sidebar.classList.add('hidden');
     if (app) app.classList.add('hidden');
     renderParentPortal();
   } else if (role_val === 'public') {
     // Hide admin UI, show public portal
+    stopServerStatusCheck();
     if (sidebar) sidebar.classList.add('hidden');
     if (app) app.classList.add('hidden');
     renderPublicPortal();
@@ -367,42 +642,50 @@ function renderParentPortal() {
   document.getElementById('parentStatus').textContent = student.status;
   document.getElementById('parentPhone').textContent = student.phone;
   
-  // Calculate fees
-  const lastNMonths = genLastNMonths(3);
-  let totalDue = 0;
-  lastNMonths.forEach(month => {
-    const key = `${student.roll}|${month}`;
-    const fee = AppState.fees[key];
-    if (fee) {
-      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
-      totalDue += Math.max(0, headTotal - fee.paid);
-    }
-  });
-  document.getElementById('parentFeesDue').textContent = fmtINR(totalDue);
+  // Calculate fees from admission date (all months since admission)
+  const feeData = calculateTotalUnpaidFees(student);
+  const monthsSinceAdmission = feeData.months || genMonthsSinceAdmission(student);
   
-  // Render fees table
+  document.getElementById('parentFeesDue').textContent = fmtINR(feeData.totalDue);
+  
+  // Show summary of unpaid months
+  const summaryEl = document.getElementById('parentFeesSummary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div class="p-12 chip-bg br-8 mb-12">
+        <p><strong>Months since Admission:</strong> ${feeData.monthsCount}</p>
+        <p><strong>Unpaid Months:</strong> <span class="danger bold">${feeData.unpaidMonths}</span></p>
+        <p><strong>Total Due:</strong> <span class="primary bold">${fmtINR(feeData.totalDue)}</span></p>
+      </div>
+    `;
+  }
+  
+  // Render fees table for all months since admission
   const feesTable = document.getElementById('parentFeesTable');
   if (feesTable) {
-    feesTable.innerHTML = lastNMonths.map(month => {
+    feesTable.innerHTML = monthsSinceAdmission.map(month => {
       const key = `${student.roll}|${month}`;
-      const fee = AppState.fees[key];
-      if (!fee) return '';
-      
+      const fee = AppState.fees[key] || {};
+      const heads = fee.heads || getFeesForStudentMonth(student, month) || {};
+      const paid = Number(fee.paid||0);
+      const discount = Number(fee.discount||0);
+      const lateFee = Number(fee.lateFee||0);
+
       // Extract individual fee heads
-      const tuition = fee.heads.Tuition || 0;
-      const transport = fee.heads.Transport || 0;
-      const miscellaneous = fee.heads.Miscellaneous || 0;
-      
+      const tuition = heads.Tuition || 0;
+      const transport = heads.Transport || 0;
+      const miscellaneous = heads.Miscellaneous || 0;
+
       // Calculate Other as sum of remaining heads (excluding Tuition, Transport, Miscellaneous)
       let other = 0;
-      for (const [key, value] of Object.entries(fee.heads)) {
-        if (!['Tuition', 'Transport', 'Miscellaneous'].includes(key)) {
+      for (const [hkey, value] of Object.entries(heads)) {
+        if (!['Tuition', 'Transport', 'Miscellaneous'].includes(hkey)) {
           other += value;
         }
       }
-      
-      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
-      const due = Math.max(0, headTotal - fee.paid);
+
+      const headTotal = Object.values(heads).reduce((a,b) => a+b, 0);
+      const due = Math.max(0, headTotal + lateFee - discount - paid);
       return `
         <tr>
           <td>${month}</td>
@@ -411,7 +694,7 @@ function renderParentPortal() {
           <td>${fmtINR(miscellaneous)}</td>
           <td>${fmtINR(other)}</td>
           <td><strong>${fmtINR(headTotal)}</strong></td>
-          <td>${fmtINR(fee.paid)}</td>
+          <td>${fmtINR(paid)}</td>
           <td>${fmtINR(due)}</td>
           <td><span class="badge ${due > 0 ? 'danger' : 'success'}">${due > 0 ? 'Due' : 'Paid'}</span></td>
         </tr>
@@ -680,6 +963,133 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
   renderParentPortal();
 }
 
+// ========== THERMAL PRINTER RECEIPT FUNCTIONS ==========
+
+/**
+ * Print receipt on thermal printer (ESC/POS format)
+ * Works with thermal printers like the ones used in petrol pumps
+ */
+async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose) {
+  try {
+    const receiptData = {
+      payment_id: paymentId,
+      student_name: studentName,
+      roll_no: rollNo,
+      amount: parseFloat(amount),
+      payment_method: paymentMethod,
+      purpose: purpose || 'School Fee',
+      receipt_number: 'RCP-' + String(AppState.receipts.length + 1).padStart(5, '0'),
+      payment_date: todayYYYYMMDD()
+    };
+    
+    const response = await fetch(`${API_URL}/receipt/thermal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate receipt');
+    
+    const result = await response.json();
+    
+    // Convert string back to bytes and send to printer
+    if (result.receipt) {
+      // Check if Web Serial API is available (for direct USB/Serial thermal printer)
+      if (navigator.serial) {
+        await sendToSerialPrinter(result.receipt);
+      } else {
+        alert('⚠️ Web Serial API not available.\n\nReceipt generated. Please use the Print option from your printer settings.');
+        printHTMLReceipt(receiptData);
+      }
+    }
+  } catch (error) {
+    console.error('Thermal receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Print receipt via browser print dialog (for thermal printer connected via USB)
+ */
+async function printHTMLReceipt(receiptData) {
+  try {
+    const response = await fetch('http://localhost:5000/api/receipt/html', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate HTML receipt');
+    
+    const htmlContent = await response.text();
+    
+    // Open in new window for printing
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+    
+  } catch (error) {
+    console.error('HTML receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Send ESC/POS commands directly to serial thermal printer
+ * Requires Web Serial API and appropriate permissions
+ */
+async function sendToSerialPrinter(receiptData) {
+  try {
+    // Request serial port access
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    
+    const writer = port.writable.getWriter();
+    
+    // Convert string to bytes
+    const encoder = new TextEncoder();
+    const data = encoder.encode(receiptData);
+    
+    // Send to printer
+    await writer.write(data);
+    writer.releaseLock();
+    
+    // Close port
+    await port.close();
+    
+    alert('✅ Receipt sent to thermal printer!');
+  } catch (error) {
+    console.error('Serial printer error:', error);
+    alert('Could not connect to printer. Error: ' + error.message);
+  }
+}
+
+/**
+ * Quick print button for admin dashboard
+ * Prints receipt for any payment transaction
+ */
+function printPaymentReceipt(paymentIndex) {
+  const payment = AppState.receipts[paymentIndex];
+  if (!payment) {
+    alert('Payment not found');
+    return;
+  }
+  
+  printThermalReceipt(
+    paymentIndex,
+    payment.name,
+    payment.roll,
+    payment.amount,
+    payment.method,
+    'School Fee'
+  );
+}
+
 // ---------- Demo Seed Data ----------
 function seedDemoData() {
   // Students
@@ -846,6 +1256,15 @@ function monthOfToday() {
   return `${yyyy}-${mm}`;
 }
 
+// return YYYY-MM string for the month following the given one
+function nextMonth(ym){
+  if(!ym) return '';
+  const [y,m] = ym.split('-').map(Number);
+  let ny = y, nm = m+1;
+  if(nm>12){ nm = 1; ny++; }
+  return `${ny}-${String(nm).padStart(2,'0')}`;
+}
+
 // ===== MISCELLANEOUS FEE HELPER =====
 // Miscellaneous fee is collected 4 times per year at 3-month intervals
 // Collection months: January (1), April (4), July (7), October (10)
@@ -934,6 +1353,115 @@ function genLastNMonths(n) {
   }
   return list;
 }
+
+// return array of months between start (inclusive) and end (exclusive), both in "YYYY-MM" format
+function genMonthsBetween(start, end) {
+  const result = [];
+  if (!start || !end) return result;
+  const [ys, ms] = start.split('-').map(Number);
+  const [ye, me] = end.split('-').map(Number);
+  if (!ys || !ms || !ye || !me) return result;
+  let y = ys, m = ms;
+  while (y < ye || (y === ye && m < me)) {
+    result.push(`${y}-${String(m).padStart(2,'0')}`);
+    m++;
+    if (m > 12) {
+      m = 1; y++;
+    }
+  }
+  return result;
+}
+
+// Generate all months from student's admission date to current month
+// helper to convert YYYY-MM string to a human-friendly month name + year
+function formatMonthYear(ym){
+  if (!ym) return '';
+  const parts = ym.split('-');
+  if (parts.length !== 2) return ym;
+  const y = parseInt(parts[0],10);
+  const m = parseInt(parts[1],10) - 1;
+  const d = new Date(y, m, 1);
+  // use locale from settings or fallback to default
+  return d.toLocaleString(AppState.settings.locale || 'en-IN', { month: 'long', year: 'numeric' });
+}
+
+function genMonthsSinceAdmission(student) {
+  if (!student) return [];
+  
+  // if no admission date is set, fall back to showing the past year of
+  // months so that the fee modal still allows choosing a period. we mark
+  // this case by returning a special value in the array so callers can
+  // show a warning.
+  if (!student.admission_date) {
+    const now = new Date();
+    const months = [];
+    for (let i = 11; i >= 0; --i) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    // prepend a flag string to indicate fallback
+    months.unshift('__NO_ADMISSION_DATE__');
+    return months;
+  }
+  
+  // Parse admission date (YYYY-MM-DD format)
+  const [admYear, admMonth] = student.admission_date.split('-').map(Number);
+  if (!admYear || !admMonth) return [];
+  
+  // Current date
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  
+  const months = [];
+  let y = admYear, m = admMonth;
+  
+  while (y < curYear || (y === curYear && m <= curMonth)) {
+    months.push(`${y}-${String(m).padStart(2,'0')}`);
+    m++;
+    if (m > 12) {
+      m = 1; y++;
+    }
+  }
+  
+  return months;
+}
+
+// Calculate total unpaid fees from admission date to current month
+function calculateTotalUnpaidFees(student) {
+  if (!student) return { totalDue: 0, totalPaid: 0, monthsCount: 0, unpaidMonths: 0 };
+  
+  const months = genMonthsSinceAdmission(student);
+  let totalDue = 0;
+  let totalPaid = 0;
+  let unpaidMonths = 0;
+  
+  months.forEach(month => {
+    const key = `${student.roll}|${month}`;
+    const fee = AppState.fees[key] || {};
+    const heads = fee.heads || getFeesForStudentMonth(student, month) || {};
+    const paid = Number(fee.paid || 0);
+    const discount = Number(fee.discount || 0);
+    const lateFee = Number(fee.lateFee || 0);
+    
+    const headTotal = Object.values(heads).reduce((a, b) => a + b, 0);
+    const due = Math.max(0, headTotal + lateFee - discount - paid);
+    
+    totalDue += due;
+    totalPaid += paid;
+    
+    if (due > 0) unpaidMonths++;
+  });
+  
+  return {
+    totalDue,
+    totalPaid,
+    monthsCount: months.length,
+    unpaidMonths,
+    months // include months for detailed breakdown
+  };
+}
+
 function arrayToCSV(rows){
   return rows.map(r => r.map(val => {
     const v=(val??'').toString().replace(/"/g,'""');
@@ -1128,10 +1656,10 @@ function switchView(viewId) {
   if (target) target.classList.remove('hidden');
 
   // Use requestAnimationFrame for smooth rendering
-  requestAnimationFrame(() => {
+  requestAnimationFrame(async () => {
     if (viewId === 'dashboard') renderDashboard();
     else if (viewId === 'students')  renderStudents();
-    else if (viewId === 'fees')      renderFees();
+    else if (viewId === 'fees')      await renderFees();
     else if (viewId === 'exams')     renderExams();
     else if (viewId === 'classes')   renderClasses();
     else if (viewId === 'teachers')  renderTeachers();
@@ -1145,34 +1673,241 @@ function switchView(viewId) {
 let admissionsChart, attendanceChart;
 let chartRenderInProgress = false;
 
+// Fetch dashboard statistics from database
+async function fetchDashboardStats() {
+  try {
+    const response = await fetch(`${API_URL}/stats/dashboard`);
+    if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+    const stats = await response.json();
+    return stats;
+  } catch (e) {
+    console.error('Error fetching dashboard stats:', e);
+    return null;
+  }
+}
+
+// Fetch attendance data for today
+async function fetchTodayAttendance() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const response = await fetch(`${API_URL}/attendance?date=${today}`);
+    if (!response.ok) throw new Error('Failed to fetch attendance');
+    const attendance = await response.json();
+    return attendance;
+  } catch (e) {
+    console.error('Error fetching attendance:', e);
+    return [];
+  }
+}
+
+// Fetch all students
+async function fetchAllStudents() {
+  try {
+    const response = await fetchWithTimeout(`${API_URL}/students`);
+    if (!response || !response.ok) throw new Error('Failed to fetch students');
+    const students = await response.json();
+    return students;
+  } catch (e) {
+    console.error('Error fetching students:', e);
+    return [];
+  }
+}
+
+// Fetch all payments
+async function fetchAllPayments() {
+  try {
+    const response = await fetchWithTimeout(`${API_URL}/payments`);
+    if (!response || !response.ok) throw new Error('Failed to fetch payments');
+    const payments = await response.json();
+    return payments;
+  } catch (e) {
+    console.error('Error fetching payments:', e);
+    return [];
+  }
+}
+
 function renderDashboard(){
   if (chartRenderInProgress) return;
   
-  const kpiStudents = qs('#kpiStudents');
-  const kpiAttendance = qs('#kpiAttendance');
-  const kpiFees = qs('#kpiFees');
-  const kpiIssues = qs('#kpiIssues');
+  // Initialize server status check
+  startServerStatusCheck();
   
-  if (kpiStudents) kpiStudents.textContent = AppState.kpi.totalStudents.toLocaleString(AppState.settings.locale || 'en-IN');
-  if (kpiAttendance) kpiAttendance.textContent = (AppState.kpi.attendanceToday*100).toFixed(1)+'%';
-  if (kpiFees) kpiFees.textContent = fmtINR(AppState.kpi.feesCollectedMonth);
-  if (kpiIssues) kpiIssues.textContent = String(AppState.kpi.issuesOpen);
-
-  // Render charts in next frame to avoid blocking
-  requestAnimationFrame(() => {
-    chartRenderInProgress = true;
-    initAdmissionsChart();
-    initAttendanceChart();
-    chartRenderInProgress = false;
-  });
-
+  // Update month label for fees KPI
+  const titleEl = qs('#kpiFeesTitle');
+  if (titleEl) {
+    titleEl.textContent = `Fees Collected (${formatMonthYear(monthOfToday())})`;
+  }
+  
+  // Load data from database
+  loadDashboardData();
+  
+  // Setup refresh button
+  const btnRefresh = qs('#btnRefreshDash');
+  if (btnRefresh) {
+    btnRefresh.onclick = async () => {
+      btnRefresh.disabled = true;
+      btnRefresh.textContent = '⏳ Syncing...';
+      await loadDashboardData();
+      btnRefresh.disabled = false;
+      btnRefresh.textContent = '🔄 Refresh';
+    };
+  }
+  
   const btnExportCSV = qs('#btnExportCSV');
   if (btnExportCSV) btnExportCSV.onclick = exportStudentsCSV;
   const btnPrint = qs('#btnPrint');
   if (btnPrint) btnPrint.onclick = ()=> window.print();
 }
 
-function initAdmissionsChart(){
+function renderStudentStatusOverview(students = []) {
+  const container = qs('#studentStatusContainer');
+  if (!container) return;
+
+  // Count students by status
+  const statusCounts = {};
+  const statusIcons = {
+    'Active': '✓',
+    'Alumni': '🎓',
+    'Pending': '⏳',
+    'Inactive': '✗',
+    'Left': '📤'
+  };
+  
+  const statusColors = {
+    'Active': '#22c55e',
+    'Alumni': '#8b5cf6',
+    'Pending': '#f59e0b',
+    'Inactive': '#ef4444',
+    'Left': '#6b7280'
+  };
+
+  students.forEach(s => {
+    const status = s.status || 'Unknown';
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+  });
+
+  // Generate HTML for status cards
+  const statusHTML = Object.entries(statusCounts)
+    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .map(([status, count]) => `
+      <div style="
+        background: linear-gradient(135deg, ${statusColors[status] || '#6366f1'}15 0%, ${statusColors[status] || '#6366f1'}05 100%);
+        border: 1px solid ${statusColors[status] || '#6366f1'}30;
+        border-radius: 8px;
+        padding: 12px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      " class="status-card" data-status="${status}">
+        <div style="font-size: 20px; margin-bottom: 4px;">
+          ${statusIcons[status] || '📌'}
+        </div>
+        <div style="font-size: 20px; font-weight: bold; color: ${statusColors[status] || '#6366f1'};">
+          ${count}
+        </div>
+        <div style="font-size: 11px; color: #666; margin-top: 2px;">
+          ${status}
+        </div>
+      </div>
+    `)
+    .join('');
+
+  container.innerHTML = statusHTML || '<div style="padding: 12px; color: #999;">No student data available</div>';
+
+  // Add hover effects
+  qsa('.status-card').forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      card.style.transform = 'translateY(-2px)';
+      card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.transform = 'translateY(0)';
+      card.style.boxShadow = 'none';
+    });
+  });
+}
+
+
+async function loadDashboardData() {
+  // Fetch all data in parallel
+  const [stats, todayAttendance, allStudents, allPayments] = await Promise.all([
+    fetchDashboardStats(),
+    fetchTodayAttendance(),
+    fetchAllStudents(),
+    fetchAllPayments()
+  ]);
+
+  // Map backend payments into AppState.receipts so fee KPIs use real data
+  try {
+    const studentById = {};
+    allStudents.forEach(s => { studentById[s.id] = s; });
+    AppState.receipts = (allPayments || []).map(p => {
+      const student = studentById[p.student_id] || {};
+      return {
+        no: p.id,
+        date: p.payment_date,
+        roll: student.roll_no || student.roll || '',
+        name: student.name || '',
+        method: p.payment_method || p.method || '',
+        amount: Number(p.amount || 0),
+        ref: p.transaction_id || p.ref || '',
+        status: p.status || ''
+      };
+    });
+  } catch (e) {
+    console.warn('Failed to map payments to receipts:', e);
+  }
+
+  // Update KPI cards with real data
+  const kpiStudents = qs('#kpiStudents');
+  const kpiAttendance = qs('#kpiAttendance');
+  const kpiFees = qs('#kpiFees');
+  const kpiIssues = qs('#kpiIssues');
+  // refresh label since month may have changed since last render
+  const titleEl = qs('#kpiFeesTitle');
+  if (titleEl) titleEl.textContent = `Fees Collected (${formatMonthYear(monthOfToday())})`;
+  
+  if (stats) {
+    if (kpiStudents) kpiStudents.textContent = stats.total_students.toLocaleString('en-IN');
+    // prefer month-specific revenue if backend returns it, else fallback to total
+    const rev = (stats.month_revenue !== undefined ? stats.month_revenue : stats.total_revenue);
+    if (kpiFees) kpiFees.textContent = fmtINR(rev);
+    // keep AppState in sync so offline/dashboard refreshes behave
+    AppState.kpi.feesCollectedMonth = rev;
+    if (kpiIssues) kpiIssues.textContent = stats.pending_payments;
+  } else {
+    if (kpiStudents) kpiStudents.textContent = AppState.kpi.totalStudents;
+    if (kpiFees) kpiFees.textContent = fmtINR(AppState.kpi.feesCollectedMonth);
+    if (kpiIssues) kpiIssues.textContent = AppState.kpi.issuesOpen;
+  }
+
+  // Calculate attendance percentage
+  if (todayAttendance && todayAttendance.length > 0 && allStudents.length > 0) {
+    const presentCount = todayAttendance.filter(a => a.status === 'Present').length;
+    const attendancePercent = (presentCount / allStudents.length) * 100;
+    if (kpiAttendance) kpiAttendance.textContent = attendancePercent.toFixed(1) + '%';
+  } else if (kpiAttendance) {
+    kpiAttendance.textContent = '0%';
+  }
+
+  // Render student status overview
+  renderStudentStatusOverview(allStudents);
+
+  // Update fees view KPIs if visible
+  if (AppState.view === 'fees' || qs('#view-fees') && !qs('#view-fees').classList.contains('hidden')) {
+    await renderFees();
+  }
+
+  // Render charts with real data
+  requestAnimationFrame(() => {
+    chartRenderInProgress = true;
+    initAdmissionsChart(allStudents);
+    initAttendanceChart(allStudents, todayAttendance);
+    chartRenderInProgress = false;
+  });
+}
+
+function initAdmissionsChart(students = []){
   const ctx = qs('#chartAdmissions');
   if (!ctx) return;
   
@@ -1182,16 +1917,23 @@ function initAdmissionsChart(){
       admissionsChart = null;
     }
 
-    const months = genLastNMonths(6);
-    const data = months.map(() => 45 + Math.round(Math.random()*10)-5);
+    // Group students by class to show distribution
+    const classDistribution = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      classDistribution[cls] = (classDistribution[cls] || 0) + 1;
+    });
+
+    const classes = Object.keys(classDistribution).sort();
+    const data = classes.map(cls => classDistribution[cls]);
     const animate = !!(AppState.settings?.chartAnimation);
 
     admissionsChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: months,
+        labels: classes,
         datasets: [{
-          label: 'Admissions',
+          label: 'Students per Class',
           data,
           borderColor: '#2563eb',
           backgroundColor: 'rgba(37,99,235,0.1)',
@@ -1213,14 +1955,8 @@ function initAdmissionsChart(){
     const rangeSel = qs('#admissionsRange');
     if (rangeSel) {
       rangeSel.onchange = (e) => {
-        const n = Number(e.target.value);
-        const monthsX = genLastNMonths(n);
-        const dataX = monthsX.map(() => 40 + Math.round(Math.random()*12));
-        if (admissionsChart) {
-          admissionsChart.data.labels = monthsX;
-          admissionsChart.data.datasets[0].data = dataX;
-          admissionsChart.update('none');
-        }
+        // For now, just redraw the same chart
+        initAdmissionsChart(students);
       };
     }
   } catch (e) {
@@ -1228,7 +1964,7 @@ function initAdmissionsChart(){
   }
 }
 
-function initAttendanceChart(){
+function initAttendanceChart(students = [], attendanceData = []){
   const ctx = qs('#chartAttendance');
   if (!ctx) return;
 
@@ -1238,8 +1974,34 @@ function initAttendanceChart(){
       attendanceChart = null;
     }
 
-    const classes = ['VIII', 'IX', 'X', 'XI', 'XII'];
-    const data = classes.map(() => 80 + Math.round(Math.random()*20));
+    // Group attendance by class
+    const classAttendance = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      if (!classAttendance[cls]) {
+        classAttendance[cls] = { present: 0, total: 0 };
+      }
+      classAttendance[cls].total++;
+    });
+
+    // Count present students by class
+    attendanceData.forEach(a => {
+      const student = students.find(s => s.id === a.student_id);
+      if (student) {
+        const cls = student.class_name || 'Unknown';
+        if (classAttendance[cls] && a.status === 'Present') {
+          classAttendance[cls].present++;
+        }
+      }
+    });
+
+    const classes = Object.keys(classAttendance).sort();
+    const data = classes.map(cls => 
+      classAttendance[cls].total > 0 
+        ? Math.round((classAttendance[cls].present / classAttendance[cls].total) * 100)
+        : 0
+    );
+    
     const animate = !!(AppState.settings?.chartAnimation);
 
     attendanceChart = new Chart(ctx, {
@@ -1293,7 +2055,13 @@ function renderStudents(){
     if(fs) rows=rows.filter(r=> r.section===fs);
     if(fstatus) rows=rows.filter(r=> r.status===fstatus);
     if(q){
-      rows=rows.filter(r=> r.name.toLowerCase().includes(q)|| r.roll.toLowerCase().includes(q)|| r.phone.toLowerCase().includes(q));
+      rows=rows.filter(r=>
+        r.name.toLowerCase().includes(q) ||
+        r.roll.toLowerCase().includes(q) ||
+        r.phone.toLowerCase().includes(q) ||
+        (r.aadhar||'').toLowerCase().includes(q) ||
+        (r.admission_date||'').toLowerCase().includes(q)
+      );
     }
 
     AppState.pagination.students.filtered=rows;
@@ -1317,6 +2085,8 @@ function renderStudents(){
       <tr>
         <td><input type="checkbox" aria-label="Select row" /></td>
         <td>${r.roll}</td>
+        <td>${r.admission_date||''}</td>
+        <td>${r.aadhar||''}</td>
         <td>${r.name}</td>
         <td>${r.class}</td>
         <td>${r.section}</td>
@@ -1333,15 +2103,38 @@ function renderStudents(){
       btn.onclick=()=> openEditStudent(btn.getAttribute('data-roll'));
     });
     qsa('button[data-act="delete"]').forEach(btn=>{
-      btn.onclick=()=>{
+      btn.onclick=async ()=>{
         const roll=btn.getAttribute('data-roll');
         const student=AppState.students.find(s=> s.roll===roll);
         if(!student) return;
         if(!confirm(`Delete student ${student.name} (Roll: ${roll})? This action cannot be undone.`)) return;
-        AppState.students=AppState.students.filter(s=> s.roll!==roll);
-        AppState.kpi.totalStudents=AppState.students.length;
-        saveState();
-        renderStudents();
+        
+        try {
+          // Delete from backend database by student id (stable)
+          if(!isServerConnected){
+            alert('Server offline - cannot delete student now');
+            return;
+          }
+          const response = await fetch(`${API_URL}/students/${student.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+          });
+
+          if (!response || !response.ok) {
+            const text = await (response ? response.text() : Promise.resolve('no response'));
+            throw new Error(`Failed to delete student: ${response ? response.status : 'no response'} ${text}`);
+          }
+
+          // Remove from AppState only after successful backend deletion
+          AppState.students = AppState.students.filter(s => s.id !== student.id);
+          AppState.kpi.totalStudents = AppState.students.length;
+          saveState();
+          renderStudents();
+          alert(`Student ${student.name} deleted successfully from database!`);
+        } catch (err) {
+          console.error('Delete error:', err);
+          alert(`Error deleting student: ${err.message}`);
+        }
       };
     });
   }
@@ -1374,7 +2167,22 @@ function renderStudents(){
   searchInput.oninput=applyFilters;
 
   const btnAddStudent = qs('#btnAddStudent');
-  if (btnAddStudent) btnAddStudent.onclick = ()=> openModal('#modalAddStudent');
+  if (btnAddStudent) btnAddStudent.onclick = ()=> {
+    // ensure we start in add mode (clear any previous editRoll that might
+    // have been left behind when user opened the edit dialog and then
+    // cancelled). also reset the form fields so they don't show old data.
+    const form = qs('#formAddStudent');
+    if(form){
+      delete form.dataset.editRoll;
+      form.reset();
+      // make sure header/button text is correct for add mode
+      const hdr = qs('#modalAddStudent .modal__header h3');
+      if(hdr) hdr.textContent = 'Add Student';
+      const submitBtn = qs('#modalAddStudent .modal__footer button[value="submit"]');
+      if(submitBtn) submitBtn.textContent = 'Save';
+    }
+    openModal('#modalAddStudent');
+  };
   const btnImportCSV = qs('#btnImportCSV');
   if (btnImportCSV) btnImportCSV.onclick = ()=> openModal('#modalImportCSV');
   const btnBulkExport = qs('#btnBulkExport');
@@ -1386,8 +2194,10 @@ function openEditStudent(roll){
   const student=AppState.students.find(s=> s.roll===roll);
   if(!student) { alert('Student not found'); return; }
   
-  // Set form to edit mode
+  // Set form to edit mode and clear any stale inputs first
   const form=qs('#formAddStudent');
+  if(!form){ alert('Form not found'); return; }
+  form.reset();
   form.dataset.editRoll=roll;
   
   // Populate form with student data
@@ -1415,7 +2225,61 @@ function openEditStudent(roll){
 }
 
 // ---------- Fees View ----------
-function renderFees(){
+async function renderFees(){
+  // Always load the latest fees data from backend whenever we enter this view
+  try {
+    console.log('[Fees] Loading latest payment and student data...');
+    const [allStudents, allPayments] = await Promise.all([
+      fetchAllStudents(),
+      fetchAllPayments()
+    ]);
+    
+    // Update AppState with students
+    if (allStudents && allStudents.length > 0) {
+      AppState.students = allStudents.map(s => ({
+        id: s.id,
+        roll: s.roll_no,
+        admission_date: s.admission_date || '',
+        aadhar: s.aadhar_number || '',
+        name: s.name,
+        email: s.email || '',
+        phone: s.phone || '',
+        class: s.class_name || '',
+        section: s.section || '',
+        dob: s.date_of_birth || '',
+        address: s.address || '',
+        father_name: s.father_name || '',
+        mother_name: s.mother_name || '',
+        status: s.status || 'Active',
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      }));
+      console.log('[Fees] Updated students:', AppState.students.length);
+    }
+    
+    // Map payments to receipts
+    if (allPayments && Array.isArray(allPayments)) {
+      const studentById = {};
+      AppState.students.forEach(s => { studentById[s.id] = s; });
+      AppState.receipts = allPayments.map(p => {
+        const student = studentById[p.student_id] || {};
+        return {
+          no: p.id,
+          date: p.payment_date,
+          roll: student.roll_no || student.roll || '',
+          name: student.name || '',
+          method: p.payment_method || p.method || '',
+          amount: Number(p.amount || 0),
+          ref: p.transaction_id || p.ref || '',
+          status: p.status || 'completed'
+        };
+      });
+      console.log('[Fees] Updated receipts:', AppState.receipts.length);
+    }
+  } catch (e) {
+    console.warn('[Fees] Failed to load payment data:', e);
+  }
+
   const feesKpiCollected = qs('#feesKpiCollected');
   if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
   const feesKpiOutstanding = qs('#feesKpiOutstanding');
@@ -1441,32 +2305,57 @@ function renderFees(){
 
 function sumReceiptsThisMonth(){
   const m=monthOfToday();
-  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m)
+  return AppState.receipts.filter(r=> {
+      if ((r.date||'').slice(0,7)!==m) return false;
+      const st = String(r.status||'completed').toLowerCase();
+      return st === 'completed';
+    })
     .reduce((sum,r)=> sum+Number(r.amount||0),0);
 }
 function countReceiptsThisMonth(){
   const m=monthOfToday();
-  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m).length;
+  return AppState.receipts.filter(r=> {
+      if ((r.date||'').slice(0,7)!==m) return false;
+      const st = String(r.status||'completed').toLowerCase();
+      return st === 'completed';
+    }).length;
 }
 function sumOutstandingThisMonth(){
   const m=monthOfToday();
   let totalDue=0,totalPaid=0,totalDiscount=0,totalLate=0;
-  Object.entries(AppState.fees).forEach(([key,v])=>{
-    const [,month]=key.split('|'); if(month!==m) return;
-    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
-    totalDue+=headsTotal; totalPaid+=Number(v.paid||0);
-    totalDiscount+=Number(v.discount||0); totalLate+=Number(v.lateFee||0);
+  // iterate all students and compute expected due using admission_date
+  AppState.students.forEach(student=>{
+    const heads = getFeesForStudentMonth(student, m) || {};
+    const due = Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
+    totalDue += due;
+    const key = `${student.roll}|${m}`;
+    const v = AppState.fees[key] || {};
+    totalPaid += Number(v.paid||0);
+    totalDiscount += Number(v.discount||0);
+    totalLate += Number(v.lateFee||0);
   });
   return Math.max(0, totalDue+totalLate-totalDiscount-totalPaid);
 }
 function sumOverdue(){
   const m=monthOfToday();
   let total=0;
-  Object.entries(AppState.fees).forEach(([key,v])=>{
-    const [,month]=key.split('|'); if(month>=m) return;
-    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
-    const bal=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
-    total+=bal;
+  AppState.students.forEach(student=>{
+    // determine starting month
+    let start = student.admission_date ? student.admission_date.slice(0,7) : null;
+    if(!start) return; // no admission info
+    const months = genMonthsBetween(start, m);
+    months.forEach(month=>{
+      if(month>=m) return;
+      const heads = getFeesForStudentMonth(student, month) || {};
+      const due = Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
+      const key = `${student.roll}|${month}`;
+      const v = AppState.fees[key] || {};
+      const paid = Number(v.paid||0);
+      const discount = Number(v.discount||0);
+      const lateFee = Number(v.lateFee||0);
+      const bal = Math.max(0, due + lateFee - discount - paid);
+      total += bal;
+    });
   });
   return total;
 }
@@ -1504,8 +2393,11 @@ function exportStudentsCSV(){
   downloadFile('students.csv',csv);
 }
 function exportReceiptsCSV(){
-  const header=['no','date','roll','name','method','amount','ref'];
-  const rows=AppState.receipts.map(r=> [r.no,r.date,r.roll,r.name,r.method,r.amount,r.ref||'']);
+  const header=['no','date','roll','name','method','amount','ref','previous_unpaid'];
+  const rows=AppState.receipts.map(r=> [
+    r.no,r.date,r.roll,r.name,r.method,r.amount,r.ref||'',
+    r.previousUnpaid || ''
+  ]);
   const csv=arrayToCSV([header,...rows]);
   downloadFile('receipts.csv',csv);
 }
@@ -1539,15 +2431,31 @@ function openModal(sel){
 }
 
 function initAddStudentModal(){
-  const form=qs('#formAddStudent');
-  const isEditMode=form.dataset.editRoll;
+  const form = qs('#formAddStudent');
+  if(!form) return;
+
+  // If the modal is closed (cancel or after saving) we want to clear
+  // the editRoll flag so that re-opening the dialog in the future
+  // always starts clean.  The <dialog>'s `close` event is fired for
+  // both programmatic and user-initiated closes.
+  form.closest('dialog')?.addEventListener('close', () => {
+    delete form.dataset.editRoll;
+    form.reset();
+  });
+
+  const isEditMode = !!form.dataset.editRoll;
   
-  form.onsubmit=(e)=>{
+  form.onsubmit=async (e)=>{
     e.preventDefault();
+    if (!isServerConnected) {
+      alert('Cannot save student because backend server appears to be offline. Please check your network and try again.');
+      return;
+    }
+
     const data=Object.fromEntries(new FormData(form).entries());
     const student={
       roll:data.roll.trim(),
-      admission_date:data.admission_date?.trim() || null,
+      admission_date: normalizeDate(data.admission_date?.trim() || ''),
       name:data.name.trim(),
       dob:data.dob.trim() || null,
       aadhar:data.aadhar.trim() || null,
@@ -1558,36 +2466,114 @@ function initAddStudentModal(){
       phone:data.phone.trim(),
       status:data.status
     };
-    
-    if(isEditMode){
-      // Update existing student
-      const idx=AppState.students.findIndex(s=> s.roll===form.dataset.editRoll);
-      if(idx===-1){ alert('Student not found.'); return; }
-      
-      // Check if admission no. changed and if new one already exists
-      if(student.roll!==form.dataset.editRoll && AppState.students.some(s=> s.roll===student.roll)){
-        alert('New admission no. already exists.'); return;
+
+    // small helper (mirrors backend logic) to normalise dates typed
+    // as DD-MM-YYYY into the ISO form accepted by `<input type=date>`.
+    function normalizeDate(val) {
+      if (!val) return null;
+      val = String(val).trim();
+      const parts = val.split('-');
+      if (parts.length === 3) {
+        const [a,b,c] = parts;
+        if (a.length===2 && c.length===4) {
+          // assume DD-MM-YYYY
+          return `${c.padStart(4,'0')}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`;
+        }
       }
-      
-      AppState.students[idx]=student;
-    } else {
-      // Add new student
-      if(AppState.students.some(s=> s.roll===student.roll)){
-        alert('Admission no. already exists.'); return;
-      }
-      AppState.students.push(student);
+      // assume already ISO
+      return val;
     }
-    
-    AppState.kpi.totalStudents=AppState.students.length;
-    saveState();
-    
-    // Reset modal to add mode
-    delete form.dataset.editRoll;
-    qs('#modalAddStudent .modal__header h3').textContent='Add Student';
-    qs('#modalAddStudent .modal__footer button[value="submit"]').textContent='Save';
-    
-    form.parentElement.close();
-    if(AppState.view==='students') renderStudents();
+
+    // helper to convert to API payload
+    const toApi = s => ({
+      roll_no: s.roll,
+      admission_date: s.admission_date,
+      aadhar_number: s.aadhar,
+      name: s.name,
+      date_of_birth: s.dob,
+      father_name: s.father_name,
+      mother_name: s.mother_name,
+      class_name: s.class,
+      section: s.section,
+      phone: s.phone,
+      status: s.status
+    });
+
+    try {
+      let saved;
+      if(isEditMode){
+        const idx=AppState.students.findIndex(s=> s.roll===form.dataset.editRoll);
+        if(idx===-1){ throw new Error('Student not found'); }
+        if(student.roll!==form.dataset.editRoll && AppState.students.some(s=> s.roll===student.roll)){
+          throw new Error('New admission no. already exists');
+        }
+        const existing = AppState.students[idx];
+        if (!isServerConnected) {
+          throw new Error('Cannot update student while offline');
+        }
+        const resp = await fetch(`${API_URL}/students/${existing.id}`, {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(toApi(student))
+        });
+        if(!resp.ok) throw new Error(await resp.text());
+        saved = await resp.json();
+        AppState.students[idx] = {
+          id: saved.id,
+          roll: saved.roll_no,
+          admission_date: saved.admission_date,
+          aadhar: saved.aadhar_number,
+          name: saved.name,
+          dob: saved.date_of_birth,
+          father_name: saved.father_name,
+          mother_name: saved.mother_name,
+          class: saved.class_name,
+          section: saved.section,
+          phone: saved.phone,
+          status: saved.status || 'Active'
+        };
+      } else {
+        if(AppState.students.some(s=> s.roll===student.roll)){
+          throw new Error('Admission no. already exists');
+        }
+        if (!isServerConnected) {
+          throw new Error('Cannot create student while offline');
+        }
+        const resp = await fetch(`${API_URL}/students`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(toApi(student))
+        });
+        if(!resp.ok) throw new Error(await resp.text());
+        saved = await resp.json();
+        AppState.students.push({
+          id: saved.id,
+          roll: saved.roll_no,
+          admission_date: saved.admission_date,
+          aadhar: saved.aadhar_number,
+          name: saved.name,
+          dob: saved.date_of_birth,
+          father_name: saved.father_name,
+          mother_name: saved.mother_name,
+          class: saved.class_name,
+          section: saved.section,
+          phone: saved.phone,
+          status: saved.status || 'Active'
+        });
+      }
+
+      AppState.kpi.totalStudents=AppState.students.length;
+      saveState();
+
+      // Reset modal to add mode
+      delete form.dataset.editRoll;
+      qs('#modalAddStudent .modal__header h3').textContent='Add Student';
+      qs('#modalAddStudent .modal__footer button[value="submit"]').textContent='Save';
+      form.parentElement.close();
+      if(AppState.view==='students') renderStudents();
+    } catch(err) {
+      alert('Unable to save student: '+err.message);
+    }
   };
 }
 
@@ -1635,7 +2621,6 @@ function initRecordPaymentModal(){
   const search=qs('#rpStudentSearch');
   const list=qs('#rpStudentList');
   const rpRoll=qs('#rpRoll');
-  const rpMonth=qs('#rpMonth');
   const rpName=qs('#rpName');
   const rpClass=qs('#rpClass');
   const rpMethod=qs('#rpMethod');
@@ -1648,9 +2633,13 @@ function initRecordPaymentModal(){
   const rpPayNow=qs('#rpPayNow');
   const rpError=qs('#rpError');
   const rpStatus=qs('#rpStatus');
+  const rpUnpaidMonthsList = qs('#rpUnpaidMonthsList');
+  const rpMonthsError = qs('#rpMonthsError');
+  const rpBtnSelectAll = qs('#rpBtnSelectAll');
+  const rpBtnClearMonths = qs('#rpBtnClearMonths');
 
-  // set default month from settings or today
-  rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+  let selectedMonths = [];
+  let currentStudent = null;
 
   // add recalc button once
   if(!qs('#rpLateFeeRecalc')){
@@ -1667,7 +2656,7 @@ function initRecordPaymentModal(){
   // Wire discounts/late fee/pay-now inputs to update totals immediately
   if (rpDiscount) rpDiscount.oninput = () => updateTotals();
   if (rpLateFee) rpLateFee.oninput = () => updateTotals();
-  if (rpPayNow) rpPayNow.oninput = () => validatePayNow();
+  if (rpPayNow) rpPayNow.oninput = () => { validatePayNow(); updateTotals(); };
 
   // Search dropdown (safe: handle missing fields) and keyboard shortcuts
   search.oninput = () => {
@@ -1699,34 +2688,151 @@ function initRecordPaymentModal(){
   };
 
   rpRoll.onchange=()=>{ fillStudentInfo(); };
-  rpMonth.onchange=()=>{ loadHeads(); autoCalcLateFee(); };
 
   function fillStudentInfo(){
     const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
-    if(!s){ rpName.value=''; rpClass.value=''; return; }
-    rpName.value=s.name; rpClass.value=s.class; loadHeads(); autoCalcLateFee();
+    if(!s){ rpName.value=''; rpClass.value=''; rpUnpaidMonthsList.innerHTML=''; return; }
+    rpName.value=s.name; 
+    rpClass.value=s.class;
+    currentStudent = s;
+    loadUnpaidMonths();
+  }
+
+  function loadUnpaidMonths(){
+    if (!currentStudent) return;
+    let months = genMonthsSinceAdmission(currentStudent);
+    const usingFallback = months[0] === '__NO_ADMISSION_DATE__';
+    if (usingFallback) {
+      // remove flag
+      months = months.slice(1);
+    }
+    selectedMonths = [];
+    
+    let html = '';
+    if (usingFallback) {
+      html += `<div class="text-warning" style="padding:8px;">Admission date not set – displaying past 12 months. Please update student record for accurate list.</div>`;
+    }
+    html += months.map(month => {
+      const key = `${currentStudent.roll}|${month}`;
+      const fee = AppState.fees[key] || {};
+      const heads = fee.heads || getFeesForStudentMonth(currentStudent, month) || {};
+      const paid = Number(fee.paid || 0);
+      const discount = Number(fee.discount || 0);
+      const lateFee = Number(fee.lateFee || 0);
+      
+      const headTotal = Object.values(heads).reduce((a, b) => a + b, 0);
+      const due = Math.max(0, headTotal + lateFee - discount - paid);
+      
+      const isUnpaid = due > 0;
+      
+      return `
+        <label class="flex align-center gap-8 p-8 br-6 border" style="background: ${isUnpaid ? 'var(--bg-error-light)' : 'var(--bg-success-light)'}; cursor: pointer;">
+          <input type="checkbox" data-month="${month}" ${isUnpaid ? 'checked' : 'disabled'} />
+          <span>
+            <strong>${formatMonthYear(month)}</strong>
+            <br/>
+            <small>${isUnpaid ? `Due: ${fmtINR(due)}` : 'Paid'}</small>
+          </span>
+        </label>
+      `;
+    }).join('');
+    
+    rpUnpaidMonthsList.innerHTML = html;
+    
+    // Wire up checkboxes
+    qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => {
+      cb.onchange = () => {
+        selectedMonths = qsa('#rpUnpaidMonthsList input[type="checkbox"]:checked')
+          .map(c => c.getAttribute('data-month'));
+        loadHeads();
+        updateTotals();
+      };
+    });
+    
+    // Set select all / clear handlers
+    rpBtnSelectAll.onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]:not(:disabled)').forEach(cb => cb.checked = true);
+      selectedMonths = qsa('#rpUnpaidMonthsList input[type="checkbox"]:checked')
+        .map(c => c.getAttribute('data-month'));
+      loadHeads();
+      updateTotals();
+    };
+    
+    rpBtnClearMonths.onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => cb.checked = false);
+      selectedMonths = [];
+      rpHeadsWrap.innerHTML = '';
+      updateTotals();
+    };
+
+    const rpBtnMarkPrev = qs('#rpBtnMarkPrev');
+    if (rpBtnMarkPrev) {
+      rpBtnMarkPrev.onclick = () => {
+        if (selectedMonths.length === 0) {
+          alert('Please select at least one month to mark as previously collected.');
+          return;
+        }
+        selectedMonths.forEach(month => {
+          const key = `${currentStudent.roll}|${month}`;
+          const heads = (AppState.fees[key] && AppState.fees[key].heads) || getFeesForStudentMonth(currentStudent, month) || {};
+          const total = Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
+          AppState.fees[key] = { heads, paid: total, discount:0, lateFee:0, lastReceipt:'PREVIOUS' };
+        });
+        saveState();
+        rpStatus.textContent = `Marked ${selectedMonths.length} month(s) as collected previously.`;
+        loadUnpaidMonths();
+      };
+    }
   }
 
   function loadHeads(){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
-    if(!roll||!month) return;
-    const key=`${roll}|${month}`;
-    let fee=AppState.fees[key];
+    if (!currentStudent || selectedMonths.length === 0) {
+      rpHeadsWrap.innerHTML = '';
+      return;
+    }
+    
+    // Aggregate heads for all selected months
+    const aggregatedHeads = {};
+    let existingPaidTotal = 0;
+    selectedMonths.forEach(month => {
+      const key = `${currentStudent.roll}|${month}`;
+      let fee = AppState.fees[key];
 
-    if(!fee){
-      const s=AppState.students.find(x=> x.roll===roll);
+      if(!fee){
+        let defHeads = {...(getFeesForStudentMonth(currentStudent, month) || { Tuition:800 })};
+        const a = AppState.transport.assignments.find(x => x.roll===currentStudent.roll && x.status==='active');
+        if (a) defHeads = { ...defHeads, Transport: Number(a.fee || 0) };
+        fee = AppState.fees[key] = { heads: defHeads, paid:0, discount:0, lateFee:0 };
+      }
+      
+      // accumulate any already-paid amount for this month
+      existingPaidTotal += Number(fee.paid || 0);
 
-      // Use getFeesForStudentMonth to dynamically include/exclude Miscellaneous and handle admission_date
-      let defHeads = {...(getFeesForStudentMonth(s, month) || { Tuition:800 })};
-
-      // include Transport head from Transport assignment if active
-      const a = AppState.transport.assignments.find(x => x.roll===roll && x.status==='active');
-      if (a) defHeads = { ...defHeads, Transport: Number(a.fee || 0) };
-
-      fee = AppState.fees[key] = { heads: defHeads, paid:0, discount:0, lateFee:0 };
+      // Add to aggregated heads
+      Object.entries(fee.heads).forEach(([head, amt]) => {
+        aggregatedHeads[head] = (aggregatedHeads[head] || 0) + Number(amt || 0);
+      });
+    });
+    
+    // If some of the selected months already have payments, subtract
+    // that amount from the displayed head totals proportionally so the
+    // user sees only the remaining due.
+    if(existingPaidTotal > 0){
+      const totalHeads = Object.values(aggregatedHeads).reduce((a,b)=> a+ b,0);
+      if(totalHeads > 0){
+        Object.keys(aggregatedHeads).forEach(head => {
+          const proportion = aggregatedHeads[head] / totalHeads;
+          aggregatedHeads[head] = Math.max(0, aggregatedHeads[head] - proportion * existingPaidTotal);
+        });
+      }
+      // show a small note that some amount was already collected
+      const note = document.createElement('div');
+      note.className = 'note muted mt-4';
+      note.textContent = `Note: ₹${existingPaidTotal} already paid against selected month(s); remaining dues shown above.`;
+      rpHeadsWrap.parentElement.insertBefore(note, rpHeadsWrap);
     }
 
-    rpHeadsWrap.innerHTML=Object.entries(fee.heads).map(([head,amt])=>`
+    rpHeadsWrap.innerHTML=Object.entries(aggregatedHeads).map(([head,amt])=>`
       <div class="grid-2">
         <label><span>${head} (₹)</span><input type="number" min="0" step="1" data-head="${head}" value="${amt}"/></label>
         <label><span>Include</span><input type="checkbox" data-include="${head}" checked/></label>
@@ -1735,12 +2841,19 @@ function initRecordPaymentModal(){
     qsa('#rpHeads input[type="number"]').forEach(inp=> inp.oninput=()=>{ updateTotals(); autoCalcLateFee(); });
     qsa('#rpHeads input[type="checkbox"]').forEach(inp=> inp.onchange=()=>{ updateTotals(); autoCalcLateFee(); });
 
-    rpDiscount.value=String(fee.discount||0);
-    rpLateFee.value=String(fee.lateFee||0);
+    rpDiscount.value='0';
+    rpLateFee.value='0';
     updateTotals();
   }
 
   function updateTotals(){
+    if (selectedMonths.length === 0) {
+      rpSubtotal.textContent = fmtINR(0);
+      rpTotalDue.textContent = fmtINR(0);
+      rpPayNow.value = '0';
+      return;
+    }
+    
     const amounts=qsa('#rpHeads input[type="number"]').map(inp=>{
       const head=inp.getAttribute('data-head');
       const include=qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`).checked;
@@ -1750,36 +2863,89 @@ function initRecordPaymentModal(){
     const discount=Number(rpDiscount.value||0);
     const lateFee=Number(rpLateFee.value||0);
     const totalDue=Math.max(0, subtotal+lateFee-discount);
+    const payNow = Number(rpPayNow.value||0);
+    const remaining = Math.max(0, totalDue - payNow);
+
     rpSubtotal.textContent=fmtINR(subtotal);
-    rpTotalDue.textContent=fmtINR(totalDue);
-    qs('#rpBtnExact').onclick=()=>{ rpPayNow.value=String(totalDue); validatePayNow(); };
-    qs('#rpBtnHalf').onclick =()=>{ rpPayNow.value=String(Math.round(totalDue/2)); validatePayNow(); };
-    qs('#rpBtnClear').onclick=()=>{ rpPayNow.value='0'; validatePayNow(); };
+    rpTotalDue.textContent=fmtINR(remaining);
+
+    qs('#rpBtnExact').onclick=()=>{ rpPayNow.value=String(totalDue); validatePayNow(); updateTotals(); };
+    qs('#rpBtnHalf').onclick =()=>{ rpPayNow.value=String(Math.round(totalDue/2)); validatePayNow(); updateTotals(); };
+    qs('#rpBtnClear').onclick=()=>{ rpPayNow.value='0'; validatePayNow(); updateTotals(); };
+
     validatePayNow();
   }
+  
   function validatePayNow(){
-    rpError.style.display='none';
+    rpMonthsError.style.display='none';
     const pay=Number(rpPayNow.value||0);
-    if(pay<0){ rpError.textContent='Amount cannot be negative.'; rpError.style.display='block'; return false; }
+    if(pay<0){ rpMonthsError.textContent='Amount cannot be negative.'; rpMonthsError.style.display='block'; return false; }
+    // if net total due is visible calculate remaining
+    const subtotal = parseFloat(rpSubtotal.textContent.replace(/[^0-9.-]+/g,'')) || 0;
+    const late = Number(rpLateFee.value||0);
+    const disc = Number(rpDiscount.value||0);
+    const total = Math.max(0, subtotal + late - disc);
+    if(pay > total){
+      rpMonthsError.textContent='Pay Now cannot exceed total due.'; rpMonthsError.style.display='block';
+      return false;
+    }
     return true;
   }
 
   function autoCalcLateFee(){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
-    if(!roll||!month) return;
-    const autoFee=computeLateFee(roll,month,new Date());
+    if (selectedMonths.length === 0) return;
+    
+    // Use earliest selected month for late fee calculation
+    const firstMonth = selectedMonths[0];
+    const autoFee=computeLateFee(currentStudent.roll, firstMonth, new Date());
     const current=Number(rpLateFee.value||0);
     if(current!==autoFee){ rpLateFee.value=String(autoFee); updateTotals(); }
   }
 
-  qs('#rpSaveNoPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(false)) return; form.parentElement.close(); renderFees(); };
-  qs('#rpSaveAndPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); renderFees(); };
+  qs('#rpSaveNoPrint').onclick=async (e)=>{ e.preventDefault(); if(!savePayment(false)) return; form.parentElement.close(); await renderFees(); };
+  qs('#rpSaveAndPrint').onclick=async (e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); await renderFees(); };
 
-  function savePayment(printAfter){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
-    const s=AppState.students.find(x=> x.roll===roll);
-    if(!s){ rpError.textContent='Invalid roll.'; rpError.style.display='block'; return false; }
-    if(!month){ rpError.textContent='Please select a month.'; rpError.style.display='block'; return false; }
+  async function syncPendingReceipts(){
+  if (!isServerConnected) return;
+  // try to push any receipts that have not been synced yet
+  for(const r of AppState.receipts){
+    if(r.synced) continue;
+    // find student id by roll
+    const student = AppState.students.find(s=>s.roll===r.roll);
+    if(!student || !student.id) continue; // cannot sync yet
+    const paymentData = {
+      student_id: student.id,
+      amount: r.amount,
+      payment_date: r.date,
+      payment_method: r.method,
+      transaction_id: r.ref,
+      purpose: r.months ? `Fees ${r.months.join(', ')}` : 'Fee',
+      status: r.status || 'Completed',
+      remarks: r.previousUnpaid ? `Carry ₹${r.previousUnpaid}` : ''
+    };
+    try {
+      const resp = await fetch(`${API_URL}/payments`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(paymentData)
+      });
+      if(resp.ok){
+        const saved = await resp.json();
+        r.synced = true;
+        r.id = saved.id || r.no;
+        saveState();
+      }
+    } catch(e){
+      console.warn('Failed to sync receipt', r, e);
+      // if network error, break out; will retry later
+      break;
+    }
+  }
+}
+
+function savePayment(printAfter){
+    if (!currentStudent) { rpMonthsError.textContent='Invalid student.'; rpMonthsError.style.display='block'; return false; }
+    if (selectedMonths.length === 0) { rpMonthsError.textContent='Please select at least one month.'; rpMonthsError.style.display='block'; return false; }
 
     const heads={};
     qsa('#rpHeads input[type="number"]').forEach(inp=>{
@@ -1789,42 +2955,108 @@ function initRecordPaymentModal(){
     });
 
     const discount=Number(rpDiscount.value||0);
-    const autoFee=computeLateFee(roll,month,new Date());
+    const autoFee=computeLateFee(currentStudent.roll, selectedMonths[0], new Date());
     rpLateFee.value=String(autoFee);
     const lateFee=autoFee;
     const payNow=Number(rpPayNow.value||0);
-    if(payNow<0){ rpError.textContent='Pay Now cannot be negative.'; rpError.style.display='block'; return false; }
+    if(payNow<0){ rpMonthsError.textContent='Pay Now cannot be negative.'; rpMonthsError.style.display='block'; return false; }
 
-    const key=`${roll}|${month}`;
     const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
     const netDue=Math.max(0, subtotal+lateFee-discount);
 
-    AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0 };
-    AppState.fees[key].heads=heads;
-    AppState.fees[key].discount=discount;
-    AppState.fees[key].lateFee=lateFee;
-    AppState.fees[key].paid=(AppState.fees[key].paid||0)+payNow;
+    // compute total due across selected months
+    const totalDue = selectedMonths.reduce((sum, month) => {
+      const key = `${currentStudent.roll}|${month}`;
+      const fee = AppState.fees[key] || { heads: {}, paid: 0, discount: 0, lateFee: 0 };
+      const mHeads = fee.heads || getFeesForStudentMonth(currentStudent, month) || {};
+      const mPaid = Number(fee.paid || 0);
+      const mDiscount = Number(fee.discount || 0);
+      const mLateFee = lateFee / selectedMonths.length;
+      const mHeadTotal = Object.values(mHeads).reduce((a, b) => a + b, 0);
+      const mDue = Math.max(0, mHeadTotal + mLateFee - mDiscount - mPaid);
+      return sum + mDue;
+    }, 0);
 
+    // Distribute payment across selected months proportionally
+    let remainingPayment = payNow;
+    const monthPayments = {};
+    
+    selectedMonths.forEach(month => {
+      const key = `${currentStudent.roll}|${month}`;
+      const fee = AppState.fees[key] || { heads: {}, paid: 0, discount: 0, lateFee: 0 };
+      const mHeads = fee.heads || getFeesForStudentMonth(currentStudent, month) || {};
+      const mPaid = Number(fee.paid || 0);
+      const mDiscount = Number(fee.discount || 0);
+      const mLateFee = lateFee / selectedMonths.length; // distribute late fee
+      
+      const mHeadTotal = Object.values(mHeads).reduce((a, b) => a + b, 0);
+      const mDue = Math.max(0, mHeadTotal + mLateFee - mDiscount - mPaid);
+      
+      monthPayments[month] = Math.min(remainingPayment, mDue);
+      remainingPayment -= monthPayments[month];
+    });
+    
+    // Save payment for each selected month
+    let receiptNo = null;
     if(payNow>0){
-      const recNo='R-'+String(AppState.receipts.length+1).padStart(4,'0');
-      AppState.fees[key].lastReceipt=recNo;
-      AppState.receipts.push({
-        no:recNo, date:todayYYYYMMDD(), roll, name:s.name, method:rpMethod.value,
-        amount:payNow, ref:(rpRef.value||'').trim()
-      });
-      if(printAfter) printReceipt(recNo);
+      receiptNo='R-'+String(AppState.receipts.length+1).padStart(4,'0');
+      const receipt = {
+        no: receiptNo, 
+        date: todayYYYYMMDD(), 
+        roll: currentStudent.roll, 
+        name: currentStudent.name, 
+        method: rpMethod.value,
+        amount: payNow, 
+        ref: (rpRef.value||'').trim(),
+        months: selectedMonths, // include months in receipt
+        status: 'Completed' // make KPIs count it
+      };
+      // add carry info if partial payment
+      if(payNow < totalDue){
+        const carry = totalDue - payNow;
+        receipt.previousUnpaid = carry;
+        // post to next month
+        const next = nextMonth(monthOfToday());
+        if(next){
+          const nextKey = `${currentStudent.roll}|${next}`;
+          AppState.fees[nextKey] = AppState.fees[nextKey] || { heads:{}, paid:0, discount:0, lateFee:0 };
+          AppState.fees[nextKey].heads = AppState.fees[nextKey].heads || {};
+          AppState.fees[nextKey].heads['Previous Unpaid'] = (AppState.fees[nextKey].heads['Previous Unpaid']||0) + carry;
+        }
+      }
+      AppState.receipts.push(receipt);
+      // immediately try to sync new receipt if server is connected
+      syncPendingReceipts();
     }
+    
+    selectedMonths.forEach(month => {
+      const key = `${currentStudent.roll}|${month}`;
+      AppState.fees[key] = AppState.fees[key] || { heads: {}, paid: 0, discount: 0, lateFee: 0 };
+      AppState.fees[key].heads = AppState.fees[key].heads || getFeesForStudentMonth(currentStudent, month);
+      AppState.fees[key].discount = discount / selectedMonths.length;
+      AppState.fees[key].lateFee = lateFee / selectedMonths.length;
+      AppState.fees[key].paid = (AppState.fees[key].paid || 0) + monthPayments[month];
+      if(receiptNo) AppState.fees[key].lastReceipt = receiptNo;
+    });
 
     // Update KPI collected month if same month
-    if (monthOfToday() === month) AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+    if (monthOfToday() && selectedMonths.includes(monthOfToday())) {
+      AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+    }
 
     saveState();
-    rpStatus.textContent=`Saved. Balance now: ${fmtINR(Math.max(0, netDue-(AppState.fees[key].paid||0)))}`;
+    let statusMsg = `Saved ₹${payNow} across ${selectedMonths.length} month(s). Remaining: ₹${Math.max(0, netDue - payNow)}`;
+    if(payNow < totalDue){
+      const carry = totalDue - payNow;
+      const nxt = nextMonth(monthOfToday());
+      statusMsg += `; unpaid ₹${carry} has been added to ${formatMonthYear(nxt)}.`;
+    }
+    rpStatus.textContent = statusMsg;
+    if(receiptNo && printAfter) printReceipt(receiptNo);
     return true;
   }
 
   if(rpRoll.value) fillStudentInfo(); else rpHeadsWrap.innerHTML='';
-  autoCalcLateFee();
 }
 
 function initFeeHeadsModal(){
@@ -1944,29 +3176,51 @@ function printReceipt(no){
   const r=AppState.receipts.find(x=> x.no===no);
   if(!r){ alert('Receipt not found'); return; }
 
-  const root=qs('#receiptPrintRoot');
-  const sch = AppState.settings.school || {};
-  const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
-  const tagline     = sch.tagline || '';
-  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  // Offer choice for thermal or regular printer
+  const choice = confirm(
+    '🖨️ Print Options:\n\n' +
+    'OK → Thermal Printer (ESC/POS Format)\n' +
+    'Cancel → Regular Printer (Browser Print)\n\n' +
+    'Choose Thermal for petrol pump style thermal printers.'
+  );
+  
+  if (choice) {
+    // Thermal printer
+    printThermalReceipt(
+      r.no,
+      r.name,
+      r.roll,
+      r.amount,
+      r.method,
+      'School Fee'
+    );
+  } else {
+    // Regular browser print
+    const root=qs('#receiptPrintRoot');
+    const sch = AppState.settings.school || {};
+    const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
+    const tagline     = sch.tagline || '';
+    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
 
-  root.innerHTML=`
-    <div class="receipt">
-      <h2 style="margin:0;">${headerName}</h2>
-      ${tagline ? `<div class="muted">${tagline}</div>` : ''}
-      <div class="muted">${addressLine}</div>
-      <hr />
-      <div><strong>Receipt No:</strong> ${r.no}</div>
-      <div><strong>Date:</strong> ${r.date}</div>
-      <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
-      <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
-      <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
-      <hr />
-      <div class="muted">This is a system-generated receipt.</div>
-    </div>`;
-  root.style.display='block';
-  window.print();
-  setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
+    root.innerHTML=`
+      <div class="receipt">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <hr />
+        <div><strong>Receipt No:</strong> ${r.no}</div>
+        <div><strong>Date:</strong> ${r.date}</div>
+        <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
+        <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
+        <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
+        ${r.previousUnpaid ? `<div><strong>Prev Unpaid:</strong> ${fmtINR(r.previousUnpaid)}</div>` : ''}
+        <hr />
+        <div class="muted">This is a system-generated receipt.</div>
+      </div>`;
+    root.style.display='block';
+    window.print();
+    setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
+  }
 }
 
 // Generate Receipt PDF with Logo
@@ -2032,6 +3286,9 @@ function generateReceiptPDF(receiptNo) {
   html += '<div class="receipt-row"><span class="receipt-row-label">Payment Method:</span><span class="receipt-row-value">' + receipt.method + '</span></div>';
   if (receipt.ref) html += '<div class="receipt-row"><span class="receipt-row-label">Reference:</span><span class="receipt-row-value">' + receipt.ref + '</span></div>';
   html += '</div>';
+  if(receipt.previousUnpaid){
+    html += '<div class="receipt-row"><span class="receipt-row-label">Previous Unpaid</span><span class="receipt-row-value">₹ ' + (receipt.previousUnpaid||0).toLocaleString(AppState.settings.locale||'en-IN') + '</span></div>';
+  }
   html += '<div class="amount-section">';
   html += '<div class="amount-row"><span class="amount-row-label">Amount Paid</span><span class="amount-row-value">₹ ' + amount + '</span></div>';
   html += '<div class="total-row"><span>Total</span><span>₹ ' + amount + '</span></div>';
@@ -3533,10 +4790,26 @@ function init(){
   console.log('🚀 Initializing School Admin Portal...');
   
   try {
+    // Initialize authentication FIRST (this sets up basic button handlers)
+    console.log('[init] initializeAuth');
     initializeAuth();
+    
+    // attach login handlers only if login page is still present
+    if (document.getElementById('loginPage')) {
+      console.log('[init] initLoginHandlers');
+      initLoginHandlers();
+    }
+    
+    // Load state (including data fetch)
+    console.log('[init] loadState');
     loadState();
+    
+    // Theme setup
+    console.log('[init] applyThemeFromSettings');
     applyThemeFromSettings();
+    console.log('[init] applySchoolBranding');
     applySchoolBranding();
+    console.log('[init] initThemeToggle');
     initThemeToggle();
     
     // Role-based initialization
@@ -3546,9 +4819,23 @@ function init(){
       
       if (role === 'admin') {
         console.log('📊 Initializing Admin Portal...');
-        initSidebarNavigation();
-        initQuickAdd();
-        initNotifications();
+        try {
+          initSidebarNavigation();
+        } catch (e) {
+          console.error('⚠️ Sidebar init error:', e);
+        }
+        
+        try {
+          initQuickAdd();
+        } catch (e) {
+          console.error('⚠️ Quick add init error:', e);
+        }
+        
+        try {
+          initNotifications();
+        } catch (e) {
+          console.error('⚠️ Notifications init error:', e);
+        }
         
         // Initialize modals with error handling
         try {
@@ -3563,12 +4850,34 @@ function init(){
           console.warn('⚠️ Modal initialization warning:', e.message);
         }
       }
-      switchRole(role);
+      
+      try {
+        switchRole(role);
+      } catch (e) {
+        console.error('⚠️ switchRole error:', e);
+      }
+      
       console.log('✅ Portal ready!');
     }
   } catch (e) {
     console.error('❌ Initialization error:', e);
+    console.error('Stack:', e.stack);
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    console.log('DOMContentLoaded event fired');
+    init();
+  } catch (err) {
+    console.error('Fatal error during initialization:', err);
+    console.error('Error message:', err.message);
+    console.error('Stack:', err.stack);
+    // Try to make basic buttons clickable as fallback
+    document.querySelectorAll('button').forEach(btn => {
+      if (!btn.onclick && !btn.addEventListener) {
+        btn.onclick = function() { alert('Button clicked'); };
+      }
+    });
+  }
+});

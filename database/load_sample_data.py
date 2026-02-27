@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timedelta
 
 def load_sample_data():
-    conn = sqlite3.connect('school.db')
+    conn = sqlite3.connect('../database/school.db')
     cursor = conn.cursor()
 
     print("Loading sample data...\n")
@@ -100,7 +100,7 @@ def load_sample_data():
     print("Sample Data Loaded Successfully!")
     print("="*50)
     
-    conn = sqlite3.connect('school.db')
+    conn = sqlite3.connect('../database/school.db')
     cursor = conn.cursor()
     
     total_students = cursor.execute("SELECT COUNT(*) FROM students").fetchone()[0]

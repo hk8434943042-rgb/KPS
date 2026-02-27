@@ -240,6 +240,9 @@ DELETE /api/payments/{payment_id}
 ### **DASHBOARD STATISTICS**
 
 #### Get Dashboard Stats
+
+Returns overall counts plus revenue figures. `total_revenue` is the lifetime amount collected; the new `month_revenue` field reports the sum of payments that occurred in the current month (YYYY‑MM). The frontend dashboard uses `month_revenue` to calculate the "Fees Collected (current month)" KPI.
+
 ```
 GET /api/stats/dashboard
 
@@ -248,6 +251,7 @@ Response:
   "total_students": 150,
   "total_teachers": 25,
   "total_revenue": 750000,
+  "month_revenue": 32000,
   "pending_payments": 12
 }
 ```

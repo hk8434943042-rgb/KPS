@@ -26,11 +26,34 @@ async function connectDB() {
 }
 
 
+// helper to normalize dates into YYYY-MM-DD
+function _normalizeDate(val) {
+  if (!val) return val;
+  const s = String(val).trim();
+  const parts = s.split('-');
+  if (parts.length === 3) {
+    const [a,b,c] = parts;
+    // detect dd-mm-yyyy
+    if (a.length===2 && c.length===4) {
+      const day = a.padStart(2,'0');
+      const mon = b.padStart(2,'0');
+      const yr = c;
+      return `${yr}-${mon}-${day}`;
+    }
+  }
+  return s;
+}
+
 // CREATE: Add a new student
 app.post('/api/students', async (req, res) => {
   try {
+    if (req.body && req.body.admission_date) {
+      req.body.admission_date = _normalizeDate(req.body.admission_date);
+    }
     const result = await db.collection('students').insertOne(req.body);
-    res.status(201).json(result.ops ? result.ops[0] : req.body); // fallback for driver versions
+    let doc = result.ops ? result.ops[0] : req.body;
+    if (doc && doc.admission_date) doc.admission_date = _normalizeDate(doc.admission_date);
+    res.status(201).json(doc); // fallback for driver versions
   } catch (err) {
     res.status(500).json({ error: 'Failed to add student' });
   }
@@ -40,6 +63,10 @@ app.post('/api/students', async (req, res) => {
 app.get('/api/students', async (req, res) => {
   try {
     const students = await db.collection('students').find({}).toArray();
+    // normalize dates before sending
+    students.forEach(s => {
+      if (s.admission_date) s.admission_date = _normalizeDate(s.admission_date);
+    });
     res.json(students);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch students' });
@@ -50,12 +77,17 @@ app.get('/api/students', async (req, res) => {
 app.put('/api/students/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    if (req.body && req.body.admission_date) {
+      req.body.admission_date = _normalizeDate(req.body.admission_date);
+    }
     const result = await db.collection('students').findOneAndUpdate(
       { _id: new require('mongodb').ObjectId(id) },
       { $set: req.body },
       { returnDocument: 'after' }
     );
-    res.json(result.value);
+    let doc = result.value;
+    if (doc && doc.admission_date) doc.admission_date = _normalizeDate(doc.admission_date);
+    res.json(doc);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update student' });
   }
