@@ -6,11 +6,28 @@ import json
 from datetime import datetime, timedelta
 import hashlib
 import secrets
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('../flask_debug.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+logger.info("=== Flask App Starting ===")
 
 app = Flask(__name__)
 # Allow CORS from all origins in development (more permissive than production)
-from flask_cors import CORS as CORS_LIB
-CORS_LIB(app, resources={r"/*": {"origins": "*"}}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], supports_credentials=True)
+CORS(app,
+    resources={r"/api/*": {"origins": "*"}, r"/health": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Access-Control-Allow-Origin'],
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 app.secret_key = os.environ.get('SECRET_KEY', 'school-admin-portal-secret-key-change-in-production')
 
 # Use DATABASE_URL from environment (for Railway), fallback to local
@@ -28,12 +45,6 @@ def get_db():
     return conn
 
 
-@app.before_request
-def log_every_request():
-    print(f"\n[HTTP] {request.method} {request.path} from {request.remote_addr}")
-    print(f"[HTTP] Headers: {dict(request.headers)}")
-    print(f"[HTTP] Content-Type: {request.content_type}")
-
 @app.after_request
 def add_cors_headers(response):
     # Be explicit about CORS headers to satisfy browser preflight checks
@@ -45,8 +56,31 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-Requested-With,Access-Control-Allow-Origin'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
-    print(f"[HTTP] Responding with status {response.status_code}")
     return response
+
+@app.errorhandler(Exception)
+def handle_error(error):
+    import traceback
+    logger.error(f"[GLOBAL ERROR] {str(error)}\n{traceback.format_exc()}")
+    print(f"[GLOBAL ERROR] {str(error)}")
+    print(traceback.format_exc())
+    return jsonify({'error': str(error), 'type': type(error).__name__}), 500
+
+@app.before_request
+def log_request():
+    logger.info(f"[REQUEST] {request.method} {request.path} from {request.remote_addr}")
+    logger.info(f"[REQUEST] Content-Type: {request.content_type}")
+    print(f"[DEBUG] {request.method} {request.path}")
+    if request.method == 'POST':
+        print(f"[DEBUG] POST to {request.path}: content_type={request.content_type}")
+        try:
+            body = request.get_json()
+            logger.info(f"[REQUEST] Body: {body}")
+            print(f"[DEBUG] Body: {body}")
+        except Exception as e:
+            logger.warning(f"[REQUEST] Failed to parse JSON: {str(e)}")
+            print(f"[DEBUG] Failed to parse JSON: {str(e)}")
+
 
 def init_db():
     conn = get_db()
@@ -136,8 +170,6 @@ def init_db():
         purpose TEXT,
         status TEXT DEFAULT 'Completed' CHECK(status IN ('Pending', 'Completed', 'Failed')),
         remarks TEXT,
-        discount REAL DEFAULT 0,
-        late_fee REAL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (student_id) REFERENCES students(id)
@@ -163,27 +195,8 @@ def init_db():
         'father_name': "ALTER TABLE students ADD COLUMN father_name TEXT",
         'mother_name': "ALTER TABLE students ADD COLUMN mother_name TEXT",
         'status': "ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'Active'",
-        'parent_id': "ALTER TABLE students ADD COLUMN parent_id INTEGER",
-        'transport_assigned': "ALTER TABLE students ADD COLUMN transport_assigned INTEGER DEFAULT 0",
-        'transport_route_id': "ALTER TABLE students ADD COLUMN transport_route_id INTEGER"
+        'parent_id': "ALTER TABLE students ADD COLUMN parent_id INTEGER"
     }
-    
-    # Create transport_routes table for managing different routes and fees
-    conn.execute(
-        """
-    CREATE TABLE IF NOT EXISTS transport_routes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        route_name TEXT UNIQUE NOT NULL,
-        route_description TEXT,
-        fee_amount REAL NOT NULL,
-        destination TEXT,
-        vehicle_id TEXT,
-        status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Inactive')),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """
-    )
     # Create parents table to support multi-child -> one-parent relationships
     conn.execute(
         """
@@ -387,23 +400,27 @@ def _normalize_date(val):
     # otherwise leave as‑is (might already be yyyy-mm-dd)
     return val
 
-# TEST ENDPOINT
-@app.route('/api/test-post', methods=['POST'])  
+# TEST ENDPOINT - Remove later
+@app.route('/api/test-post', methods=['POST'])
 def test_post():
     print("[TEST] Test POST endpoint called!")
+    logger.info("[TEST] Test POST endpoint called!")
     try:
         data = request.get_json()
         print(f"[TEST] Received: {data}")
         return jsonify({'success': True, 'received': data}), 200
     except Exception as e:
         print(f"[TEST] Error: {str(e)}")
+        logger.error(f"[TEST] Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/students', methods=['POST'])
 def create_student():
+    logger.info("[POST] create_student called")
     print("[DEBUG] Starting create_student function...")
     try:
         data = request.json or {}
+        logger.info(f"[POST] Request data: {data}")
         print(f"[DEBUG] Request data: {data}")
         
         # Validation
@@ -471,8 +488,12 @@ def create_student():
             print(f"[DB ERROR] {str(e)}")
             return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"[EXCEPTION] Error creating student: {str(e)}\n{error_trace}")
         print(f"[EXCEPTION] Error creating student: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        print(f"[TRACEBACK] {error_trace}")
+        return jsonify({'error': str(e), 'trace': error_trace}), 500
 
 @app.route('/api/students', methods=['GET'])
 def get_students():
@@ -914,12 +935,11 @@ def create_payment():
         conn = get_db()
         conn.execute(
             """INSERT INTO payments (student_id, amount, payment_date, payment_method, 
-               transaction_id, purpose, status, remarks, discount, late_fee) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               transaction_id, purpose, status, remarks) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (data.get('student_id'), data.get('amount'), data.get('payment_date'),
              data.get('payment_method'), data.get('transaction_id'), data.get('purpose'),
-             data.get('status', 'Completed'), data.get('remarks'), 
-             data.get('discount', 0), data.get('late_fee', 0))
+             data.get('status', 'Completed'), data.get('remarks'))
         )
         conn.commit()
         payment_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -999,172 +1019,6 @@ def delete_payment(payment_id):
         return jsonify({'error': str(e)}), 400
 
 # ===========================
-# TRANSPORT MANAGEMENT ENDPOINTS
-# ===========================
-
-@app.route('/api/transport/routes', methods=['GET'])
-def get_transport_routes():
-    """Get all transport routes with available fee options"""
-    try:
-        conn = get_db()
-        routes = conn.execute(
-            "SELECT id, route_name, route_description, fee_amount, destination, vehicle_id, status FROM transport_routes ORDER BY route_name"
-        ).fetchall()
-        result = [dict(row) for row in routes]
-        conn.close()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/transport/routes', methods=['POST'])
-def create_transport_route():
-    """Create a new transport route"""
-    try:
-        data = request.json
-        conn = get_db()
-        conn.execute(
-            """INSERT INTO transport_routes (route_name, route_description, fee_amount, destination, vehicle_id, status)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (data.get('route_name'), data.get('route_description'), data.get('fee_amount'), 
-             data.get('destination'), data.get('vehicle_id'), data.get('status', 'Active'))
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'message': 'Transport route created'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/transport/routes/<int:route_id>', methods=['PUT'])
-def update_transport_route(route_id):
-    """Update transport route details"""
-    try:
-        data = request.json
-        conn = get_db()
-        conn.execute(
-            """UPDATE transport_routes SET route_name = ?, route_description = ?, fee_amount = ?, 
-               destination = ?, vehicle_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
-            (data.get('route_name'), data.get('route_description'), data.get('fee_amount'), 
-             data.get('destination'), data.get('vehicle_id'), data.get('status'), route_id)
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'message': 'Transport route updated'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/transport/routes/<int:route_id>', methods=['DELETE'])
-def delete_transport_route(route_id):
-    """Delete a transport route"""
-    try:
-        conn = get_db()
-        # Unassign all students from this route
-        conn.execute(
-            "UPDATE students SET transport_assigned = 0, transport_route_id = NULL WHERE transport_route_id = ?",
-            (route_id,)
-        )
-        # Delete the route
-        conn.execute("DELETE FROM transport_routes WHERE id = ?", (route_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'message': 'Transport route deleted'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/students/<int:student_id>/transport', methods=['POST'])
-def assign_transport_to_student(student_id):
-    """Assign transport facility to a student"""
-    try:
-        data = request.json
-        transport_assigned = data.get('transport_assigned', 0)  # 1 for yes, 0 for no
-        transport_route_id = data.get('transport_route_id', None)
-        
-        conn = get_db()
-        
-        # Validate route exists if assigning transport
-        if transport_assigned == 1 and transport_route_id:
-            route = conn.execute(
-                "SELECT id FROM transport_routes WHERE id = ? AND status = 'Active'", 
-                (transport_route_id,)
-            ).fetchone()
-            if not route:
-                conn.close()
-                return jsonify({'error': 'Route not found or inactive'}), 404
-        
-        conn.execute(
-            "UPDATE students SET transport_assigned = ?, transport_route_id = ? WHERE id = ?",
-            (transport_assigned, transport_route_id if transport_assigned == 1 else None, student_id)
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'message': 'Transport assignment updated'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/students/<int:student_id>/transport-fee', methods=['GET'])
-def get_student_transport_fee(student_id):
-    """Get transport fee for a student (returns 0 if not assigned)"""
-    try:
-        conn = get_db()
-        student = conn.execute(
-            """SELECT s.transport_assigned, s.transport_route_id, tr.fee_amount 
-               FROM students s 
-               LEFT JOIN transport_routes tr ON s.transport_route_id = tr.id 
-               WHERE s.id = ?""",
-            (student_id,)
-        ).fetchone()
-        conn.close()
-        
-        if not student:
-            return jsonify({'error': 'Student not found'}), 404
-        
-        # Only return fee if transport is assigned and route exists
-        fee = 0
-        if student['transport_assigned'] == 1 and student['fee_amount']:
-            fee = student['fee_amount']
-        
-        return jsonify({
-            'student_id': student_id,
-            'transport_assigned': student['transport_assigned'],
-            'transport_route_id': student['transport_route_id'],
-            'transport_fee': fee
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/transport/students', methods=['GET'])
-def get_students_by_transport_assignment():
-    """Get students grouped by transport assignment and route"""
-    try:
-        conn = get_db()
-        
-        # Get assigned students with their routes
-        assigned = conn.execute(
-            """SELECT s.id, s.roll_no, s.name, s.class_name, tr.route_name, tr.fee_amount 
-               FROM students s 
-               LEFT JOIN transport_routes tr ON s.transport_route_id = tr.id 
-               WHERE s.transport_assigned = 1 
-               ORDER BY tr.route_name, s.name"""
-        ).fetchall()
-        
-        # Get unassigned students
-        unassigned = conn.execute(
-            """SELECT id, roll_no, name, class_name FROM students 
-               WHERE transport_assigned = 0 
-               ORDER BY name"""
-        ).fetchall()
-        
-        result = {
-            'assigned': [dict(row) for row in assigned],
-            'unassigned': [dict(row) for row in unassigned],
-            'assigned_count': len(assigned),
-            'unassigned_count': len(unassigned)
-        }
-        conn.close()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-# ===========================
 # STATISTICS ENDPOINTS
 # ===========================
 
@@ -1216,11 +1070,9 @@ from flask import send_from_directory
 
 FRONTEND_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
 
-# Catch-all route for serving frontend files (only GET, never matches /api/*)
-@app.route('/', defaults={'path': ''}, methods=['GET'])
-@app.route('/<path:path>', methods=['GET'])
-def serve_frontend(path=''):
-    """Serve frontend files. API routes are matched by more specific routes first."""
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
     # if requested file exists in the frontend folder, return it;
     # otherwise fall back to index.html so client-side routing continues
     if path and os.path.isfile(os.path.join(FRONTEND_DIR, path)):

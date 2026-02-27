@@ -13,6 +13,17 @@
 
   <!-- Styles -->
   <link rel="stylesheet" href="style.css" />
+  
+  <!-- Clear demo data script -->
+  <script>
+    // Clear all localStorage on first load after demo data removal
+    if (!localStorage.getItem('demo_data_cleared')) {
+      console.log('🗑️ Clearing demo data from localStorage...');
+      localStorage.clear();
+      localStorage.setItem('demo_data_cleared', 'true');
+      console.log('✅ Demo data cleared! Ready for real data.');
+    }
+  </script>
 </head>
 <body>
 
@@ -354,7 +365,7 @@
             <table class="table" id="feesReceiptsTable">
               <thead>
                 <tr>
-                  <th>No.</th><th>Date</th><th>Admission No.</th><th>Name</th><th>Method</th><th>Amount</th><th></th>
+                  <th>No.</th><th>Date</th><th>Admission No.</th><th>Name</th><th>Method</th><th>Amount</th><th>Discount</th><th>Late Fee</th><th></th>
                 </tr>
               </thead>
               <tbody id="feesReceiptsBody"><!-- rows injected --></tbody>
@@ -1112,10 +1123,10 @@
         <table class="table" id="trRoutesTable">
           <thead>
             <tr>
-              <th>Route</th>
-              <th>Stops</th>
-              <th>Pickup Time</th>
-              <th>Drop Time</th>
+              <th>Route Name</th>
+              <th>Destination</th>
+              <th>Monthly Fee</th>
+              <th>Description</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -1895,6 +1906,17 @@
         </label>
       </div>
 
+      <div class="grid-1" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+        <h4 style="margin: 0 0 12px 0; color: var(--text-primary);">Transport Assignment</h4>
+        <label>
+          <span>Assign Transport Route (Optional)</span>
+          <select name="transport_route" id="addStudentTransportRoute">
+            <option value="">No Transport</option>
+            <!-- Routes loaded dynamically -->
+          </select>
+        </label>
+      </div>
+
       <footer class="modal__footer">
         <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
         <button type="submit" class="btn btn-primary" value="submit">Save</button>
@@ -1918,6 +1940,50 @@
     </form>
   </dialog>
 
+  <!-- MODAL: Add/Edit Transport Route -->
+  <dialog class="modal" id="modalTrRoute">
+    <form method="dialog" class="modal__content" id="formTrRoute">
+      <header class="modal__header">
+        <h3>Add Transport Route</h3>
+        <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+      </header>
+
+      <div class="grid-2">
+        <label>
+          <span>Route Name *</span>
+          <input type="text" id="trRouteName" name="route_name" required placeholder="e.g., Route A" />
+        </label>
+        <label>
+          <span>Monthly Fee (₹) *</span>
+          <input type="number" id="trRouteFee" name="fee_amount" required min="0" step="1" placeholder="250" />
+        </label>
+        <label>
+          <span>Destination</span>
+          <input type="text" id="trRouteDestination" name="destination" placeholder="e.g., Sector 5" />
+        </label>
+        <label>
+          <span>Status</span>
+          <select id="trRouteStatus" name="status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </label>
+      </div>
+
+      <label>
+        <span>Description</span>
+        <textarea id="trRouteDescription" name="route_description" rows="2" placeholder="Route details..."></textarea>
+      </label>
+
+      <input type="hidden" id="trRouteId" name="route_id" />
+
+      <footer class="modal__footer">
+        <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" value="submit">Save Route</button>
+      </footer>
+    </form>
+  </dialog>
+
   <!-- Chart.js CDN (optional for charts) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -1926,6 +1992,12 @@
 
   <!-- Razorpay Payment Gateway -->
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+  <!-- Optional backend API override for hosted frontend -->
+  <script>
+    // Example: window.__API_BASE_URL = 'https://your-backend-domain.onrender.com/api';
+    window.__API_BASE_URL = window.__API_BASE_URL || '';
+  </script>
 
   <!-- App Script -->
   <script src="script.js"></script>

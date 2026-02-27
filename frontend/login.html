@@ -15,7 +15,7 @@
 
     body {
       font-family: 'Inter', sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 100%);
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -26,10 +26,11 @@
     .login-container {
       width: 100%;
       max-width: 440px;
-      background: white;
+      background: #1e1e2e;
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
       padding: 40px;
+      border: 1px solid #2a2a3e;
     }
 
     .login-header {
@@ -46,17 +47,18 @@
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      background: #f5f5f5;
+      background: rgba(42, 42, 62, 0.8);
       border-radius: 20px;
       font-size: 12px;
       font-weight: 600;
-      border: 1px solid #ddd;
+      border: 1px solid #3a3a4e;
       cursor: pointer;
       transition: all 0.3s ease;
+      color: #b0b0b0;
     }
 
     .server-status:hover {
-      background: #e8e8e8;
+      background: rgba(58, 58, 78, 0.9);
     }
 
     .status-indicator {
@@ -93,27 +95,43 @@
     }
 
     .logo {
-      width: 60px;
-      height: 60px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      width: 80px;
+      height: 80px;
+      background: transparent;
       border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
       margin: 0 auto 20px;
-      font-size: 32px;
+      font-size: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-img {
+      width: 100%;
+      height: 100%;
+      border-radius: 12px;
+      object-fit: contain;
+      object-position: center;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    .logo-fallback {
+      display: none;
     }
 
     .login-header h1 {
       font-size: 28px;
       font-weight: 700;
-      color: #1a1a1a;
+      color: #e0e0e0;
       margin-bottom: 8px;
     }
 
     .login-header p {
       font-size: 14px;
-      color: #666;
+      color: #b0b0b0;
     }
 
     .form-group {
@@ -124,28 +142,30 @@
       display: block;
       font-size: 14px;
       font-weight: 600;
-      color: #1a1a1a;
+      color: #e0e0e0;
       margin-bottom: 8px;
     }
 
     .form-group input {
       width: 100%;
       padding: 12px 14px;
-      border: 1px solid #ddd;
+      border: 1px solid #3a3a4e;
       border-radius: 8px;
       font-size: 14px;
       font-family: inherit;
       transition: all 0.3s ease;
+      background-color: #2a2a3e;
+      color: #e0e0e0;
     }
 
     .form-group input:focus {
       outline: none;
       border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
     }
 
     .form-group input::placeholder {
-      color: #999;
+      color: #707080;
     }
 
     .remember-forgot {
@@ -154,7 +174,7 @@
       align-items: center;
       font-size: 13px;
       margin-bottom: 25px;
-      color: #666;
+      color: #a0a0a0;
     }
 
     .checkbox {
@@ -169,6 +189,7 @@
       width: auto;
       margin: 0;
       border: none;
+      accent-color: #667eea;
     }
 
     .forgot-link {
@@ -214,14 +235,14 @@
     .divider {
       text-align: center;
       margin: 25px 0 20px;
-      color: #ccc;
+      color: #505060;
       font-size: 13px;
     }
 
     .signup-link {
       text-align: center;
       font-size: 13px;
-      color: #666;
+      color: #a0a0a0;
     }
 
     .signup-link a {
@@ -237,9 +258,9 @@
     }
 
     .error-message {
-      background-color: #fee;
-      border: 1px solid #fcc;
-      color: #c33;
+      background-color: #3d2424;
+      border: 1px solid #8b3a3a;
+      color: #ff6b6b;
       padding: 12px 14px;
       border-radius: 8px;
       font-size: 13px;
@@ -252,9 +273,9 @@
     }
 
     .success-message {
-      background-color: #efe;
-      border: 1px solid #cfc;
-      color: #3c3;
+      background-color: #243d2d;
+      border: 1px solid #3a8b5a;
+      color: #6bff6b;
       padding: 12px 14px;
       border-radius: 8px;
       font-size: 13px;
@@ -270,7 +291,7 @@
       display: none;
       text-align: center;
       font-size: 13px;
-      color: #667eea;
+      color: #88a0ff;
       margin-top: 15px;
     }
 
@@ -293,7 +314,7 @@
       display: flex;
       gap: 10px;
       margin-bottom: 30px;
-      border-bottom: 2px solid #eee;
+      border-bottom: 2px solid #3a3a4e;
     }
 
     .tab-btn {
@@ -303,7 +324,7 @@
       border: none;
       font-size: 15px;
       font-weight: 600;
-      color: #999;
+      color: #707080;
       cursor: pointer;
       border-bottom: 2px solid transparent;
       margin-bottom: -2px;
@@ -311,8 +332,8 @@
     }
 
     .tab-btn.active {
-      color: #667eea;
-      border-bottom-color: #667eea;
+      color: #88a0ff;
+      border-bottom-color: #88a0ff;
     }
 
     .tab-content {
@@ -341,13 +362,17 @@
         <span class="status-indicator checking"></span>
         <span id="statusText">Checking...</span>
       </div>
-      <div class="logo">🏫</div>
+      <div class="logo">
+        <img src="assets/logo.png" alt="School Logo" class="logo-img" onerror="this.style.display='none'">
+        <span class="logo-fallback">🏫</span>
+      </div>
       <h1>KHUSHI PUBLIC SCHOOL</h1>
-      <p>Admin Portal Login</p>
+      <p>Portal Login</p>
     </div>
 
     <div class="tab-buttons">
-      <button class="tab-btn active" data-tab="login">Login</button>
+      <button class="tab-btn active" data-tab="login">Admin</button>
+      <button class="tab-btn" data-tab="parent">Parent</button>
       <button class="tab-btn" data-tab="register">Register</button>
     </div>
 
@@ -389,6 +414,59 @@
 
         <button type="submit" class="login-btn" id="loginBtn">Sign In</button>
         <div class="loading" id="loginLoading">
+          <span class="loader"></span>Processing...
+        </div>
+      </form>
+    </div>
+
+    <!-- PARENT LOGIN FORM -->
+    <div id="parent-tab" class="tab-content">
+      <div class="error-message" id="parentError"></div>
+      <div class="success-message" id="parentSuccess"></div>
+
+      <form id="parentForm" onsubmit="handleParentLogin(event)">
+        <div class="form-group">
+          <label for="parentEmail">Email</label>
+          <input 
+            type="email" 
+            id="parentEmail" 
+            name="email"
+            placeholder="Enter your email"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="parentPassword">Password</label>
+          <input 
+            type="password" 
+            id="parentPassword" 
+            name="password"
+            placeholder="Enter your password"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="studentId">Student ID (Optional)</label>
+          <input 
+            type="text" 
+            id="studentId" 
+            name="student_id"
+            placeholder="Enter student ID to link child"
+          />
+        </div>
+
+        <div class="remember-forgot">
+          <label class="checkbox">
+            <input type="checkbox" name="remember" />
+            <span>Remember me</span>
+          </label>
+          <a href="#" class="forgot-link">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="login-btn" id="parentBtn">Sign In</button>
+        <div class="loading" id="parentLoading">
           <span class="loader"></span>Processing...
         </div>
       </form>
@@ -463,17 +541,27 @@
     </div>
 
     <div class="signup-link">
-      Don't have an account? <a href="#" onclick="switchTab('register'); return false;">Sign up here</a>
+      Don't have an account? <a href="#" onclick="switchTab('register'); return false;">Sign up here</a> | <a href="#" onclick="switchTab('parent'); return false;">Parent Login</a>
     </div>
   </div>
 
   <script>
+    // Set this once when frontend is hosted separately from backend:
+    // window.__API_BASE_URL = 'https://your-backend-domain.onrender.com/api';
+    window.__API_BASE_URL = window.__API_BASE_URL || '';
+
     // Dynamically determine API URL based on current location
     let API_URL = (function() {
+      const configuredApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+      if (configuredApi) {
+        return configuredApi.replace(/\/+$/, '');
+      }
+
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://' + window.location.hostname + ':5000/api';
       }
-      return 'http://localhost:5000/api';
+
+      return window.location.origin + '/api';
     })();
     console.log('API URL configured as:', API_URL);
 
@@ -531,15 +619,7 @@
         console.log('✓ Backend connection successful:', response.status);
       } catch (error) {
         console.warn('⚠ Backend connection test failed:', error.message);
-        console.log('Attempting with localhost...');
-        // Try localhost as fallback
-        try {
-          const response = await fetch('http://localhost:5000/api/auth/verify', {headers: {'Content-Type': 'application/json'}}).catch(e => {throw e;});
-          API_URL = 'http://localhost:5000/api';
-          console.log('✓ Using localhost instead. API_URL updated to:', API_URL);
-        } catch (e) {
-          console.error('✗ Both 127.0.0.1 and localhost failed');
-        }
+        console.warn('Set window.__API_BASE_URL in login.html when frontend and backend are hosted on different domains.');
       }
     });
 
@@ -576,6 +656,8 @@
       document.getElementById('loginSuccess').classList.remove('show');
       document.getElementById('registerError').classList.remove('show');
       document.getElementById('registerSuccess').classList.remove('show');
+      document.getElementById('parentError').classList.remove('show');
+      document.getElementById('parentSuccess').classList.remove('show');
     }
 
     async function handleLogin(event) {
@@ -723,6 +805,81 @@
         console.error('Registration error:', error);
         showError(errorEl, 'Connection error. Please try again.');
         registerBtn.disabled = false;
+        loadingEl.style.display = 'none';
+      }
+    }
+
+    async function handleParentLogin(event) {
+      event.preventDefault();
+
+      const email = document.getElementById('parentEmail').value.trim();
+      const password = document.getElementById('parentPassword').value;
+      const studentId = document.getElementById('studentId').value.trim();
+      const errorEl = document.getElementById('parentError');
+      const successEl = document.getElementById('parentSuccess');
+      const parentBtn = document.getElementById('parentBtn');
+      const loadingEl = document.getElementById('parentLoading');
+
+      // Clear messages
+      errorEl.classList.remove('show');
+      successEl.classList.remove('show');
+
+      if (!email || !password) {
+        showError(errorEl, 'Please enter email and password');
+        return;
+      }
+
+      parentBtn.disabled = true;
+      loadingEl.style.display = 'block';
+
+      try {
+        const loginUrl = `${API_URL}/auth/parent-login`;
+        console.log('Attempting parent login to:', loginUrl);
+        
+        const response = await fetch(loginUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: email,
+            password: password,
+            student_id: studentId || null
+          })
+        });
+
+        console.log('Response status:', response.status);
+        
+        const data = await response.json();
+        console.log('Response data:', data);
+
+        if (!response.ok) {
+          showError(errorEl, data.error || 'Login failed');
+          parentBtn.disabled = false;
+          loadingEl.style.display = 'none';
+          return;
+        }
+
+        // Save parent info to localStorage
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('userType', 'parent');
+        localStorage.setItem('isAuthenticated', 'true');
+
+        showSuccess(successEl, 'Login successful! Redirecting...');
+        
+        setTimeout(() => {
+          window.location.href = 'parent-portal.html';
+        }, 1500);
+
+      } catch (error) {
+        console.error('Parent login error details:', {
+          message: error.message,
+          stack: error.stack,
+          apiUrl: API_URL
+        });
+        showError(errorEl, `Connection error: ${error.message}`);
+        parentBtn.disabled = false;
         loadingEl.style.display = 'none';
       }
     }

@@ -40,20 +40,29 @@ window.addEventListener('load', () => {
 // ===========================
 // GLOBAL API CONFIGURATION
 // ===========================
-// Dynamically determine API URL based on current location
-    const API_URL = (() => {
-      // If backend is on same host (e.g., hosted together)
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://' + window.location.hostname + ':5000/api';
-      }
-      // For production/deployed scenarios
-      return 'http://localhost:5000/api';
-    })();
+// API resolution order:
+// 1) window.__API_BASE_URL (set in index.html before script.js)
+// 2) localStorage API_URL_OVERRIDE
+// 3) localhost -> local Flask server
+// 4) production -> same origin /api
+const API_URL = (() => {
+  const configuredApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  if (configuredApi) {
+    return configuredApi.replace(/\/+$/, '');
+  }
+
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return `http://${host}:5000/api`;
+  }
+
+  return `${window.location.origin}/api`;
+})();
 
 // ---------- Global State ----------
 const AppState = {
   theme: 'system',
-  view: 'dashboard',
+  view: 'dashboard', // Always start on dashboard
   selectedChildAdmissionNo: null, // For parent portal - tracks which child's data to display
 
   // Core data
@@ -155,6 +164,66 @@ async function fetchWithTimeout(url, opts = {}, timeout = 5000) {
   }
 }
 
+// Merge server receipts with local list, preserving unsynced entries.
+// Server receipts should include an `id` field; local receipts may only have
+// a generated `no` value and `synced: false`.
+function mergeReceipts(serverReceipts = []) {
+  const map = new Map();
+  (AppState.receipts || []).forEach(r => {
+    const key = r.id != null ? `id:${r.id}` : `local:${r.no}`;
+    map.set(key, r);
+  });
+  serverReceipts.forEach(sr => {
+    const key = sr.id != null ? `id:${sr.id}` : `local:${sr.no}`;
+    if (map.has(key)) {
+      // merge, preserving any local-only fields (like months, previousUnpaid)
+      const existing = map.get(key);
+      map.set(key, { ...existing, ...sr, synced: true });
+    } else {
+      map.set(key, { ...sr, synced: true });
+    }
+  });
+  return Array.from(map.values());
+}
+
+// Save a single local student to backend and get back the database ID
+async function syncLocalStudentToBackend(student) {
+  try {
+    const payload = {
+      roll_no: student.roll,
+      admission_date: student.admission_date || '',
+      aadhar_number: student.aadhar || '',
+      name: student.name,
+      email: student.email || '',
+      phone: student.phone || '',
+      class_name: student.class || '',
+      section: student.section || '',
+      date_of_birth: student.dob || '',
+      address: student.address || '',
+      father_name: student.father_name || '',
+      mother_name: student.mother_name || '',
+      status: student.status || 'Active'
+    };
+    
+    const response = await fetchWithTimeout(`${API_URL}/students`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 10000);
+    
+    if (!response || !response.ok) {
+      throw new Error(`Failed to save student: ${response?.status || 'no response'}`);
+    }
+    
+    const result = await response.json();
+    console.log('✅ Synced student to database:', result);
+    return result.id; // Return the database ID
+  } catch (e) {
+    console.error('Error syncing student to backend:', e);
+    throw e;
+  }
+}
+
 // Fetch students from backend API and update AppState.students
 async function fetchStudentsFromBackend() {
   try {
@@ -219,6 +288,7 @@ async function fetchStudentsFromBackend() {
 
 // ---------- Server Connection Check ----------
 let serverStatusCheckInterval = null;
+let dataAutoSyncInterval = null;
 let isServerConnected = false;
 
 async function checkServerConnection() {
@@ -293,6 +363,46 @@ function updateServerStatus(isConnected) {
   }
 }
 
+// Auto-sync data from database every 30 seconds
+async function autoSyncData() {
+  if (!isServerConnected) {
+    console.log('📴 Skipping auto-sync: Server offline');
+    return;
+  }
+  
+  try {
+    console.log('🔄 Auto-syncing data from database...');
+    await fetchStudentsFromBackend();
+    console.log('✅ Auto-sync complete');
+    saveState(); // Save synced data to localStorage as backup
+    
+    // Re-render if on students view
+    if (AppState.view === 'students' && typeof renderStudents === 'function') {
+      renderStudents();
+    }
+  } catch (e) {
+    console.warn('⚠️ Auto-sync failed:', e.message);
+  }
+}
+
+function startDataAutoSync() {
+  // Do initial sync immediately
+  setTimeout(autoSyncData, 2000);
+  
+  // Then start auto-sync every 30 seconds
+  if (dataAutoSyncInterval) clearInterval(dataAutoSyncInterval);
+  dataAutoSyncInterval = setInterval(autoSyncData, 30000);
+  console.log('🔄 Auto-sync enabled (every 30 seconds)');
+}
+
+function stopDataAutoSync() {
+  if (dataAutoSyncInterval) {
+    clearInterval(dataAutoSyncInterval);
+    dataAutoSyncInterval = null;
+    console.log('🛑 Auto-sync disabled');
+  }
+}
+
 function startServerStatusCheck() {
   // Initial check
   checkServerConnection();
@@ -300,6 +410,9 @@ function startServerStatusCheck() {
   // Check every 10 seconds
   if (serverStatusCheckInterval) clearInterval(serverStatusCheckInterval);
   serverStatusCheckInterval = setInterval(checkServerConnection, 10000);
+  
+  // Start auto-sync of data from database
+  startDataAutoSync();
 }
 
 function stopServerStatusCheck() {
@@ -307,14 +420,18 @@ function stopServerStatusCheck() {
     clearInterval(serverStatusCheckInterval);
     serverStatusCheckInterval = null;
   }
+  stopDataAutoSync();
 }
 
 function loadState() {
   try {
+    // First: Load cached state from localStorage as a quick fallback
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const stored = JSON.parse(raw);
+      // Preserve last view on page load
       Object.assign(AppState, stored);
+      if (!AppState.view) AppState.view = 'dashboard';
       // Check if stored data has all new classes, if not, reseed
       const requiredClasses = ['Nursery', 'LKG', 'UKG', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
       const hasAllClasses = requiredClasses.every(cls => AppState.feeHeadsByClass[cls]);
@@ -332,8 +449,19 @@ function loadState() {
     seedDemoData();
     saveState();
   }
-  // Always try to fetch students from backend (async, don't block)
-  fetchStudentsFromBackend().catch(e => console.warn('[WARN] Background data fetch failed:', e));
+  
+  // IMPORTANT: Always fetch fresh data from database on page reload
+  // This ensures data is always up-to-date, not stale from cache
+  console.log('📡 Fetching fresh data from database on page reload...');
+  fetchStudentsFromBackend()
+    .then(() => {
+      console.log('✅ Fresh data loaded from database');
+      // After fetching backend data, save it to localStorage as backup
+      saveState();
+    })
+    .catch(e => {
+      console.warn('[WARN] Could not fetch from database, using cached data:', e.message);
+    });
 }
 
 // ---------- Authentication ----------
@@ -573,7 +701,7 @@ function switchRole(role) {
     if (app) app.classList.remove('hidden');
     // Start server status monitoring for admin
     startServerStatusCheck();
-    switchView('dashboard');
+    switchView(AppState.view || 'dashboard');
   } else if (role_val === 'parent') {
     // Hide admin UI, show parent portal
     stopServerStatusCheck();
@@ -1013,7 +1141,7 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
  */
 async function printHTMLReceipt(receiptData) {
   try {
-    const response = await fetch('http://localhost:5000/api/receipt/html', {
+    const response = await fetch(`${API_URL}/receipt/html`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(receiptData)
@@ -1092,50 +1220,32 @@ function printPaymentReceipt(paymentIndex) {
 
 // ---------- Demo Seed Data ----------
 function seedDemoData() {
-  // Students
-  AppState.students = [
-    { roll: '1001', admission_date: '2020-06-10', name: 'Priya Kumari', dob: '2015-03-15', aadhar: '123456789012', father_name: 'Rajesh Kumari', mother_name: 'Anita Kumari', class: 'IX',  section: 'A', phone: '+91-98765 43210', status: 'Active' },
-    { roll: '1002', admission_date: '2019-05-20', name: 'Rahul Raj',    dob: '2014-07-22', aadhar: '234567890123', father_name: 'Vikram Raj', mother_name: 'Priya Raj', class: 'X',   section: 'B', phone: '+91-98765 11111', status: 'Active' },
-    { roll: '1003', admission_date: '2018-04-12', name: 'Anita Singh',  dob: '2013-11-08', aadhar: '345678901234', father_name: 'Arjun Singh', mother_name: 'Meera Singh', class: 'XII', section: 'A', phone: '+91-98765 22222', status: 'Pending' },
-    { roll: '1004', admission_date: '2021-03-15', name: 'Aman Kumar',   dob: '2016-01-30', aadhar: '456789012345', father_name: 'Suresh Kumar', mother_name: 'Divya Kumar', class: 'VIII',section: 'C', phone: '+91-98765 33333', status: 'Active' },
-  ];
-  AppState.kpi.totalStudents = AppState.students.length;
+  // Initialize with empty students array - ready for real data
+  AppState.students = [];
+  AppState.kpi.totalStudents = 0;
 
-  // Fee heads per class
+  // Fee heads per class (Transport is dynamically added based on assignment)
   AppState.feeHeadsByClass = {
-    'Nursery': { Tuition: 300, Transport: 100, Activity: 20, Miscellaneous: 50 },
-    'LKG':     { Tuition: 350, Transport: 120, Activity: 25, Miscellaneous: 60 },
-    'UKG':     { Tuition: 400, Transport: 150, Activity: 30, Miscellaneous: 70 },
-    'I':       { Tuition: 450, Transport: 150, Activity: 35, Miscellaneous: 75 },
-    'II':      { Tuition: 500, Transport: 180, Activity: 40, Miscellaneous: 85 },
-    'III':     { Tuition: 550, Transport: 200, Activity: 45, Miscellaneous: 95 },
-    'IV':      { Tuition: 600, Transport: 220, Activity: 50, Miscellaneous: 100 },
-    'V':       { Tuition: 650, Transport: 250, Lab: 75, Miscellaneous: 110 },
-    'VI':      { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
-    'VII':     { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
-    'VIII':    { Tuition: 700, Transport: 250, Activity: 50, Miscellaneous: 120 },
-    'IX':      { Tuition: 800, Transport: 300, Lab: 100, Miscellaneous: 130 },
-    'X':       { Tuition: 900, Transport: 300, Lab: 120, Miscellaneous: 130 }
+    'Nursery': { Tuition: 300, Activity: 20, Miscellaneous: 50 },
+    'LKG':     { Tuition: 350, Activity: 25, Miscellaneous: 60 },
+    'UKG':     { Tuition: 400, Activity: 30, Miscellaneous: 70 },
+    'I':       { Tuition: 450, Activity: 35, Miscellaneous: 75 },
+    'II':      { Tuition: 500, Activity: 40, Miscellaneous: 85 },
+    'III':     { Tuition: 550, Activity: 45, Miscellaneous: 95 },
+    'IV':      { Tuition: 600, Activity: 50, Miscellaneous: 100 },
+    'V':       { Tuition: 650, Lab: 75, Miscellaneous: 110 },
+    'VI':      { Tuition: 700, Lab: 100, Miscellaneous: 120 },
+    'VII':     { Tuition: 700, Lab: 100, Miscellaneous: 120 },
+    'VIII':    { Tuition: 700, Activity: 50, Miscellaneous: 120 },
+    'IX':      { Tuition: 800, Lab: 100, Miscellaneous: 130 },
+    'X':       { Tuition: 900, Lab: 120, Miscellaneous: 130 }
   };
 
-  // Fees (create for last 3 months showing up in parent portal)
-  // Uses getFeesForStudentMonth to dynamically include/exclude Miscellaneous fee based on month
-  const lastNMonths = genLastNMonths(3);
-  AppState.students.forEach(s => {
-    lastNMonths.forEach(month => {
-      const key = `${s.roll}|${month}`;
-      // Only create if doesn't exist
-      if (!AppState.fees[key]) {
-        const heads = getFeesForStudentMonth(s, month);
-        AppState.fees[key] = { heads, paid: 0, discount: 0, lateFee: 0 };
-      }
-    });
-  });
+  // No demo fees - will be created when students pay
+  // AppState.fees remains as is (empty or existing)
 
-  // One sample receipt
-  AppState.receipts = [
-    { no: 'R-0001', date: todayYYYYMMDD(), roll: '1001', name: 'Priya Kumari', method: 'UPI', amount: 500, ref: 'TXN123' }
-  ];
+  // No demo receipts - ready for real receipts
+  AppState.receipts = [];
 
   // KPIs
   AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
@@ -1174,60 +1284,9 @@ function seedDemoData() {
     });
   }
 
-  // Notices seed (only if empty)
+  // No demo notices - ready for real notices
   if (AppState.notices.length === 0) {
-    AppState.notices.push(
-      {
-        id: 'notice-1',
-        title: 'Parent-Teacher Meeting',
-        description: 'A parent-teacher meeting is scheduled on March 2nd, 2026 at 3:00 PM in the school auditorium. Parents are requested to bring their ward\'s report card.',
-        author: 'Principal',
-        date: '2026-02-15',
-        priority: 'high',
-        audience: 'parents',
-        status: 'active'
-      },
-      {
-        id: 'notice-2',
-        title: 'Annual Sports Day',
-        description: 'Our Annual Sports Day will be held on March 15th, 2026. Students are requested to participate in various events. Interested students can register with their class teacher.',
-        author: 'Sports Coordinator',
-        date: '2026-02-10',
-        priority: 'medium',
-        audience: 'students',
-        status: 'active'
-      },
-      {
-        id: 'notice-3',
-        title: 'Exam Schedule Released',
-        description: 'The final examination schedule for classes VIII to X has been released. Students can view the schedule on the school portal. All students must be present on their exam dates.',
-        author: 'Academic Head',
-        date: '2026-02-05',
-        priority: 'high',
-        audience: 'all',
-        status: 'active'
-      },
-      {
-        id: 'notice-4',
-        title: 'School Closed for Holi',
-        description: 'School will remain closed on March 8th and 9th for Holi celebration. Regular classes will resume on March 10th, 2026.',
-        author: 'Administration',
-        date: '2026-02-01',
-        priority: 'medium',
-        audience: 'all',
-        status: 'active'
-      },
-      {
-        id: 'notice-5',
-        title: 'Fee Payment Reminder',
-        description: 'Please note that the monthly fees for February 2026 are due by February 10th. Late submission will attract a 5% penalty.',
-        author: 'Finance Office',
-        date: '2026-02-01',
-        priority: 'low',
-        audience: 'parents',
-        status: 'inactive'
-      }
-    );
+    AppState.notices = [];
   }
 }
 
@@ -1650,10 +1709,19 @@ function switchView(viewId) {
   }, 300);
 
   AppState.view = viewId;
+  
+  // Hide all views
   const views = document.querySelectorAll('.view');
   views.forEach(v => v.classList.add('hidden'));
+  
+  // Show target view
   const target = document.getElementById(`view-${viewId}`);
-  if (target) target.classList.remove('hidden');
+  if (target) {
+    target.classList.remove('hidden');
+  }
+  
+  // Smooth scroll to top on view change
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
   // Use requestAnimationFrame for smooth rendering
   requestAnimationFrame(async () => {
@@ -1673,11 +1741,11 @@ function switchView(viewId) {
 let admissionsChart, attendanceChart;
 let chartRenderInProgress = false;
 
-// Fetch dashboard statistics from database
+// Fetch dashboard statistics from database (with timeout)
 async function fetchDashboardStats() {
   try {
-    const response = await fetch(`${API_URL}/stats/dashboard`);
-    if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+    const response = await fetchWithTimeout(`${API_URL}/stats/dashboard`, {}, 8000);
+    if (!response || !response.ok) throw new Error('Failed to fetch dashboard stats');
     const stats = await response.json();
     return stats;
   } catch (e) {
@@ -1686,12 +1754,12 @@ async function fetchDashboardStats() {
   }
 }
 
-// Fetch attendance data for today
+// Fetch attendance data for today (with timeout)
 async function fetchTodayAttendance() {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const response = await fetch(`${API_URL}/attendance?date=${today}`);
-    if (!response.ok) throw new Error('Failed to fetch attendance');
+    const response = await fetchWithTimeout(`${API_URL}/attendance?date=${today}`, {}, 8000);
+    if (!response || !response.ok) throw new Error('Failed to fetch attendance');
     const attendance = await response.json();
     return attendance;
   } catch (e) {
@@ -1747,9 +1815,14 @@ function renderDashboard(){
     btnRefresh.onclick = async () => {
       btnRefresh.disabled = true;
       btnRefresh.textContent = '⏳ Syncing...';
-      await loadDashboardData();
-      btnRefresh.disabled = false;
-      btnRefresh.textContent = '🔄 Refresh';
+      try {
+        await loadDashboardData();
+      } catch (err) {
+        console.error('Refresh failed:', err);
+      } finally {
+        btnRefresh.disabled = false;
+        btnRefresh.textContent = '🔄 Refresh';
+      }
     };
   }
   
@@ -1829,21 +1902,32 @@ function renderStudentStatusOverview(students = []) {
 
 
 async function loadDashboardData() {
-  // Fetch all data in parallel
-  const [stats, todayAttendance, allStudents, allPayments] = await Promise.all([
+  // Fetch all data in parallel, but don't let one slow request block everything
+  const [statsRes, attendanceRes, studentsRes, paymentsRes] = await Promise.allSettled([
     fetchDashboardStats(),
     fetchTodayAttendance(),
     fetchAllStudents(),
     fetchAllPayments()
   ]);
 
+  const stats = statsRes.status === 'fulfilled' ? statsRes.value : null;
+  const todayAttendance = attendanceRes.status === 'fulfilled' ? attendanceRes.value : [];
+  const allStudents = studentsRes.status === 'fulfilled' ? studentsRes.value : [];
+  const allPayments = paymentsRes.status === 'fulfilled' ? paymentsRes.value : [];
+
+  if (statsRes.status === 'rejected') console.warn('Dashboard stats failed:', statsRes.reason);
+  if (attendanceRes.status === 'rejected') console.warn('Attendance fetch failed:', attendanceRes.reason);
+  if (studentsRes.status === 'rejected') console.warn('Students fetch failed:', studentsRes.reason);
+  if (paymentsRes.status === 'rejected') console.warn('Payments fetch failed:', paymentsRes.reason);
+
   // Map backend payments into AppState.receipts so fee KPIs use real data
   try {
     const studentById = {};
     allStudents.forEach(s => { studentById[s.id] = s; });
-    AppState.receipts = (allPayments || []).map(p => {
+    const serverReceipts = (allPayments || []).map(p => {
       const student = studentById[p.student_id] || {};
       return {
+        id: p.id,
         no: p.id,
         date: p.payment_date,
         roll: student.roll_no || student.roll || '',
@@ -1854,6 +1938,10 @@ async function loadDashboardData() {
         status: p.status || ''
       };
     });
+
+    // merge server receipts with any local unsynced entries
+    AppState.receipts = mergeReceipts(serverReceipts);
+    saveState();
   } catch (e) {
     console.warn('Failed to map payments to receipts:', e);
   }
@@ -2107,14 +2195,29 @@ function renderStudents(){
         const roll=btn.getAttribute('data-roll');
         const student=AppState.students.find(s=> s.roll===roll);
         if(!student) return;
+        
+        // If student doesn't have an ID, sync it to backend first
+        if(!student.id) {
+          if(!confirm(`This student hasn't been saved to the database yet. Save it now and then delete?`)) return;
+          
+          try {
+            const newId = await syncLocalStudentToBackend(student);
+            student.id = newId; // Update the student with the new ID
+            saveState();
+            console.log(`✅ Student ${student.name} saved to database with ID: ${newId}`);
+          } catch (err) {
+            alert(`Error saving student to database: ${err.message}. Cannot delete until saved.`);
+            return;
+          }
+        }
+        
         if(!confirm(`Delete student ${student.name} (Roll: ${roll})? This action cannot be undone.`)) return;
         
         try {
           // Delete from backend database by student id (stable)
-          if(!isServerConnected){
-            alert('Server offline - cannot delete student now');
-            return;
-          }
+          // the fetch itself will fail if the server is unreachable; the
+          // offline flag is only advisory so we no longer block based solely
+          // on it.
           const response = await fetch(`${API_URL}/students/${student.id}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' }
@@ -2261,9 +2364,10 @@ async function renderFees(){
     if (allPayments && Array.isArray(allPayments)) {
       const studentById = {};
       AppState.students.forEach(s => { studentById[s.id] = s; });
-      AppState.receipts = allPayments.map(p => {
+      const serverReceipts = allPayments.map(p => {
         const student = studentById[p.student_id] || {};
         return {
+          id: p.id,
           no: p.id,
           date: p.payment_date,
           roll: student.roll_no || student.roll || '',
@@ -2274,6 +2378,7 @@ async function renderFees(){
           status: p.status || 'completed'
         };
       });
+      AppState.receipts = mergeReceipts(serverReceipts);
       console.log('[Fees] Updated receipts:', AppState.receipts.length);
     }
   } catch (e) {
@@ -2370,6 +2475,8 @@ function renderRecentReceipts(){
       <td>${r.name}</td>
       <td>${r.method}</td>
       <td>${fmtINR(r.amount)}</td>
+      <td>${fmtINR(r.discount||0)}</td>
+      <td>${fmtINR(r.late_fee||0)}</td>
       <td style="text-align:right;">
         <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
         <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
@@ -2387,15 +2494,44 @@ function renderRecentReceipts(){
 
 // ---------- CSV Export (Core) ----------
 function exportStudentsCSV(){
-  const header=['roll','admission_date','name','dob','aadhar','father_name','mother_name','class','section','phone','status'];
-  const rows=AppState.students.map(s=> [s.roll,s.admission_date||'',s.name,s.dob||'',s.aadhar||'',s.father_name||'',s.mother_name||'',s.class,s.section,s.phone,s.status]);
-  const csv=arrayToCSV([header,...rows]);
-  downloadFile('students.csv',csv);
+  if (AppState.students.length === 0) {
+    alert('No students to export!');
+    return;
+  }
+  
+  const header = [
+    'Roll No', 'Admission Date', 'Name', 'Date of Birth', 'Aadhar Number',
+    'Father Name', 'Mother Name', 'Class', 'Section', 'Phone', 'Status',
+    'Email', 'Address'
+  ];
+  
+  const rows = AppState.students.map(s => [
+    s.roll || '',
+    s.admission_date || '',
+    s.name || '',
+    s.dob || '',
+    s.aadhar || '',
+    s.father_name || '',
+    s.mother_name || '',
+    s.class || '',
+    s.section || '',
+    s.phone || '',
+    s.status || '',
+    s.email || '',
+    s.address || ''
+  ]);
+  
+  const csv = arrayToCSV([header, ...rows]);
+  const filename = `students_export_${new Date().toISOString().slice(0,10)}.csv`;
+  downloadFile(filename, csv);
+  
+  console.log(`✅ Exported ${rows.length} students to ${filename}`);
+  alert(`Successfully exported ${rows.length} students!`);
 }
 function exportReceiptsCSV(){
-  const header=['no','date','roll','name','method','amount','ref','previous_unpaid'];
+  const header=['no','date','roll','name','method','amount','discount','late_fee','ref','previous_unpaid'];
   const rows=AppState.receipts.map(r=> [
-    r.no,r.date,r.roll,r.name,r.method,r.amount,r.ref||'',
+    r.no,r.date,r.roll,r.name,r.method,r.amount,r.discount||0,r.late_fee||0,r.ref||'',
     r.previousUnpaid || ''
   ]);
   const csv=arrayToCSV([header,...rows]);
@@ -2418,7 +2554,7 @@ function openModal(sel){
     };
   });
 
-  if(sel==='#modalAddStudent')     initAddStudentModal();
+  if(sel==='#modalAddStudent')     { initAddStudentModal(); loadTransportRoutesIntoForm(); }
   if(sel==='#modalImportCSV')      initImportCSVModal();
   if(sel==='#modalRecordPayment')  initRecordPaymentModal();
   if(sel==='#modalFeeHeads')       initFeeHeadsModal();
@@ -2428,6 +2564,34 @@ function openModal(sel){
   if(sel==='#modalCreateClass')    initCreateClassModal();
 
   return true;
+}
+
+async function loadTransportRoutesIntoForm() {
+  const select = qs('#addStudentTransportRoute');
+  if (!select) return;
+  
+  try {
+    if (isServerConnected) {
+      const response = await fetch(`${API_URL}/transport/routes`);
+      if (response.ok) {
+        const routes = await response.json();
+        const activeRoutes = routes.filter(r => r.status === 'Active');
+        
+        // Clear existing options except "No Transport"
+        select.innerHTML = '<option value="">No Transport</option>';
+        
+        // Add route options
+        activeRoutes.forEach(route => {
+          const option = document.createElement('option');
+          option.value = route.id;
+          option.textContent = `${route.route_name} - ₹${route.fee_amount}/month`;
+          select.appendChild(option);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load transport routes:', err);
+  }
 }
 
 function initAddStudentModal(){
@@ -2564,6 +2728,26 @@ function initAddStudentModal(){
 
       AppState.kpi.totalStudents=AppState.students.length;
       saveState();
+
+      // Handle transport assignment if a route was selected
+      const transportRouteId = data.transport_route;
+      if (saved.id && transportRouteId && transportRouteId !== '') {
+        try {
+          const transportResp = await fetch(`${API_URL}/students/${saved.id}/transport`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              transport_assigned: 1,
+              transport_route_id: parseInt(transportRouteId)
+            })
+          });
+          if (!transportResp.ok) {
+            console.warn('Failed to assign transport:', await transportResp.text());
+          }
+        } catch (err) {
+          console.warn('Error assigning transport:', err);
+        }
+      }
 
       // Reset modal to add mode
       delete form.dataset.editRoll;
@@ -2772,6 +2956,20 @@ function initRecordPaymentModal(){
           alert('Please select at least one month to mark as previously collected.');
           return;
         }
+        
+        // Warning dialog for marking previous fees
+        const monthsList = selectedMonths.map(m => formatMonthYear(m)).join(', ');
+        const confirmed = confirm(
+          `⚠️ WARNING:\n\n` +
+          `You are about to mark the following months as previously collected:\n\n${monthsList}\n\n` +
+          `These months will be marked as PAID and will not appear in unpaid fees again.\n\n` +
+          `Are you SURE you want to continue?`
+        );
+        
+        if (!confirmed) {
+          return; // User cancelled
+        }
+        
         selectedMonths.forEach(month => {
           const key = `${currentStudent.roll}|${month}`;
           const heads = (AppState.fees[key] && AppState.fees[key].heads) || getFeesForStudentMonth(currentStudent, month) || {};
@@ -2779,16 +2977,34 @@ function initRecordPaymentModal(){
           AppState.fees[key] = { heads, paid: total, discount:0, lateFee:0, lastReceipt:'PREVIOUS' };
         });
         saveState();
-        rpStatus.textContent = `Marked ${selectedMonths.length} month(s) as collected previously.`;
+        rpStatus.textContent = `✅ Marked ${selectedMonths.length} month(s) as collected previously.`;
         loadUnpaidMonths();
       };
     }
   }
 
-  function loadHeads(){
+  async function loadHeads(){
     if (!currentStudent || selectedMonths.length === 0) {
       rpHeadsWrap.innerHTML = '';
       return;
+    }
+    
+    // Fetch transport assignment from backend if student has ID
+    let transportFee = 0;
+    let hasTransport = false;
+    if (currentStudent.id && isServerConnected) {
+      try {
+        const response = await fetch(`${API_URL}/students/${currentStudent.id}/transport-fee`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.transport_assigned === 1 && data.transport_fee > 0) {
+            transportFee = data.transport_fee;
+            hasTransport = true;
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch transport fee:', err);
+      }
     }
     
     // Aggregate heads for all selected months
@@ -2800,8 +3016,10 @@ function initRecordPaymentModal(){
 
       if(!fee){
         let defHeads = {...(getFeesForStudentMonth(currentStudent, month) || { Tuition:800 })};
-        const a = AppState.transport.assignments.find(x => x.roll===currentStudent.roll && x.status==='active');
-        if (a) defHeads = { ...defHeads, Transport: Number(a.fee || 0) };
+        // Add transport fee only if student is assigned to transport
+        if (hasTransport && transportFee > 0) {
+          defHeads = { ...defHeads, Transport: transportFee };
+        }
         fee = AppState.fees[key] = { heads: defHeads, paid:0, discount:0, lateFee:0 };
       }
       
@@ -2919,6 +3137,8 @@ function initRecordPaymentModal(){
       payment_date: r.date,
       payment_method: r.method,
       transaction_id: r.ref,
+      discount: r.discount || 0,
+      late_fee: r.late_fee || 0,
       purpose: r.months ? `Fees ${r.months.join(', ')}` : 'Fee',
       status: r.status || 'Completed',
       remarks: r.previousUnpaid ? `Carry ₹${r.previousUnpaid}` : ''
@@ -3006,7 +3226,9 @@ function savePayment(printAfter){
         roll: currentStudent.roll, 
         name: currentStudent.name, 
         method: rpMethod.value,
-        amount: payNow, 
+        amount: payNow,
+        discount: discount,
+        late_fee: lateFee,
         ref: (rpRef.value||'').trim(),
         months: selectedMonths, // include months in receipt
         status: 'Completed' // make KPIs count it
@@ -4009,7 +4231,29 @@ function exportClassesCSV(){
 }
 
 // ---------- Transport View ----------
-function renderTransport() {
+async function renderTransport() {
+  // Load routes from backend if connected
+  if (isServerConnected) {
+    try {
+      const response = await fetch(`${API_URL}/transport/routes`);
+      if (response.ok) {
+        const routes = await response.json();
+        // Update AppState with backend data
+        AppState.transport.routes = routes.map(r => ({
+          id: r.id,
+          name: r.route_name,
+          route_name: r.route_name,
+          fee_amount: r.fee_amount,
+          destination: r.destination,
+          route_description: r.route_description,
+          status: r.status
+        }));
+      }
+    } catch (err) {
+      console.warn('Could not load transport routes:', err);
+    }
+  }
+
   // KPIs
   const trKpiRoutes = qs('#trKpiRoutes');
   if (trKpiRoutes) trKpiRoutes.textContent = String(AppState.transport.routes.length);
@@ -4024,7 +4268,7 @@ function renderTransport() {
   const routeSel = qs('#trFilterRoute');
   if (routeSel) {
     routeSel.innerHTML = `<option value="">All Routes</option>` +
-      AppState.transport.routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+      AppState.transport.routes.map(r => `<option value="${r.id}">${r.name || r.route_name}</option>`).join('');
   }
 
   // Buttons
@@ -4057,15 +4301,15 @@ function renderTransport() {
 function renderTrRoutesTable() {
   const body = qs('#trRoutesBody'); if (!body) return;
   const status = qs('#trFilterStatus')?.value || '';
-  const rows = AppState.transport.routes.filter(r => !status || r.status === status);
+  const rows = AppState.transport.routes.filter(r => !status || r.status?.toLowerCase() === status.toLowerCase());
 
   body.innerHTML = rows.map(r => `
     <tr>
-      <td>${r.name}</td>
-      <td>${(r.stops||[]).join(', ')}</td>
-      <td>${r.pickup || '-'}</td>
-      <td>${r.drop || '-'}</td>
-      <td><span class="badge">${r.status}</span></td>
+      <td><strong>${r.name || r.route_name}</strong></td>
+      <td>${r.destination || '-'}</td>
+      <td>₹${r.fee_amount || 0}/month</td>
+      <td>${r.route_description || '-'}</td>
+      <td><span class="badge ${r.status?.toLowerCase() === 'active' ? 'success' : 'warning'}">${r.status || 'Active'}</span></td>
       <td style="text-align:right;">
         <button class="btn btn-ghost small" data-act="editRoute" data-id="${r.id}">Edit</button>
         <button class="btn btn-ghost small" data-act="delRoute" data-id="${r.id}">Delete</button>
@@ -4077,10 +4321,25 @@ function renderTrRoutesTable() {
     b.onclick = () => { if (openModal('#modalTrRoute')) initTrRouteModal(b.getAttribute('data-id')); };
   });
   qsa('button[data-act="delRoute"]').forEach(b => {
-    b.onclick = () => {
+    b.onclick = async () => {
       const id = b.getAttribute('data-id');
-      if (!confirm('Delete route?')) return;
-      AppState.transport.routes = AppState.transport.routes.filter(x => x.id !== id);
+      if (!confirm('Delete this transport route? Students assigned to it will be unassigned.')) return;
+      
+      if (isServerConnected) {
+        try {
+          const response = await fetch(`${API_URL}/transport/routes/${id}`, {
+            method: 'DELETE'
+          });
+          if (!response.ok) {
+            throw new Error('Failed to delete route');
+          }
+        } catch (err) {
+          alert('Failed to delete route: ' + err.message);
+          return;
+        }
+      }
+      
+      AppState.transport.routes = AppState.transport.routes.filter(x => x.id != id);
       saveState();
       renderTransport();
     };
@@ -4245,48 +4504,94 @@ function initTrAssignModal(editRoll) {
   };
 }
 
-function initTrRouteModal(editId) {
+async function initTrRouteModal(editId) {
   const form = qs('#formTrRoute');
   const idEl = qs('#trRouteId');
   const nameEl = qs('#trRouteName');
-  const pickEl = qs('#trRoutePickup');
-  const dropEl = qs('#trRouteDrop');
-  const stopsEl = qs('#trRouteStops');
+  const feeEl = qs('#trRouteFee');
+  const destEl = qs('#trRouteDestination');
+  const descEl = qs('#trRouteDescription');
   const statusEl = qs('#trRouteStatus');
+  const headerEl = qs('#modalTrRoute .modal__header h3');
 
   if (editId) {
-    const r = AppState.transport.routes.find(x => x.id === editId);
-    if (r) {
-      idEl.value = r.id; idEl.disabled = true;
-      nameEl.value = r.name;
-      pickEl.value = r.pickup || '';
-      dropEl.value = r.drop || '';
-      stopsEl.value = (r.stops || []).join(', ');
-      statusEl.value = r.status || 'active';
+    headerEl.textContent = 'Edit Transport Route';
+    // Load route data from backend
+    try {
+      const response = await fetch(`${API_URL}/transport/routes`);
+      if (response.ok) {
+        const routes = await response.json();
+        const r = routes.find(x => x.id === editId);
+        if (r) {
+          idEl.value = r.id;
+          nameEl.value = r.route_name;
+          feeEl.value = r.fee_amount;
+          destEl.value = r.destination || '';
+          descEl.value = r.route_description || '';
+          statusEl.value = r.status || 'Active';
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load route data:', err);
     }
   } else {
-    idEl.disabled = false; idEl.value = '';
-    nameEl.value = ''; pickEl.value = ''; dropEl.value = '';
-    stopsEl.value = ''; statusEl.value = 'active';
+    headerEl.textContent = 'Add Transport Route';
+    idEl.value = '';
+    nameEl.value = '';
+    feeEl.value = '';
+    destEl.value = '';
+    descEl.value = '';
+    statusEl.value = 'Active';
   }
 
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
+    if (!isServerConnected) {
+      alert('Cannot save route because backend server is offline.');
+      return;
+    }
+
     const data = {
-      id: idEl.value.trim(),
-      name: nameEl.value.trim(),
-      pickup: pickEl.value,
-      drop: dropEl.value,
-      stops: (stopsEl.value || '').split(',').map(x => x.trim()).filter(Boolean),
+      route_name: nameEl.value.trim(),
+      fee_amount: parseFloat(feeEl.value),
+      destination: destEl.value.trim() || null,
+      route_description: descEl.value.trim() || null,
+      vehicle_id: null,
       status: statusEl.value
     };
-    if (!data.id || !data.name) { alert('Route ID and name are required'); return; }
-    const idx = AppState.transport.routes.findIndex(x => x.id === data.id);
-    if (idx >= 0) AppState.transport.routes[idx] = data;
-    else AppState.transport.routes.push(data);
-    saveState();
-    form.parentElement.close();
-    renderTransport();
+
+    if (!data.route_name || !data.fee_amount) {
+      alert('Route name and fee amount are required');
+      return;
+    }
+
+    try {
+      let response;
+      if (editId) {
+        response = await fetch(`${API_URL}/transport/routes/${editId}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+      } else {
+        response = await fetch(`${API_URL}/transport/routes`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      form.parentElement.close();
+      renderTransport();
+      // Reload routes in Add Student form if it's open
+      loadTransportRoutesIntoForm();
+    } catch (err) {
+      alert('Failed to save route: ' + err.message);
+    }
   };
 }
 
@@ -4799,6 +5104,10 @@ function init(){
       console.log('[init] initLoginHandlers');
       initLoginHandlers();
     }
+    
+    // start server connection monitoring right away so views can delete/add etc
+    console.log('[init] startServerStatusCheck');
+    startServerStatusCheck();
     
     // Load state (including data fetch)
     console.log('[init] loadState');
