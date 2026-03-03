@@ -331,9 +331,14 @@ async function checkServerConnection() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
+    // Always resolve the latest runtime override (localStorage/window) so
+    // server status doesn't stay stale after tunnel URL changes.
+    const runtimeApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || API_URL || '').trim()
+      .replace(/\/+$/, '');
+
     // Compute base address by stripping trailing "/api" so we can hit a simple
-    // health or root URL that exists regardless of api path configuration.
-    const base = API_URL.replace(/\/api$/, '');
+    // health URL regardless of api path configuration.
+    const base = runtimeApi.replace(/\/api$/, '');
 
     // The backend exposes `/health` which responds quickly without CORS issues.
     const response = await fetch(base + '/health', {
