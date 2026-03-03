@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Configure API URL</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 0; background: #0b1430; color: #e7ecff; display: grid; place-items: center; min-height: 100vh; }
+    .card { width: min(92vw, 640px); background: #101b3e; border: 1px solid #2a3c78; border-radius: 14px; padding: 20px; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+    h1 { margin: 0 0 10px; font-size: 22px; }
+    p { margin: 8px 0; line-height: 1.45; }
+    .ok { color: #7af7a8; }
+    .bad { color: #ff9f9f; }
+    code { background: #0a1330; border: 1px solid #2a3c78; padding: 2px 6px; border-radius: 6px; }
+    a.btn { display: inline-block; margin-top: 12px; background: linear-gradient(90deg,#5d7bff,#8d60f3); color: #fff; text-decoration: none; padding: 10px 14px; border-radius: 9px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Backend API Setup</h1>
+    <p id="status">Applying configuration...</p>
+    <p id="api"></p>
+    <a id="go" class="btn" href="login.html">Open Login</a>
+  </div>
+
+  <script>
+    (function () {
+      const statusEl = document.getElementById('status');
+      const apiEl = document.getElementById('api');
+      const goEl = document.getElementById('go');
+      const params = new URLSearchParams(window.location.search);
+      const rawApi = (params.get('api') || '').trim();
+      const redirect = (params.get('redirect') || 'login.html').trim();
+
+      if (!rawApi) {
+        statusEl.className = 'bad';
+        statusEl.textContent = 'Missing api parameter.';
+        apiEl.innerHTML = 'Example: <code>?api=https://example.trycloudflare.com/api</code>';
+        return;
+      }
+
+      let normalized = rawApi.replace(/\/+$/, '');
+      if (!/\/api$/i.test(normalized)) {
+        normalized += '/api';
+      }
+
+      localStorage.setItem('API_URL_OVERRIDE', normalized);
+      statusEl.className = 'ok';
+      statusEl.textContent = 'API override saved successfully.';
+      apiEl.innerHTML = `Current API: <code>${normalized}</code>`;
+      goEl.href = redirect;
+
+      setTimeout(() => {
+        window.location.href = redirect;
+      }, 1200);
+    })();
+  </script>
+</body>
+</html>

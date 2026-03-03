@@ -9,7 +9,7 @@ if (-not (Test-Path $startScript)) {
 }
 
 $pwsh = (Get-Command powershell.exe).Source
-$taskAction = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$startScript`" -Silent"
+$taskAction = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$startScript`" -Silent -ApplyGitHubOverride"
 $taskTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Limited -LogonType Interactive
 $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable

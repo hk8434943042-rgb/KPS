@@ -1,5 +1,6 @@
 param(
-  [switch]$Silent
+  [switch]$Silent,
+  [switch]$ApplyGitHubOverride
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,4 +124,16 @@ if ($tunnelUrl) {
   Write-Info "API URL: $tunnelUrl/api"
 } else {
   Write-Info 'Tunnel URL not detected yet. Check scripts/local/runtime/tunnel.log.'
+}
+
+if ($ApplyGitHubOverride -and $tunnelUrl) {
+  $applyScript = Join-Path $scriptDir 'apply-github-api-override.ps1'
+  if (Test-Path $applyScript) {
+    try {
+      & $applyScript | Out-Null
+      Write-Info 'Applied GitHub Pages API override in browser.'
+    } catch {
+      Write-Info "Failed to auto-apply GitHub override: $($_.Exception.Message)"
+    }
+  }
 }
