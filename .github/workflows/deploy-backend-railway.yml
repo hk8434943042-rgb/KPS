@@ -1,0 +1,27 @@
+name: Trigger Railway Backend Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'database/**'
+      - 'Procfile'
+      - 'requirements.txt'
+      - '.github/workflows/deploy-backend-railway.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Railway deploy hook
+        env:
+          RAILWAY_DEPLOY_HOOK_URL: ${{ secrets.RAILWAY_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RAILWAY_DEPLOY_HOOK_URL" ]; then
+            echo "RAILWAY_DEPLOY_HOOK_URL is not set. Skipping backend trigger."
+            exit 0
+          fi
+          curl -fsSL -X POST "$RAILWAY_DEPLOY_HOOK_URL"

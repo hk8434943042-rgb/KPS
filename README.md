@@ -44,3 +44,12 @@ This project was organized to keep the root clean and easier to manage.
 ## Notes
 
 If any old script/command still references former root paths, update it to the new locations above.
+
+## Hosting (Frontend + Backend)
+
+- Frontend (GitHub Pages): `https://hk8434943042-rgb.github.io/KPS/`
+- Full setup guide: `docs/GITHUB_PAGES_BACKEND_SETUP.md`
+- Backend + DB hosting is configured for Railway-compatible deployment using:
+  - `Procfile`
+  - `requirements.txt` (root, delegating to backend)
+  - `.github/workflows/deploy-backend-railway.yml`
