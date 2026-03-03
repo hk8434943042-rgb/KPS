@@ -64,6 +64,9 @@ if ($listener) {
 } else {
   Write-Info 'Starting backend on port 5000...'
   $backendCmd = "Set-Location '$repoRoot'; if (Test-Path '.\.venv\Scripts\Activate.ps1') { . '.\.venv\Scripts\Activate.ps1' }; python backend\01_app.py"
+  $dbFile = Join-Path $repoRoot 'database\school.db'
+  $dbUrl = ('sqlite:///' + ($dbFile -replace '\\','/'))
+  $backendCmd = "Set-Location '$repoRoot'; `$env:DATABASE_URL='$dbUrl'; if (Test-Path '.\.venv\Scripts\Activate.ps1') { . '.\.venv\Scripts\Activate.ps1' }; python backend\01_app.py"
   $backendProc = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-Command',$backendCmd) -WindowStyle Hidden -RedirectStandardOutput $backendLog -RedirectStandardError $backendErrLog -PassThru
   $backendPid = $backendProc.Id
 
