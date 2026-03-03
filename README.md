@@ -48,8 +48,12 @@ If any old script/command still references former root paths, update it to the n
 ## Hosting (Frontend + Backend)
 
 - Frontend (GitHub Pages): `https://hk8434943042-rgb.github.io/KPS/`
+- Backend health: ![Backend Health](https://github.com/hk8434943042-rgb/KPS/actions/workflows/backend-health-check.yml/badge.svg)
 - Full setup guide: `docs/GITHUB_PAGES_BACKEND_SETUP.md`
 - Backend + DB hosting is configured for Railway-compatible deployment using:
   - `Procfile`
   - `requirements.txt` (root, delegating to backend)
   - `.github/workflows/deploy-backend-railway.yml`
+  - `.github/workflows/backend-health-check.yml`
+
+Set repo secret `BACKEND_API_URL` (example: `https://your-backend.up.railway.app`) to enable the health check.

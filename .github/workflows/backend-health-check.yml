@@ -1,0 +1,78 @@
+name: Backend Health Check
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate backend URL secret
+        env:
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+        run: |
+          if [ -z "$BACKEND_API_URL" ]; then
+            echo "BACKEND_API_URL secret is missing."
+            echo "Set BACKEND_API_URL in GitHub repo secrets (example: https://your-backend.up.railway.app)."
+            exit 1
+          fi
+
+      - name: Check /health endpoint
+        env:
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import urllib.request
+          import urllib.error
+
+          base_url = os.environ.get("BACKEND_API_URL", "").strip().rstrip("/")
+          if not base_url:
+              print("BACKEND_API_URL is not set.")
+              sys.exit(1)
+
+          if base_url.endswith("/api"):
+              health_url = base_url[:-4] + "/health"
+          elif base_url.endswith("/health"):
+              health_url = base_url
+          else:
+              health_url = base_url + "/health"
+
+          print(f"Checking health endpoint: {health_url}")
+
+          request = urllib.request.Request(
+              health_url,
+              method="GET",
+              headers={"User-Agent": "github-actions-backend-health-check"}
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  status = response.status
+                  body = response.read(400).decode("utf-8", errors="replace")
+          except urllib.error.HTTPError as error:
+              print(f"Health check failed with HTTP {error.code}")
+              try:
+                  print(error.read().decode("utf-8", errors="replace")[:400])
+              except Exception:
+                  pass
+              sys.exit(1)
+          except Exception as error:
+              print(f"Health check request error: {error}")
+              sys.exit(1)
+
+          if 200 <= status < 400:
+              print(f"Health check passed with status {status}")
+              print(f"Response preview: {body}")
+              sys.exit(0)
+
+          print(f"Unexpected status code: {status}")
+          print(f"Response preview: {body}")
+          sys.exit(1)
+          PY
