@@ -45,3 +45,29 @@ In Railway service settings, create a Deploy Hook URL and add repo secret:
 - `RAILWAY_DEPLOY_HOOK_URL` = `<your_railway_deploy_hook_url>`
 
 Then backend changes in `backend/**` or `database/**` trigger Railway redeploy automatically.
+
+## 5) Enable failure alerts (Telegram/Email)
+
+The repo now includes:
+
+- `.github/workflows/backend-health-alerts.yml`
+
+It automatically runs when `Backend Health Check` fails.
+
+### Telegram alerts (optional)
+
+Add GitHub Actions secrets:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+### Email alerts (optional)
+
+Add GitHub Actions secrets:
+
+- `SMTP_HOST` (for example: `smtp.gmail.com`)
+- `SMTP_PORT` (`587` for STARTTLS, `465` for SSL)
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+- `ALERT_EMAIL_TO`
+- `ALERT_EMAIL_FROM` (optional; defaults to `SMTP_USERNAME`)

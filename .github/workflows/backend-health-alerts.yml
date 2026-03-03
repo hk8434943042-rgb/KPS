@@ -1,0 +1,124 @@
+name: Backend Health Alerts
+
+on:
+  workflow_run:
+    workflows: ["Backend Health Check"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify-on-failure:
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram and/or Email alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+        run: |
+          python - <<'PY'
+          import os
+          import ssl
+          import json
+          import smtplib
+          import urllib.parse
+          import urllib.request
+          from email.message import EmailMessage
+
+          repo = os.environ.get("REPO", "")
+          workflow_name = os.environ.get("WORKFLOW_NAME", "Backend Health Check")
+          conclusion = os.environ.get("CONCLUSION", "failure")
+          branch = os.environ.get("BRANCH", "main")
+          run_url = os.environ.get("RUN_URL", "")
+
+          subject = f"[ALERT] Backend health check failed ({repo})"
+          text = (
+              f"Workflow: {workflow_name}\n"
+              f"Repository: {repo}\n"
+              f"Branch: {branch}\n"
+              f"Conclusion: {conclusion}\n"
+              f"Run URL: {run_url}\n"
+          )
+
+          sent_any = False
+
+          telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+          if telegram_bot_token and telegram_chat_id:
+              telegram_text = (
+                  f"🚨 Backend health check failed\n"
+                  f"Repo: {repo}\n"
+                  f"Branch: {branch}\n"
+                  f"Result: {conclusion}\n"
+                  f"{run_url}"
+              )
+              telegram_api = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
+              telegram_payload = urllib.parse.urlencode({
+                  "chat_id": telegram_chat_id,
+                  "text": telegram_text,
+                  "disable_web_page_preview": "true"
+              }).encode("utf-8")
+              try:
+                  req = urllib.request.Request(telegram_api, data=telegram_payload, method="POST")
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      if 200 <= response.status < 300:
+                          sent_any = True
+                          print("Telegram alert sent.")
+                      else:
+                          print(f"Telegram send failed with status {response.status}")
+              except Exception as error:
+                  print(f"Telegram send error: {error}")
+
+          smtp_host = os.environ.get("SMTP_HOST", "").strip()
+          smtp_port_raw = os.environ.get("SMTP_PORT", "587").strip() or "587"
+          smtp_username = os.environ.get("SMTP_USERNAME", "").strip()
+          smtp_password = os.environ.get("SMTP_PASSWORD", "").strip()
+          alert_email_to = os.environ.get("ALERT_EMAIL_TO", "").strip()
+          alert_email_from = os.environ.get("ALERT_EMAIL_FROM", "").strip() or smtp_username
+
+          if smtp_host and smtp_username and smtp_password and alert_email_to and alert_email_from:
+              try:
+                  smtp_port = int(smtp_port_raw)
+              except ValueError:
+                  smtp_port = 587
+
+              message = EmailMessage()
+              message["Subject"] = subject
+              message["From"] = alert_email_from
+              message["To"] = alert_email_to
+              message.set_content(text)
+
+              try:
+                  if smtp_port == 465:
+                      context = ssl.create_default_context()
+                      with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30, context=context) as server:
+                          server.login(smtp_username, smtp_password)
+                          server.send_message(message)
+                  else:
+                      with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+                          server.ehlo()
+                          server.starttls(context=ssl.create_default_context())
+                          server.ehlo()
+                          server.login(smtp_username, smtp_password)
+                          server.send_message(message)
+                  sent_any = True
+                  print("Email alert sent.")
+              except Exception as error:
+                  print(f"Email send error: {error}")
+
+          if not sent_any:
+              print("No alert sent. Configure Telegram and/or Email secrets to enable notifications.")
+          PY

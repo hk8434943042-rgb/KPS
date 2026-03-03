@@ -55,5 +55,7 @@ If any old script/command still references former root paths, update it to the n
   - `requirements.txt` (root, delegating to backend)
   - `.github/workflows/deploy-backend-railway.yml`
   - `.github/workflows/backend-health-check.yml`
+  - `.github/workflows/backend-health-alerts.yml`
+  - `.github/workflows/backend-health-check.yml`
 
 Set repo secret `BACKEND_API_URL` (example: `https://your-backend.up.railway.app`) to enable the health check.
