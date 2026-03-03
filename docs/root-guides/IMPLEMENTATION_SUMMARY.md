@@ -221,7 +221,7 @@ python 01_app.py
 | `backend/01_app.py` | Modified | Users table, auth endpoints |
 | `database/school.db` | Auto | Users table created on init |
 | `docs/AUTHENTICATION_GUIDE.md` | Created | 🆕 Detailed auth documentation |
-| `LOGIN_DATABASE_SETUP.md` | Created | 🆕 Quick start guide |
+| `docs/root-guides/LOGIN_DATABASE_SETUP.md` | Created | 🆕 Quick start guide |
 
 ## 🚀 Features Ready for Use
 

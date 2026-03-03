@@ -5,7 +5,51 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import hashlib
+import hmac
 import secrets
+import random
+import smtplib
+import base64
+import urllib.parse
+import urllib.request
+import urllib.error
+import html
+from email.message import EmailMessage
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OTP_REQUESTS = {}
+OTP_TTL_SECONDS = int(os.environ.get('OTP_TTL_SECONDS', '300'))
+OTP_STORE_BACKEND = 'memory'
+OTP_REDIS = None
+
+def _init_otp_store():
+    global OTP_STORE_BACKEND, OTP_REDIS
+    redis_url = os.environ.get('REDIS_URL', '').strip()
+    if not redis_url:
+        OTP_STORE_BACKEND = 'memory'
+        return
+    try:
+        import redis
+        OTP_REDIS = redis.from_url(redis_url, decode_responses=True)
+        OTP_REDIS.ping()
+        OTP_STORE_BACKEND = 'redis'
+        print('[OTP] Redis store enabled for OTP requests.')
+    except Exception as e:
+        OTP_STORE_BACKEND = 'memory'
+        OTP_REDIS = None
+        print(f'[OTP] Redis unavailable, falling back to memory store: {str(e)}')
+
+_init_otp_store()
+
+class OtpProviderError(Exception):
+    def __init__(self, message, provider='unknown', code=None, status=None, details=None):
+        super().__init__(message)
+        self.provider = provider
+        self.code = code
+        self.status = status
+        self.details = details or {}
 
 app = Flask(__name__)
 # Allow CORS from all origins in development (more permissive than production)
@@ -26,6 +70,19 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def ensure_teacher_columns(conn):
+    try:
+        teacher_info = conn.execute("PRAGMA table_info(teachers)")
+        teacher_existing = {row['name'] for row in teacher_info.fetchall()}
+        if 'salary' not in teacher_existing:
+            conn.execute("ALTER TABLE teachers ADD COLUMN salary REAL DEFAULT 0")
+        if 'status' not in teacher_existing:
+            conn.execute("ALTER TABLE teachers ADD COLUMN status TEXT DEFAULT 'active'")
+        conn.commit()
+    except Exception:
+        pass
 
 
 @app.before_request
@@ -167,6 +224,13 @@ def init_db():
         'transport_assigned': "ALTER TABLE students ADD COLUMN transport_assigned INTEGER DEFAULT 0",
         'transport_route_id': "ALTER TABLE students ADD COLUMN transport_route_id INTEGER"
     }
+
+    teacher_info = conn.execute("PRAGMA table_info(teachers)")
+    teacher_existing = {row['name'] for row in teacher_info.fetchall()}
+    teacher_extras = {
+        'salary': "ALTER TABLE teachers ADD COLUMN salary REAL DEFAULT 0",
+        'status': "ALTER TABLE teachers ADD COLUMN status TEXT DEFAULT 'active'"
+    }
     
     # Create transport_routes table for managing different routes and fees
     conn.execute(
@@ -205,6 +269,13 @@ def init_db():
                 conn.execute(stmt)
             except Exception:
                 pass
+
+    for col, stmt in teacher_extras.items():
+        if col not in teacher_existing:
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 
@@ -226,6 +297,271 @@ def verify_password(password, password_hash):
         return new_hash.hex() == pwd_hash
     except:
         return False
+
+def _hash_otp_value(otp_value, salt=None):
+    _salt = salt or secrets.token_hex(16)
+    digest = hashlib.sha256(f"{_salt}:{otp_value}".encode('utf-8')).hexdigest()
+    return _salt, digest
+
+def _verify_otp_hash(otp_value, otp_salt, otp_hash):
+    _, check_hash = _hash_otp_value(otp_value, otp_salt)
+    return hmac.compare_digest(check_hash, otp_hash)
+
+def _otp_store_set(request_id, payload, ttl_seconds=OTP_TTL_SECONDS):
+    if OTP_STORE_BACKEND == 'redis' and OTP_REDIS is not None:
+        OTP_REDIS.setex(f"otp:{request_id}", int(ttl_seconds), json.dumps(payload))
+        return
+    payload = dict(payload)
+    payload['expires_at'] = datetime.utcnow() + timedelta(seconds=int(ttl_seconds))
+    OTP_REQUESTS[request_id] = payload
+
+def _otp_store_get(request_id):
+    if OTP_STORE_BACKEND == 'redis' and OTP_REDIS is not None:
+        raw = OTP_REDIS.get(f"otp:{request_id}")
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    item = OTP_REQUESTS.get(request_id)
+    if not item:
+        return None
+    if item.get('expires_at') and item['expires_at'] < datetime.utcnow():
+        OTP_REQUESTS.pop(request_id, None)
+        return None
+    return item
+
+def _otp_store_delete(request_id):
+    if OTP_STORE_BACKEND == 'redis' and OTP_REDIS is not None:
+        OTP_REDIS.delete(f"otp:{request_id}")
+        return
+    OTP_REQUESTS.pop(request_id, None)
+
+def _otp_store_update(request_id, payload, ttl_seconds=OTP_TTL_SECONDS):
+    if OTP_STORE_BACKEND == 'redis' and OTP_REDIS is not None:
+        ttl = OTP_REDIS.ttl(f"otp:{request_id}")
+        keep_ttl = ttl if isinstance(ttl, int) and ttl > 0 else int(ttl_seconds)
+        OTP_REDIS.setex(f"otp:{request_id}", keep_ttl, json.dumps(payload))
+        return
+    OTP_REQUESTS[request_id] = payload
+
+def _cleanup_expired_otp_requests():
+    if OTP_STORE_BACKEND == 'redis' and OTP_REDIS is not None:
+        return
+    now = datetime.utcnow()
+    expired = [request_id for request_id, item in OTP_REQUESTS.items() if item.get('expires_at') and item['expires_at'] < now]
+    for request_id in expired:
+        OTP_REQUESTS.pop(request_id, None)
+
+def _send_otp_email(to_email, otp_code, purpose='Password Reset'):
+    smtp_host = os.environ.get('SMTP_HOST', '').strip()
+    smtp_port = int(os.environ.get('SMTP_PORT', '587'))
+    smtp_user = os.environ.get('SMTP_USER', '').strip()
+    smtp_pass = os.environ.get('SMTP_PASS', '').strip()
+    smtp_from = os.environ.get('SMTP_FROM', smtp_user).strip()
+    smtp_use_tls = os.environ.get('SMTP_USE_TLS', 'true').strip().lower() != 'false'
+
+    if not smtp_host or not smtp_user or not smtp_pass or not smtp_from:
+        raise RuntimeError('SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM.')
+
+    msg = EmailMessage()
+    msg['Subject'] = f'Your OTP Code ({purpose})'
+    msg['From'] = smtp_from
+    msg['To'] = to_email
+    msg.set_content(
+        f"Your OTP code is: {otp_code}\n\n"
+        "This OTP is valid for 5 minutes.\n"
+        "If you did not request this, please ignore this email."
+    )
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+        if smtp_use_tls:
+            server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+
+def _normalize_phone(phone):
+    digits = ''.join(ch for ch in str(phone or '') if ch.isdigit())
+    if not digits:
+        return ''
+    if len(digits) == 10:
+        return f'+91{digits}'
+    if len(digits) == 12 and digits.startswith('91'):
+        return f'+{digits}'
+    if str(phone).strip().startswith('+'):
+        return str(phone).strip()
+    return f'+{digits}'
+
+def _send_otp_sms(to_phone, otp_code, purpose='Password Reset'):
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
+    twilio_from = os.environ.get('TWILIO_FROM_NUMBER', '').strip()
+
+    if not account_sid or not auth_token or not twilio_from:
+        raise RuntimeError('Twilio SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER.')
+
+    destination = _normalize_phone(to_phone)
+    if not destination:
+        raise RuntimeError('Valid phone number is required for SMS OTP.')
+
+    message = f"Your OTP code is {otp_code}. Valid for 5 minutes. ({purpose})"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+    payload = urllib.parse.urlencode({'To': destination, 'From': twilio_from, 'Body': message}).encode('utf-8')
+
+    token = base64.b64encode(f"{account_sid}:{auth_token}".encode('utf-8')).decode('ascii')
+    req = urllib.request.Request(url, data=payload, method='POST')
+    req.add_header('Authorization', f'Basic {token}')
+    req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            status_code = getattr(response, 'status', 200)
+            body = response.read().decode('utf-8', errors='ignore')
+            payload_json = json.loads(body) if body else {}
+            twilio_status = payload_json.get('status')
+            sid = payload_json.get('sid')
+            error_code = payload_json.get('error_code')
+            error_message = payload_json.get('error_message')
+
+            if status_code < 200 or status_code >= 300:
+                raise OtpProviderError(
+                    f'Twilio SMS failed with status {status_code}.',
+                    provider='twilio',
+                    code=error_code,
+                    status=status_code,
+                    details=payload_json
+                )
+
+            if error_code or error_message:
+                raise OtpProviderError(
+                    f"Twilio SMS failed: {error_message or 'Unknown Twilio error'}",
+                    provider='twilio',
+                    code=error_code,
+                    status=status_code,
+                    details=payload_json
+                )
+
+            return {
+                'provider': 'twilio',
+                'sid': sid,
+                'status': twilio_status,
+                'error_code': error_code,
+                'error_message': error_message
+            }
+    except urllib.error.HTTPError as http_err:
+        body = ''
+        payload_json = {}
+        try:
+            body = http_err.read().decode('utf-8', errors='ignore')
+            payload_json = json.loads(body) if body else {}
+        except Exception:
+            payload_json = {}
+
+        error_code = payload_json.get('code') or payload_json.get('error_code')
+        error_message = payload_json.get('message') or payload_json.get('error_message') or str(http_err)
+        raise OtpProviderError(
+            f"Twilio SMS failed: {error_message}",
+            provider='twilio',
+            code=error_code,
+            status=getattr(http_err, 'code', None),
+            details=payload_json
+        )
+    except urllib.error.URLError as url_err:
+        raise OtpProviderError(
+            f"Twilio SMS network error: {url_err.reason}",
+            provider='twilio',
+            details={'reason': str(url_err.reason)}
+        )
+
+def _fetch_twilio_message_status(message_sid):
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
+
+    if not account_sid or not auth_token:
+        raise OtpProviderError(
+            'Twilio SMS is not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.',
+            provider='twilio'
+        )
+
+    if not message_sid:
+        raise OtpProviderError('Twilio message SID is required.', provider='twilio')
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages/{message_sid}.json"
+    token = base64.b64encode(f"{account_sid}:{auth_token}".encode('utf-8')).decode('ascii')
+    req = urllib.request.Request(url, method='GET')
+    req.add_header('Authorization', f'Basic {token}')
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            body = response.read().decode('utf-8', errors='ignore')
+            payload_json = json.loads(body) if body else {}
+            return {
+                'sid': payload_json.get('sid'),
+                'status': payload_json.get('status'),
+                'error_code': payload_json.get('error_code'),
+                'error_message': payload_json.get('error_message'),
+                'to': payload_json.get('to'),
+                'from': payload_json.get('from')
+            }
+    except urllib.error.HTTPError as http_err:
+        body = ''
+        payload_json = {}
+        try:
+            body = http_err.read().decode('utf-8', errors='ignore')
+            payload_json = json.loads(body) if body else {}
+        except Exception:
+            payload_json = {}
+        error_code = payload_json.get('code') or payload_json.get('error_code')
+        error_message = payload_json.get('message') or payload_json.get('error_message') or str(http_err)
+        raise OtpProviderError(
+            f"Twilio status lookup failed: {error_message}",
+            provider='twilio',
+            code=error_code,
+            status=getattr(http_err, 'code', None),
+            details=payload_json
+        )
+    except urllib.error.URLError as url_err:
+        raise OtpProviderError(
+            f"Twilio status lookup network error: {url_err.reason}",
+            provider='twilio',
+            details={'reason': str(url_err.reason)}
+        )
+
+def _get_missing_sms_vars():
+    required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER']
+    missing = []
+    for key in required:
+        if not os.environ.get(key, '').strip():
+            missing.append(key)
+    return missing
+
+def _get_missing_smtp_vars():
+    required = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM']
+    missing = []
+    for key in required:
+        if not os.environ.get(key, '').strip():
+            missing.append(key)
+    return missing
+
+def _log_otp_config_status():
+    smtp_missing = _get_missing_smtp_vars()
+    sms_missing = _get_missing_sms_vars()
+
+    if smtp_missing:
+        print(f"[OTP/SMTP] Missing SMTP env keys: {', '.join(smtp_missing)}")
+    else:
+        tls_enabled = os.environ.get('SMTP_USE_TLS', 'true').strip().lower() != 'false'
+        print(f"[OTP/SMTP] SMTP configuration detected. TLS enabled: {tls_enabled}")
+
+    if sms_missing:
+        print(f"[OTP/SMS] Missing Twilio env keys: {', '.join(sms_missing)}")
+    else:
+        print("[OTP/SMS] Twilio SMS configuration detected.")
+
+    print(f"[OTP] Store backend: {OTP_STORE_BACKEND}")
+
+_log_otp_config_status()
 
 def get_current_user():
     """Get the current authenticated user from session"""
@@ -358,6 +694,169 @@ def verify_auth():
         
         user.pop('password_hash', None)
         return jsonify({'authenticated': True, 'user': user}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/auth/otp/send', methods=['POST', 'GET'])
+def send_otp():
+    """Send OTP using email or SMS for password reset verification"""
+    try:
+        data = request.json or {} if request.method == 'POST' else {}
+        if request.method == 'GET':
+            data = request.args or {}
+        channel = (data.get('channel') or '').strip().lower() or 'email'
+        email = (data.get('email') or '').strip().lower()
+        phone = (data.get('phone') or '').strip()
+        role = (data.get('role') or '').strip()
+
+        if channel not in ('email', 'sms'):
+            return jsonify({'error': 'channel must be email or sms'}), 400
+
+        if role not in ('main_admin', 'reception', 'admin'):
+            return jsonify({'error': 'OTP is only available for admin/reception accounts'}), 400
+
+        _cleanup_expired_otp_requests()
+
+        otp_code = f"{random.randint(100000, 999999)}"
+        request_id = secrets.token_urlsafe(24)
+        provider_info = {}
+        otp_salt, otp_hash = _hash_otp_value(otp_code)
+
+        destination = ''
+        if channel == 'sms':
+            if not phone:
+                return jsonify({'error': 'Phone is required for SMS OTP'}), 400
+            normalized_phone = _normalize_phone(phone)
+            provider_info = _send_otp_sms(normalized_phone, otp_code, 'School Login Password Reset') or {}
+            destination = normalized_phone
+        else:
+            if not email:
+                return jsonify({'error': 'Email is required for Email OTP'}), 400
+            _send_otp_email(email, otp_code, 'School Login Password Reset')
+            destination = email
+
+        _otp_store_set(request_id, {
+            'otp_hash': otp_hash,
+            'otp_salt': otp_salt,
+            'email': email,
+            'phone': _normalize_phone(phone) if phone else '',
+            'channel': channel,
+            'destination': destination,
+            'provider': provider_info,
+            'role': role,
+            'attempts': 0
+        }, OTP_TTL_SECONDS)
+
+        return jsonify({
+            'success': True,
+            'message': 'OTP sent successfully',
+            'channel': channel,
+            'destination': destination,
+            'provider': provider_info,
+            'request_id': request_id,
+            'expires_in_seconds': 300
+        }), 200
+    except OtpProviderError as e:
+        print(f"[OTP/SMS] Provider error: {str(e)} | provider={e.provider} code={e.code} status={e.status}")
+        return jsonify({
+            'error': str(e),
+            'provider': e.provider,
+            'provider_error_code': e.code,
+            'provider_error_message': str(e),
+            'provider_status': e.status,
+            'provider_details': e.details
+        }), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/auth/otp/verify', methods=['POST', 'GET'])
+def verify_otp():
+    """Verify OTP request"""
+    try:
+        data = request.json or {} if request.method == 'POST' else {}
+        if request.method == 'GET':
+            data = request.args or {}
+        request_id = (data.get('request_id') or '').strip()
+        otp_code = (data.get('otp') or '').strip()
+        role = (data.get('role') or '').strip()
+        channel = (data.get('channel') or '').strip().lower()
+
+        if not request_id or not otp_code:
+            return jsonify({'error': 'request_id and otp are required'}), 400
+
+        _cleanup_expired_otp_requests()
+        item = _otp_store_get(request_id)
+        if not item:
+            return jsonify({'error': 'OTP request expired or invalid'}), 400
+
+        if role and item.get('role') != role:
+            return jsonify({'error': 'OTP role mismatch'}), 400
+
+        if channel and item.get('channel') != channel:
+            return jsonify({'error': 'OTP channel mismatch'}), 400
+
+        item['attempts'] = int(item.get('attempts') or 0) + 1
+        if item['attempts'] > 5:
+            _otp_store_delete(request_id)
+            return jsonify({'error': 'Too many invalid attempts'}), 429
+
+        if not _verify_otp_hash(otp_code, item.get('otp_salt', ''), item.get('otp_hash', '')):
+            _otp_store_update(request_id, item, OTP_TTL_SECONDS)
+            return jsonify({'error': 'Invalid OTP'}), 400
+
+        _otp_store_delete(request_id)
+        return jsonify({'success': True, 'message': 'OTP verified'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/auth/otp/health', methods=['GET'])
+def otp_health():
+    """Check OTP email/SMS configuration health"""
+    try:
+        smtp_missing = _get_missing_smtp_vars()
+        sms_missing = _get_missing_sms_vars()
+        smtp_ok = len(smtp_missing) == 0
+        sms_ok = len(sms_missing) == 0
+        return jsonify({
+            'ok': smtp_ok or sms_ok,
+            'missing': smtp_missing,
+            'smtp_use_tls': os.environ.get('SMTP_USE_TLS', 'true').strip().lower() != 'false',
+            'smtp': {
+                'ok': smtp_ok,
+                'missing': smtp_missing,
+                'use_tls': os.environ.get('SMTP_USE_TLS', 'true').strip().lower() != 'false'
+            },
+            'sms': {
+                'ok': sms_ok,
+                'missing': sms_missing
+            },
+            'otp_store': OTP_STORE_BACKEND
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/auth/otp/sms-status', methods=['GET'])
+def otp_sms_status():
+    """Check Twilio SMS delivery status using message SID"""
+    try:
+        sid = (request.args.get('sid') or '').strip()
+        if not sid:
+            return jsonify({'error': 'sid is required'}), 400
+
+        status_data = _fetch_twilio_message_status(sid)
+        return jsonify({
+            'success': True,
+            'provider': 'twilio',
+            **status_data
+        }), 200
+    except OtpProviderError as e:
+        return jsonify({
+            'error': str(e),
+            'provider': e.provider,
+            'provider_error_code': e.code,
+            'provider_status': e.status,
+            'provider_details': e.details
+        }), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
@@ -759,13 +1258,14 @@ def create_teacher():
     try:
         data = request.json
         conn = get_db()
+        ensure_teacher_columns(conn)
         conn.execute(
             """INSERT INTO teachers (emp_id, name, email, phone, subject, qualification, 
-               date_of_joining, address) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                             date_of_joining, address, salary, status) 
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (data.get('emp_id'), data.get('name'), data.get('email'), data.get('phone'),
              data.get('subject'), data.get('qualification'), data.get('date_of_joining'),
-             data.get('address'))
+                         data.get('address'), data.get('salary', 0), data.get('status', 'active'))
         )
         conn.commit()
         teacher_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -779,6 +1279,7 @@ def create_teacher():
 def get_teachers():
     try:
         conn = get_db()
+        ensure_teacher_columns(conn)
         rows = conn.execute("SELECT * FROM teachers ORDER BY emp_id").fetchall()
         teachers = [dict(row) for row in rows]
         conn.close()
@@ -790,6 +1291,7 @@ def get_teachers():
 def get_teacher(teacher_id):
     try:
         conn = get_db()
+        ensure_teacher_columns(conn)
         row = conn.execute("SELECT * FROM teachers WHERE id = ?", (teacher_id,)).fetchone()
         conn.close()
         if not row:
@@ -803,13 +1305,14 @@ def update_teacher(teacher_id):
     try:
         data = request.json
         conn = get_db()
+        ensure_teacher_columns(conn)
         conn.execute(
             """UPDATE teachers SET name = ?, email = ?, phone = ?, subject = ?, 
-               qualification = ?, date_of_joining = ?, address = ?, 
-               updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+                             qualification = ?, date_of_joining = ?, address = ?, salary = ?, status = ?,
+                             updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
             (data.get('name'), data.get('email'), data.get('phone'), data.get('subject'),
-             data.get('qualification'), data.get('date_of_joining'), data.get('address'),
-             teacher_id)
+                         data.get('qualification'), data.get('date_of_joining'), data.get('address'),
+                         data.get('salary', 0), data.get('status', 'active'), teacher_id)
         )
         conn.commit()
         conn.close()
@@ -1249,76 +1752,104 @@ def generate_thermal_receipt():
     }
     """
     try:
-        data = request.json
-        
-        # ESC/POS commands for thermal printer (80mm width)
-        receipt = []
-        
-        # Initialize printer
-        receipt.append(b'\x1b\x40')  # Reset printer
-        
-        # Center align
-        receipt.append(b'\x1b\x61\x01')  # Center text
-        
-        # Header - School Name
-        receipt.append(b'\x1b\x21\x08')  # Large text
-        receipt.append("KHUSHI PUBLIC SCHOOL\n".encode('utf-8'))
-        receipt.append(b'\x1b\x21\x00')  # Normal text
-        
-        # Address
-        receipt.append("Fee Receipt\n".encode('utf-8'))
-        receipt.append("================================\n".encode('utf-8'))
-        
-        # Left align for details
-        receipt.append(b'\x1b\x61\x00')  # Left align
-        receipt.append("\n".encode('utf-8'))
-        
-        # Receipt details
+        data = request.json or {}
+
         receipt_num = data.get('receipt_number', 'N/A')
         payment_date = data.get('payment_date', datetime.now().strftime('%d-%m-%Y'))
         student_name = data.get('student_name', 'N/A')
-        roll_no = data.get('roll_no', 'N/A')
-        amount = data.get('amount', 0)
-        method = data.get('payment_method', 'N/A')
-        purpose = data.get('purpose', 'School Fee')
-        
-        # Details
-        receipt.append(f"Receipt No.: {receipt_num}\n".encode('utf-8'))
-        receipt.append(f"Date: {payment_date}\n".encode('utf-8'))
-        receipt.append(f"Student: {student_name}\n".encode('utf-8'))
-        receipt.append(f"Admission No.: {roll_no}\n".encode('utf-8'))
-        receipt.append("\n".encode('utf-8'))
-        
-        # Item details
-        receipt.append("--------------------------------\n".encode('utf-8'))
-        receipt.append(f"Purpose: {purpose}\n".encode('utf-8'))
-        receipt.append(f"Amount: Rs. {amount:,.2f}\n".encode('utf-8'))
-        receipt.append(f"Method: {method}\n".encode('utf-8'))
-        receipt.append("--------------------------------\n".encode('utf-8'))
-        receipt.append("\n".encode('utf-8'))
-        
-        # Center align for signature
-        receipt.append(b'\x1b\x61\x01')  # Center
-        receipt.append("Thank You!\n".encode('utf-8'))
-        receipt.append("For Payment\n".encode('utf-8'))
-        receipt.append("\n".encode('utf-8'))
-        receipt.append("(Original Receipt)\n".encode('utf-8'))
-        receipt.append("\n".encode('utf-8'))
-        receipt.append("================================\n".encode('utf-8'))
-        
-        # Cut paper
-        receipt.append(b'\x1d\x56\x41')  # Partial cut
-        receipt.append(b'\n\n\n')
-        
-        # Combine all bytes
+        amount_raw = data.get('amount', 0)
+        method = data.get('payment_method', 'Cash')
+        course = data.get('course', data.get('purpose', 'School Fee'))
+        duration = data.get('duration', '')
+        paid_by = data.get('paid_by', method)
+        school_name = data.get('school_name', 'KIDS CARE PLAY SCHOOL')
+        school_address = data.get('school_address', '1751, Gali no 5, Rajiv Puram, Karnal-132001')
+        school_contact = data.get('school_contact', 'Contact: 0149-2082596')
+        school_email = data.get('school_email', 'email: kidscps@gmail.co.in')
+
+        try:
+            amount = float(amount_raw or 0)
+        except Exception:
+            amount = 0.0
+
+        font_variant = str(data.get('font_variant', 'standard')).strip().lower()
+        is_large_font = font_variant in ('large', 'readable', '80mm-large')
+        base_font_size = '11px' if is_large_font else '10px'
+        title_font_size = '10px' if is_large_font else '9px'
+        school_font_size = '18px' if is_large_font else '16px'
+        contact_font_size = '9px' if is_large_font else '8px'
+        table_cell_padding = '3px 5px' if is_large_font else '2px 4px'
+        note_font_size = '9px' if is_large_font else '8px'
+
+        particulars_raw = data.get('particulars')
+        if isinstance(particulars_raw, list) and particulars_raw:
+            particulars = [str(item).strip() for item in particulars_raw if str(item).strip()]
+        else:
+            particulars = [
+                'Admission Fee',
+                'Or Tuition Fee for second month',
+                'Or Exam Fee',
+                'Stationary Charges',
+                'Security Deposit',
+                'Activity Charges'
+            ]
+
+        line_width = 48
+
+        def fit_text(value, max_len):
+            return str(value or '')[:max_len]
+
+        def line_lr(left, right=''):
+            left = str(left or '')
+            right = str(right or '')
+            available_left = max(0, line_width - len(right) - 1)
+            left = fit_text(left, available_left)
+            spacing = ' ' * max(1, line_width - len(left) - len(right))
+            return f"{left}{spacing}{right}\n"
+
+        receipt = []
+        receipt.append(b'\x1b\x40')
+        receipt.append(b'\x1b\x61\x01')
+        receipt.append(b'\x1b\x21\x08')
+        receipt.append(f"{school_name}\n".encode('utf-8'))
+        receipt.append(b'\x1b\x21\x00')
+        receipt.append("Receipt\n".encode('utf-8'))
+        receipt.append(f"{school_address}\n".encode('utf-8'))
+        receipt.append(f"{school_contact} | {school_email}\n".encode('utf-8'))
+        receipt.append(("=" * line_width + "\n").encode('utf-8'))
+
+        receipt.append(b'\x1b\x61\x00')
+        receipt.append(line_lr('Receipt No', str(receipt_num)).encode('utf-8'))
+        receipt.append(line_lr('Name of Student', str(student_name)).encode('utf-8'))
+        receipt.append(line_lr('Course', str(course)).encode('utf-8'))
+        receipt.append(line_lr('Course Duration', str(duration)).encode('utf-8'))
+        receipt.append(line_lr('Date of payment', str(payment_date)).encode('utf-8'))
+        receipt.append(("-" * line_width + "\n").encode('utf-8'))
+
+        receipt.append(line_lr('Sr  Particulars', 'Amount').encode('utf-8'))
+        receipt.append(("-" * line_width + "\n").encode('utf-8'))
+        for idx, item in enumerate(particulars, start=1):
+            item_text = fit_text(f"{idx}. {item}", 39)
+            receipt.append(line_lr(item_text, '').encode('utf-8'))
+
+        receipt.append(("-" * line_width + "\n").encode('utf-8'))
+        receipt.append(line_lr('Total', f"Rs {amount:,.2f}").encode('utf-8'))
+        receipt.append(("-" * line_width + "\n").encode('utf-8'))
+        receipt.append(line_lr('Paid By', str(paid_by)).encode('utf-8'))
+        receipt.append("Signature of Centre Head\n".encode('utf-8'))
+        receipt.append(("=" * line_width + "\n").encode('utf-8'))
+        receipt.append("All above mentioned amount once paid are non refundable in any case whatsoever\n".encode('utf-8'))
+        receipt.append(b'\n')
+        receipt.append(b'\x1d\x56\x41')
+        receipt.append(b'\n\n')
+
         receipt_data = b''.join(receipt)
-        
         return jsonify({
             'success': True,
-            'receipt': receipt_data.decode('latin-1'),  # Send as string for JavaScript
+            'receipt': receipt_data.decode('latin-1'),
             'message': 'Receipt generated successfully'
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
@@ -1327,16 +1858,44 @@ def generate_thermal_receipt():
 def generate_html_receipt():
     """Generate HTML receipt for browser printing"""
     try:
-        data = request.json
-        
-        receipt_num = data.get('receipt_number', 'N/A')
-        payment_date = data.get('payment_date', datetime.now().strftime('%d-%m-%Y'))
-        student_name = data.get('student_name', 'N/A')
-        roll_no = data.get('roll_no', 'N/A')
-        amount = data.get('amount', 0)
-        method = data.get('payment_method', 'N/A')
-        purpose = data.get('purpose', 'School Fee')
-        
+        data = request.json or {}
+
+        receipt_num = html.escape(str(data.get('receipt_number', 'N/A')))
+        payment_date = html.escape(str(data.get('payment_date', datetime.now().strftime('%d-%m-%Y'))))
+        student_name = html.escape(str(data.get('student_name', 'N/A')))
+        amount_raw = data.get('amount', 0)
+        method = html.escape(str(data.get('payment_method', 'Cash')))
+        course = html.escape(str(data.get('course', data.get('purpose', 'School Fee'))))
+        duration = html.escape(str(data.get('duration', '')))
+        paid_by = html.escape(str(data.get('paid_by', data.get('payment_method', 'Cash'))))
+        school_name = html.escape(str(data.get('school_name', 'KIDS CARE PLAY SCHOOL')))
+        school_address = html.escape(str(data.get('school_address', '1751, Gali no 5, Rajiv Puram, Karnal-132001')))
+        school_contact = html.escape(str(data.get('school_contact', '0149-2082596')))
+        school_email = html.escape(str(data.get('school_email', 'kidscps@gmail.co.in')))
+
+        try:
+            amount = float(amount_raw or 0)
+        except Exception:
+            amount = 0.0
+
+        particulars_raw = data.get('particulars')
+        if isinstance(particulars_raw, list) and particulars_raw:
+            particulars = [html.escape(str(item).strip()) for item in particulars_raw if str(item).strip()]
+        else:
+            particulars = [
+                'Admission Fee',
+                'Or Tuition Fee for second month',
+                'Or Exam Fee',
+                'Stationary Charges',
+                'Security Deposit',
+                'Activity Charges'
+            ]
+
+        particulars_html = ''.join(
+            f"<tr><td>{idx}</td><td>{item}</td><td></td></tr>"
+            for idx, item in enumerate(particulars, start=1)
+        )
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -1345,97 +1904,41 @@ def generate_html_receipt():
             <title>Receipt #{receipt_num}</title>
             <style>
                 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                body {{ 
-                    font-family: 'Courier New', monospace; 
-                    background: white;
-                    padding: 20px;
-                }}
-                .receipt {{
-                    width: 80mm;
-                    max-width: 100%;
-                    margin: 0 auto;
-                    border: 1px solid #333;
-                    padding: 15px;
-                    background: white;
-                    line-height: 1.6;
-                    font-size: 12px;
-                }}
-                .header {{
-                    text-align: center;
-                    margin-bottom: 10px;
-                    border-bottom: 1px dashed #333;
-                    padding-bottom: 10px;
-                }}
-                .header h1 {{
-                    font-size: 14px;
-                    font-weight: bold;
-                    margin-bottom: 5px;
-                }}
-                .header p {{
-                    font-size: 11px;
-                    margin: 2px 0;
-                }}
-                .details {{
-                    margin: 10px 0;
-                }}
-                .detail-row {{
-                    display: flex;
-                    justify-content: space-between;
-                    margin: 4px 0;
-                    font-size: 11px;
-                }}
-                .label {{
-                    font-weight: bold;
-                    width: 60%;
-                }}
-                .value {{
-                    text-align: right;
-                    width: 40%;
-                }}
-                .separator {{
-                    border-top: 1px dashed #333;
-                    margin: 10px 0;
-                }}
-                .amount-section {{
-                    margin: 10px 0;
-                    text-align: center;
-                    font-weight: bold;
-                }}
-                .amount {{
-                    font-size: 16px;
-                    margin: 5px 0;
-                }}
-                .footer {{
-                    text-align: center;
-                    margin-top: 15px;
-                    font-size: 10px;
-                    border-top: 1px dashed #333;
-                    padding-top: 10px;
-                }}
-                .original {{
-                    text-align: center;
-                    font-size: 9px;
-                    margin-top: 5px;
-                    font-weight: bold;
-                }}
+                @page {{ size: 80mm auto; margin: 0; }}
+                body {{ font-family: 'Courier New', monospace; background: white; padding: 0; }}
+                .receipt {{ width: 80mm; max-width: 100%; margin: 0 auto; border: 1px solid #000; font-size: {base_font_size}; color: #000; }}
+                .header {{ text-align: center; border-bottom: 1px solid #000; padding: 6px 6px 4px; }}
+                .title {{ font-size: {title_font_size}; margin-bottom: 2px; }}
+                .school {{ font-size: {school_font_size}; font-weight: 700; letter-spacing: 0.6px; }}
+                .contact {{ font-size: {contact_font_size}; margin-top: 3px; }}
+                .meta, .rowline {{ display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; border-bottom: 1px solid #000; }}
+                .meta .left, .rowline .left {{ flex: 1; }}
+                .meta .right, .rowline .right {{ flex: 1; text-align: right; }}
+                .line {{ padding: 3px 6px; border-bottom: 1px solid #000; }}
+                .dots {{ display: inline-block; border-bottom: 1px dotted #000; min-width: 56%; vertical-align: middle; line-height: 1; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                th, td {{ border: 1px solid #000; padding: {table_cell_padding}; text-align: left; vertical-align: top; }}
+                th:nth-child(1), td:nth-child(1) {{ width: 10%; text-align: center; }}
+                th:nth-child(2), td:nth-child(2) {{ width: 64%; }}
+                th:nth-child(3), td:nth-child(3) {{ width: 26%; text-align: right; }}
+                .total-row td {{ font-weight: 700; }}
+                .foot-line {{ padding: 6px; border-top: 1px solid #000; }}
+                .small-note {{ text-align: center; font-size: {note_font_size}; border-top: 1px solid #000; padding: 4px; }}
                 @media print {{
                     body {{ padding: 0; }}
-                    .receipt {{ border: none; width: 80mm; margin: 0; }}
+                    .receipt {{ width: 80mm; margin: 0; }}
                     .no-print {{ display: none; }}
                 }}
                 .print-button {{
                     display: block;
-                    margin: 20px auto;
-                    padding: 10px 20px;
-                    background: #007bff;
+                    margin: 12px auto;
+                    padding: 8px 14px;
+                    background: #111;
                     color: white;
                     border: none;
-                    border-radius: 4px;
+                    border-radius: 3px;
                     cursor: pointer;
-                    font-size: 14px;
-                }}
-                .print-button:hover {{
-                    background: #0056b3;
+                    font-size: 12px;
                 }}
             </style>
         </head>
@@ -1444,59 +1947,37 @@ def generate_html_receipt():
             
             <div class="receipt">
                 <div class="header">
-                    <h1>KHUSHI PUBLIC SCHOOL</h1>
-                    <p>Fee Receipt</p>
+                    <div class="title">Receipt</div>
+                    <div class="school">{school_name}</div>
+                    <div>{school_address}</div>
+                    <div class="contact">Contact: {school_contact} | email: {school_email}</div>
                 </div>
-                
-                <div class="details">
-                    <div class="detail-row">
-                        <span class="label">Receipt No.:</span>
-                        <span class="value">{receipt_num}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">Date:</span>
-                        <span class="value">{payment_date}</span>
-                    </div>
+
+                <div class="line">Receipt No {receipt_num}</div>
+                <div class="meta">
+                    <div class="left">Name of Student <span class="dots">&nbsp;{student_name}&nbsp;</span></div>
+                    <div class="right">Course <span class="dots">&nbsp;{course}&nbsp;</span></div>
                 </div>
-                
-                <div class="separator"></div>
-                
-                <div class="details">
-                    <div class="detail-row">
-                        <span class="label">Student Name:</span>
-                        <span class="value">{student_name}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">Admission No.:</span>
-                        <span class="value">{roll_no}</span>
-                    </div>
+                <div class="rowline">
+                    <div class="left">Courses Duration <span class="dots">&nbsp;{duration}&nbsp;</span></div>
+                    <div class="right">Date of payment <span class="dots">&nbsp;{payment_date}&nbsp;</span></div>
                 </div>
-                
-                <div class="separator"></div>
-                
-                <div class="details">
-                    <div class="detail-row">
-                        <span class="label">Purpose:</span>
-                        <span class="value">{purpose}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">Method:</span>
-                        <span class="value">{method}</span>
-                    </div>
+
+                <table>
+                    <thead>
+                        <tr><th>Sr. No.</th><th>Particulars</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>
+                        {particulars_html}
+                        <tr class="total-row"><td></td><td>Total</td><td>Rs. {amount:,.2f}</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="foot-line">Paid By {paid_by}</div>
+                <div class="foot-line">Signature of Centre Head</div>
+                <div class="small-note">All above mentioned Amount once paid are non refundable in any case whatsoever</div>
+                <div class="small-note">Payment Method: {method}</div>
                 </div>
-                
-                <div class="separator"></div>
-                
-                <div class="amount-section">
-                    <div>Amount Paid</div>
-                    <div class="amount">Rs. {amount:,.2f}</div>
-                </div>
-                
-                <div class="footer">
-                    <p>Thank You For Payment</p>
-                    <div class="original">(Original Receipt)</div>
-                </div>
-            </div>
         </body>
         </html>
         """
@@ -1517,4 +1998,4 @@ def index():
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
-    app.run(port=port, debug=os.environ.get('FLASK_ENV') == 'development')
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development')

@@ -33,9 +33,9 @@ All files are ready to deploy your School Admin Portal to the cloud!
    - Troubleshooting & monitoring
    - Local development to live cloud
 
-**3. `verify_deployment.py`**
+**3. `scripts/debug-tests/verify_deployment.py`**
    - Script to verify deployment readiness
-   - Run: `python verify_deployment.py`
+   - Run: `python scripts/debug-tests/verify_deployment.py`
 
 ---
 
@@ -122,7 +122,9 @@ school-admin-portal/
 ├── DATABASE_SETUP.md ................ ✅ Database guide
 ├── DEPLOYMENT_GUIDE.md .............. ✅ Full deployment guide
 ├── QUICK_DEPLOY.md .................. ✅ Quick reference
-├── verify_deployment.py ............. ✅ Verification script
+├── scripts/
+│   └── debug-tests/
+│       └── verify_deployment.py ..... ✅ Verification script
 │
 ├── index.html ....................... ✅ (Update API_URL here)
 ├── script.js ........................ ✅ (Update API_URL here)
@@ -140,7 +142,7 @@ Before deploying, verify everything:
 
 ```bash
 # Check deployment readiness
-python verify_deployment.py
+python scripts/debug-tests/verify_deployment.py
 
 # Expected output:
 # ✅ Python 3.x.x

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>School Admin Portal - Login</title>
+  <title>Khushi Public School - Login</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' fill='%23667eea'>🏫</text></svg>" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
@@ -15,27 +15,35 @@
 
     body {
       font-family: 'Inter', sans-serif;
-      background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 100%);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(159, 122, 234, 0.25), transparent 60%),
+        radial-gradient(900px 500px at 100% 0%, rgba(79, 172, 254, 0.22), transparent 55%),
+        linear-gradient(145deg, #0c1020 0%, #111a33 45%, #0a1228 100%);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 20px;
+      animation: pageFadeIn 450ms ease-out;
+      color: #eaf0ff;
     }
 
     .login-container {
       width: 100%;
-      max-width: 440px;
-      background: #1e1e2e;
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      padding: 40px;
-      border: 1px solid #2a2a3e;
+      max-width: 470px;
+      background: linear-gradient(160deg, rgba(23, 31, 59, 0.84), rgba(14, 20, 40, 0.9));
+      border-radius: 16px;
+      box-shadow: 0 24px 70px rgba(6, 10, 25, 0.58);
+      padding: 40px 36px;
+      border: 1px solid rgba(134, 154, 230, 0.2);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      animation: cardLiftIn 520ms ease-out;
     }
 
     .login-header {
       text-align: center;
-      margin-bottom: 35px;
+      margin-bottom: 30px;
       position: relative;
     }
 
@@ -47,18 +55,18 @@
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      background: rgba(42, 42, 62, 0.8);
+      background: rgba(26, 36, 68, 0.75);
       border-radius: 20px;
       font-size: 12px;
       font-weight: 600;
-      border: 1px solid #3a3a4e;
+      border: 1px solid rgba(138, 161, 236, 0.35);
       cursor: pointer;
       transition: all 0.3s ease;
-      color: #b0b0b0;
+      color: #c7d5ff;
     }
 
     .server-status:hover {
-      background: rgba(58, 58, 78, 0.9);
+      background: rgba(40, 53, 94, 0.82);
     }
 
     .status-indicator {
@@ -76,12 +84,12 @@
 
     .status-indicator.disconnected {
       background-color: #ef4444;
-      animation: pulse-red 2s infinite;
+      animation: none;
     }
 
     .status-indicator.checking {
       background-color: #f59e0b;
-      animation: pulse-yellow 1.5s infinite;
+      animation: none;
     }
 
     @keyframes pulse-red {
@@ -106,6 +114,7 @@
       font-size: 40px;
       position: relative;
       overflow: hidden;
+      animation: none;
     }
 
     .logo-img {
@@ -123,15 +132,46 @@
     }
 
     .login-header h1 {
-      font-size: 28px;
-      font-weight: 700;
-      color: #e0e0e0;
-      margin-bottom: 8px;
+      font-size: 30px;
+      font-weight: 800;
+      color: #f5f8ff;
+      margin-bottom: 6px;
+      letter-spacing: 0.6px;
+      text-shadow: 0 3px 16px rgba(116, 145, 255, 0.2);
     }
 
     .login-header p {
       font-size: 14px;
-      color: #b0b0b0;
+      color: #bfd0ff;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    .login-header .login-subtitle {
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 14px;
+      padding: 7px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(183, 200, 255, 0.55);
+      background: linear-gradient(135deg, rgba(109, 141, 255, 0.24), rgba(138, 99, 232, 0.32));
+      color: #eef3ff;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 1.2px;
+      position: relative;
+      box-shadow: 0 10px 22px rgba(70, 98, 199, 0.32), inset 0 0 10px rgba(197, 210, 255, 0.12);
+    }
+
+    .login-header .login-location {
+      font-weight: 700;
+      color: #dbe6ff;
+      letter-spacing: 0.9px;
+      text-transform: uppercase;
+      font-size: 12px;
+      opacity: 0.95;
     }
 
     .form-group {
@@ -142,30 +182,31 @@
       display: block;
       font-size: 14px;
       font-weight: 600;
-      color: #e0e0e0;
+      color: #dbe5ff;
       margin-bottom: 8px;
     }
 
     .form-group input {
       width: 100%;
       padding: 12px 14px;
-      border: 1px solid #3a3a4e;
+      border: 1px solid rgba(145, 165, 237, 0.3);
       border-radius: 8px;
       font-size: 14px;
       font-family: inherit;
       transition: all 0.3s ease;
-      background-color: #2a2a3e;
-      color: #e0e0e0;
+      background-color: rgba(23, 32, 62, 0.75);
+      color: #eef3ff;
     }
 
     .form-group input:focus {
       outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+      border-color: #8aa4ff;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.24), 0 6px 18px rgba(50, 76, 166, 0.22);
+      transform: translateY(-1px);
     }
 
     .form-group input::placeholder {
-      color: #707080;
+      color: #95a4cc;
     }
 
     .remember-forgot {
@@ -174,7 +215,7 @@
       align-items: center;
       font-size: 13px;
       margin-bottom: 25px;
-      color: #a0a0a0;
+      color: #c0cae6;
     }
 
     .checkbox {
@@ -193,20 +234,20 @@
     }
 
     .forgot-link {
-      color: #667eea;
+      color: #9cb4ff;
       text-decoration: none;
       font-weight: 600;
       transition: color 0.3s ease;
     }
 
     .forgot-link:hover {
-      color: #764ba2;
+      color: #c4b2ff;
     }
 
     .login-btn {
       width: 100%;
       padding: 12px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #6d8dff 0%, #8a63e8 100%);
       color: white;
       border: none;
       border-radius: 8px;
@@ -214,12 +255,12 @@
       font-weight: 600;
       cursor: pointer;
       transition: all 0.3s ease;
-      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      box-shadow: 0 10px 24px rgba(88, 117, 221, 0.38);
     }
 
     .login-btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+      box-shadow: 0 14px 30px rgba(102, 126, 234, 0.52);
     }
 
     .login-btn:active {
@@ -295,6 +336,127 @@
       margin-top: 15px;
     }
 
+    .forgot-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 12, 26, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      padding: 18px;
+    }
+
+    .forgot-modal.show {
+      display: flex;
+    }
+
+    .forgot-modal-card {
+      width: 100%;
+      max-width: 420px;
+      background: linear-gradient(160deg, rgba(23, 31, 59, 0.95), rgba(14, 20, 40, 0.96));
+      border: 1px solid rgba(141, 164, 243, 0.26);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 20px 50px rgba(5, 10, 25, 0.62);
+      color: #eaf0ff;
+    }
+
+    .forgot-modal-card h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      color: #f3f7ff;
+    }
+
+    .forgot-modal-help {
+      margin: 0 0 14px;
+      font-size: 12px;
+      color: #afc1f3;
+    }
+
+    .forgot-modal .form-group {
+      margin-bottom: 12px;
+    }
+
+    .forgot-otp-box {
+      padding: 12px;
+      border: 1px solid rgba(152, 176, 255, 0.35);
+      border-radius: 10px;
+      background: linear-gradient(145deg, rgba(31, 43, 82, 0.72), rgba(22, 31, 58, 0.86));
+      box-shadow: inset 0 0 0 1px rgba(121, 149, 240, 0.16);
+    }
+
+    .forgot-otp-box label {
+      font-weight: 800;
+      color: #edf3ff;
+      letter-spacing: 0.35px;
+    }
+
+    .forgot-otp-input {
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-size: 17px;
+      text-align: center;
+      padding: 13px 14px;
+      min-height: 48px;
+    }
+
+    .forgot-verify-status {
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #f4bfd0;
+      min-height: 16px;
+    }
+
+    .forgot-verify-status.is-verified {
+      color: #95efc1;
+    }
+
+    .forgot-modal select,
+    .forgot-modal input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(145, 165, 237, 0.3);
+      border-radius: 8px;
+      background: rgba(23, 32, 62, 0.78);
+      color: #eef3ff;
+      font-family: inherit;
+    }
+
+    .forgot-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .forgot-actions--stack {
+      margin-top: 8px;
+    }
+
+    .forgot-actions--tight {
+      margin-top: 0;
+    }
+
+    .forgot-otp-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #b7c8f4;
+      min-height: 16px;
+    }
+
+    .forgot-actions button {
+      flex: 1;
+    }
+
+    .btn-secondary {
+      background: rgba(72, 88, 138, 0.44);
+      border: 1px solid rgba(141, 164, 243, 0.35);
+      color: #dce7ff;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
     .loader {
       display: inline-block;
       width: 14px;
@@ -312,28 +474,36 @@
 
     .tab-buttons {
       display: flex;
-      gap: 10px;
-      margin-bottom: 30px;
-      border-bottom: 2px solid #3a3a4e;
+      gap: 6px;
+      margin-bottom: 24px;
+      background: rgba(20, 29, 56, 0.72);
+      border: 1px solid rgba(136, 160, 255, 0.2);
+      border-radius: 12px;
+      padding: 6px;
     }
 
     .tab-btn {
       flex: 1;
-      padding: 12px;
-      background: none;
+      padding: 10px 12px;
+      background: transparent;
       border: none;
-      font-size: 15px;
+      border-radius: 8px;
+      font-size: 14px;
       font-weight: 600;
-      color: #707080;
+      color: #9ba9cf;
       cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
       transition: all 0.3s ease;
     }
 
+    .tab-btn:hover {
+      color: #9bb0ff;
+      transform: translateY(-1px);
+    }
+
     .tab-btn.active {
-      color: #88a0ff;
-      border-bottom-color: #88a0ff;
+      color: #f0f4ff;
+      background: linear-gradient(135deg, rgba(108, 136, 240, 0.42), rgba(130, 92, 219, 0.44));
+      box-shadow: inset 0 0 0 1px rgba(168, 188, 255, 0.34);
     }
 
     .tab-content {
@@ -342,15 +512,130 @@
 
     .tab-content.active {
       display: block;
+      animation: tabContentIn 280ms ease-out;
     }
 
-    @media (max-width: 480px) {
+    @keyframes pageFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes cardLiftIn {
+      from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes tabContentIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes logoFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    .api-override-group {
+      margin-top: 16px;
+      margin-bottom: 16px;
+    }
+
+    .api-override-btn {
+      margin-bottom: 8px;
+    }
+
+    .api-override-btn.last {
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 768px) {
       .login-container {
-        padding: 30px 20px;
+        max-width: 100%;
+        padding: 28px 20px;
+      }
+
+      .login-header {
+        margin-bottom: 24px;
       }
 
       .login-header h1 {
         font-size: 24px;
+      }
+
+      .server-status {
+        position: static;
+        margin: 0 auto 12px;
+        width: fit-content;
+      }
+
+      .tab-buttons {
+        gap: 6px;
+        margin-bottom: 20px;
+      }
+
+      .tab-btn {
+        font-size: 14px;
+        padding: 10px 8px;
+      }
+
+      .remember-forgot {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .login-container {
+        padding: 20px 14px;
+        border-radius: 10px;
+      }
+
+      .login-header h1 {
+        font-size: 20px;
+      }
+
+      .login-header p {
+        font-size: 13px;
+      }
+
+      .tab-btn {
+        font-size: 13px;
+        padding: 9px 6px;
+      }
+
+      .form-group {
+        margin-bottom: 14px;
+      }
+
+      .form-group input {
+        padding: 10px 12px;
+      }
+
+      .login-btn {
+        padding: 10px;
+        font-size: 14px;
       }
     }
   </style>
@@ -367,13 +652,14 @@
         <span class="logo-fallback">🏫</span>
       </div>
       <h1>KHUSHI PUBLIC SCHOOL</h1>
-      <p>Portal Login</p>
+      <p class="login-location">Deoley Sheikhpura</p>
+      <p class="login-subtitle">School Login</p>
     </div>
 
     <div class="tab-buttons">
-      <button class="tab-btn active" data-tab="login">Admin</button>
+      <button class="tab-btn active" data-tab="login">Main Admin</button>
+      <button class="tab-btn" data-tab="reception">Reception</button>
       <button class="tab-btn" data-tab="parent">Parent</button>
-      <button class="tab-btn" data-tab="register">Register</button>
     </div>
 
     <!-- LOGIN FORM -->
@@ -414,6 +700,49 @@
 
         <button type="submit" class="login-btn" id="loginBtn">Sign In</button>
         <div class="loading" id="loginLoading">
+          <span class="loader"></span>Processing...
+        </div>
+      </form>
+    </div>
+
+    <!-- RECEPTION LOGIN FORM -->
+    <div id="reception-tab" class="tab-content">
+      <div class="error-message" id="receptionError"></div>
+      <div class="success-message" id="receptionSuccess"></div>
+
+      <form id="receptionForm" onsubmit="handleReceptionLogin(event)">
+        <div class="form-group">
+          <label for="receptionUsername">Username or Email</label>
+          <input
+            type="text"
+            id="receptionUsername"
+            name="username"
+            placeholder="Enter reception username or email"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="receptionPassword">Password</label>
+          <input
+            type="password"
+            id="receptionPassword"
+            name="password"
+            placeholder="Enter your password"
+            required
+          />
+        </div>
+
+        <div class="remember-forgot">
+          <label class="checkbox">
+            <input type="checkbox" name="remember" />
+            <span>Remember me</span>
+          </label>
+          <a href="#" class="forgot-link">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="login-btn" id="receptionBtn">Sign In</button>
+        <div class="loading" id="receptionLoading">
           <span class="loader"></span>Processing...
         </div>
       </form>
@@ -472,108 +801,637 @@
       </form>
     </div>
 
-    <!-- REGISTER FORM -->
-    <div id="register-tab" class="tab-content">
-      <div class="error-message" id="registerError"></div>
-      <div class="success-message" id="registerSuccess"></div>
+  </div>
 
-      <form id="registerForm" onsubmit="handleRegister(event)">
-        <div class="form-group">
-          <label for="regFullName">Full Name</label>
-          <input 
-            type="text" 
-            id="regFullName" 
-            name="full_name"
-            placeholder="Enter your full name"
-            required
-          />
+  <div class="forgot-modal" id="forgotPasswordModal" aria-hidden="true">
+    <div class="forgot-modal-card">
+      <h3>Forgot Password</h3>
+      <p class="forgot-modal-help">Reset is available for Main Admin and Reception credentials managed in Settings.</p>
+      <div class="error-message" id="forgotError"></div>
+      <div class="success-message" id="forgotSuccess"></div>
+
+      <div class="form-group">
+        <label for="forgotRole">Account Type</label>
+        <select id="forgotRole">
+          <option value="main_admin">Main Admin</option>
+          <option value="reception">Reception</option>
+          <option value="parent">Parent</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="forgotUsername">Username</label>
+        <input type="text" id="forgotUsername" placeholder="Enter username" />
+      </div>
+
+      <div class="form-group">
+        <label for="forgotChannel">OTP Channel</label>
+        <select id="forgotChannel">
+          <option value="sms">SMS (Mobile)</option>
+          <option value="email">Email</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="forgotPhoneGroup">
+        <label for="forgotPhone">Mobile Number</label>
+        <input type="text" id="forgotPhone" inputmode="numeric" placeholder="Enter mobile number" value="+91" />
+      </div>
+
+      <div class="form-group forgot-otp-box">
+        <label for="forgotOtp">OTP</label>
+        <input type="text" id="forgotOtp" class="forgot-otp-input" inputmode="numeric" maxlength="6" placeholder="Enter 6-digit OTP" />
+      </div>
+
+      <div class="form-group forgot-otp-box" id="forgotVerifyGroup">
+        <label>Verify OTP</label>
+        <div class="forgot-actions forgot-actions--stack forgot-actions--tight">
+          <button type="button" class="btn-secondary" id="forgotVerifyOtpBtn">Verify OTP</button>
         </div>
+        <p class="forgot-verify-status" id="forgotVerifyStatus">OTP not verified</p>
+      </div>
 
-        <div class="form-group">
-          <label for="regUsername">Username</label>
-          <input 
-            type="text" 
-            id="regUsername" 
-            name="username"
-            placeholder="Choose a username"
-            required
-          />
-        </div>
+      <div class="forgot-actions forgot-actions--stack">
+        <button type="button" class="btn-secondary" id="forgotSendOtpBtn">Send OTP</button>
+        <button type="button" class="btn-secondary" id="forgotCheckOtpSetupBtn">Check OTP Setup</button>
+      </div>
+      <p class="forgot-otp-hint" id="forgotOtpHint"></p>
 
-        <div class="form-group">
-          <label for="regEmail">Email</label>
-          <input 
-            type="email" 
-            id="regEmail" 
-            name="email"
-            placeholder="Enter your email"
-            required
-          />
-        </div>
+      <div class="form-group">
+        <label for="forgotNewPassword">New Password</label>
+        <input type="password" id="forgotNewPassword" placeholder="Enter new password" />
+      </div>
 
-        <div class="form-group">
-          <label for="regPassword">Password</label>
-          <input 
-            type="password" 
-            id="regPassword" 
-            name="password"
-            placeholder="Create a password (min 6 characters)"
-            required
-          />
-        </div>
+      <div class="form-group">
+        <label for="forgotConfirmPassword">Confirm New Password</label>
+        <input type="password" id="forgotConfirmPassword" placeholder="Confirm new password" />
+      </div>
 
-        <div class="form-group">
-          <label for="regPassword2">Confirm Password</label>
-          <input 
-            type="password" 
-            id="regPassword2" 
-            name="password_confirm"
-            placeholder="Confirm your password"
-            required
-          />
-        </div>
-
-        <button type="submit" class="login-btn" id="registerBtn">Create Account</button>
-        <div class="loading" id="registerLoading">
-          <span class="loader"></span>Processing...
-        </div>
-      </form>
-    </div>
-
-    <div class="signup-link">
-      Don't have an account? <a href="#" onclick="switchTab('register'); return false;">Sign up here</a> | <a href="#" onclick="switchTab('parent'); return false;">Parent Login</a>
+      <div class="forgot-actions">
+        <button type="button" class="btn-secondary" id="forgotCancelBtn">Cancel</button>
+        <button type="button" class="login-btn" id="forgotResetBtn">Reset Password</button>
+      </div>
     </div>
   </div>
 
   <script>
     // Set this once when frontend is hosted separately from backend:
     // window.__API_BASE_URL = 'https://your-backend-domain.onrender.com/api';
-    window.__API_BASE_URL = window.__API_BASE_URL || '';
 
-    // Dynamically determine API URL based on current location
-    let API_URL = (function() {
+    function resolveApiUrl() {
       const configuredApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || '').trim();
       if (configuredApi) {
         return configuredApi.replace(/\/+$/, '');
       }
 
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://' + window.location.hostname + ':5000/api';
+      const host = window.location.hostname;
+      const port = window.location.port;
+
+      if (window.location.protocol === 'file:') {
+        return 'http://localhost:5000/api';
+      }
+
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://' + host + ':5000/api';
+      }
+
+      // If frontend runs on a non-5000 dev/static port, backend is expected on 5000.
+      if (port && port !== '5000') {
+        return 'http://' + host + ':5000/api';
       }
 
       return window.location.origin + '/api';
-    })();
+    }
+
+    // Dynamically determine API URL based on current location
+    let API_URL = resolveApiUrl();
     console.log('API URL configured as:', API_URL);
+
+    const MANAGED_CREDENTIALS_KEY = 'khushi_managed_credentials';
+    const DEFAULT_RECOVERY_EMAIL = 'himanshunsingh3596@gmail.com';
+
+    function getManagedCredentials() {
+      try {
+        return JSON.parse(localStorage.getItem(MANAGED_CREDENTIALS_KEY) || '{}') || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function setManagedCredentials(payload) {
+      localStorage.setItem(MANAGED_CREDENTIALS_KEY, JSON.stringify(payload || {}));
+    }
+
+    function getRecoveryEmail() {
+      try {
+        const state = JSON.parse(localStorage.getItem('khushi_school_admin') || '{}');
+        return (state?.settings?.school?.email || DEFAULT_RECOVERY_EMAIL).trim();
+      } catch {
+        return DEFAULT_RECOVERY_EMAIL;
+      }
+    }
+
+    function maskEmail(email) {
+      const value = String(email || '').trim();
+      const parts = value.split('@');
+      if (parts.length !== 2) return value;
+      const local = parts[0] || '';
+      const domain = parts[1] || '';
+      if (local.length <= 2) {
+        return `${local.charAt(0) || '*'}***@${domain}`;
+      }
+      return `${local.slice(0, 2)}***@${domain}`;
+    }
+
+    function maskPhone(phone) {
+      const digits = String(phone || '').replace(/\D/g, '');
+      if (!digits) return '';
+      if (digits.length <= 4) return `***${digits}`;
+      return `${digits.slice(0, 2)}******${digits.slice(-2)}`;
+    }
+
+    async function parseApiResponse(response) {
+      const raw = await response.text();
+      try {
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return { raw };
+      }
+    }
+
+    function isHtmlPayload(data) {
+      const raw = String(data?.raw || '').trim().toLowerCase();
+      return raw.startsWith('<!doctype html') || raw.startsWith('<html') || raw.includes('<body');
+    }
+
+    function initForgotPassword() {
+      const modal = document.getElementById('forgotPasswordModal');
+      const roleInput = document.getElementById('forgotRole');
+      const usernameInput = document.getElementById('forgotUsername');
+      const channelInput = document.getElementById('forgotChannel');
+      const phoneInput = document.getElementById('forgotPhone');
+      const phoneGroup = document.getElementById('forgotPhoneGroup');
+      const otpInput = document.getElementById('forgotOtp');
+      const sendOtpBtn = document.getElementById('forgotSendOtpBtn');
+      const verifyOtpBtn = document.getElementById('forgotVerifyOtpBtn');
+      const verifyStatus = document.getElementById('forgotVerifyStatus');
+      const checkOtpSetupBtn = document.getElementById('forgotCheckOtpSetupBtn');
+      const otpHint = document.getElementById('forgotOtpHint');
+      const newPasswordInput = document.getElementById('forgotNewPassword');
+      const confirmPasswordInput = document.getElementById('forgotConfirmPassword');
+      const cancelBtn = document.getElementById('forgotCancelBtn');
+      const resetBtn = document.getElementById('forgotResetBtn');
+      const err = document.getElementById('forgotError');
+      const ok = document.getElementById('forgotSuccess');
+      if (!modal || !roleInput || !usernameInput || !channelInput || !phoneInput || !phoneGroup || !otpInput || !sendOtpBtn || !verifyOtpBtn || !verifyStatus || !checkOtpSetupBtn || !otpHint || !newPasswordInput || !confirmPasswordInput || !cancelBtn || !resetBtn || !err || !ok) return;
+
+      let otpRequestId = '';
+      let otpVerified = false;
+      let resendTimer = null;
+      let resendSeconds = 0;
+
+      const stopCooldown = () => {
+        if (resendTimer) {
+          clearInterval(resendTimer);
+          resendTimer = null;
+        }
+        resendSeconds = 0;
+        sendOtpBtn.disabled = false;
+        sendOtpBtn.textContent = otpRequestId ? 'Resend OTP' : 'Send OTP';
+      };
+
+      const startCooldown = (seconds = 30) => {
+        stopCooldown();
+        resendSeconds = Math.max(1, Number(seconds || 30));
+        sendOtpBtn.disabled = true;
+        sendOtpBtn.textContent = `Resend OTP in ${resendSeconds}s`;
+        resendTimer = setInterval(() => {
+          resendSeconds -= 1;
+          if (resendSeconds <= 0) {
+            stopCooldown();
+            return;
+          }
+          sendOtpBtn.textContent = `Resend OTP in ${resendSeconds}s`;
+        }, 1000);
+      };
+
+      const clearMsgs = () => {
+        err.classList.remove('show');
+        ok.classList.remove('show');
+      };
+
+      const setVerifyStatus = (verified) => {
+        verifyStatus.textContent = verified ? 'OTP verified ✅' : 'OTP not verified';
+        verifyStatus.classList.toggle('is-verified', !!verified);
+      };
+
+      const checkSmsDeliveryStatus = async (sid) => {
+        if (!sid) return;
+        try {
+          const response = await fetch(`${API_URL}/auth/otp/sms-status?sid=${encodeURIComponent(sid)}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const data = await parseApiResponse(response);
+
+          if (!response.ok) {
+            const code = data?.provider_error_code;
+            const status = data?.provider_status;
+            otpHint.textContent = `SMS status check failed${code || status ? ` [code=${code || 'n/a'} status=${status || 'n/a'}]` : ''}.`;
+            return;
+          }
+
+          const smsStatus = (data?.status || '').toLowerCase();
+          const errorCode = data?.error_code;
+          const errorMessage = data?.error_message;
+
+          if (smsStatus === 'delivered') {
+            showSuccess(ok, 'SMS delivered successfully.');
+            otpHint.textContent = `SMS delivered [sid=${sid}].`;
+            return;
+          }
+
+          if (smsStatus === 'failed' || smsStatus === 'undelivered' || smsStatus === 'canceled') {
+            showError(err, `SMS ${smsStatus}. ${errorMessage || 'Provider reported delivery failure.'} [code=${errorCode || 'n/a'} sid=${sid}]`);
+            otpHint.textContent = `Provider status: ${smsStatus}.`;
+            return;
+          }
+
+          otpHint.textContent = `Provider status: ${smsStatus || 'unknown'} [sid=${sid}].`;
+        } catch (e) {
+          otpHint.textContent = `SMS status check error: ${e.message}`;
+        }
+      };
+
+      const closeModal = () => {
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+        usernameInput.value = '';
+        otpInput.value = '';
+        newPasswordInput.value = '';
+        confirmPasswordInput.value = '';
+        otpRequestId = '';
+        otpVerified = false;
+        otpHint.textContent = '';
+        setVerifyStatus(false);
+        stopCooldown();
+        clearMsgs();
+      };
+
+      const openModal = (preferredRole) => {
+        roleInput.value = preferredRole || 'main_admin';
+        channelInput.value = 'sms';
+        phoneInput.value = '+91';
+        clearMsgs();
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        otpHint.textContent = '';
+        setVerifyStatus(false);
+        stopCooldown();
+        usernameInput.focus();
+      };
+
+      const updateChannelUI = () => {
+        const isSms = channelInput.value === 'sms';
+        phoneGroup.style.display = isSms ? '' : 'none';
+      };
+
+      const enforcePhonePrefix = () => {
+        const digits = String(phoneInput.value || '').replace(/\D/g, '');
+        const localDigits = digits.startsWith('91') ? digits.slice(2) : digits;
+        phoneInput.value = `+91${localDigits}`;
+      };
+
+      phoneInput.addEventListener('focus', () => {
+        if (!phoneInput.value || !phoneInput.value.startsWith('+91')) {
+          phoneInput.value = '+91';
+        }
+      });
+
+      phoneInput.addEventListener('input', () => {
+        const cursorPos = phoneInput.selectionStart || 0;
+        enforcePhonePrefix();
+        if (cursorPos <= 3) {
+          phoneInput.setSelectionRange(3, 3);
+        }
+      });
+
+      phoneInput.addEventListener('keydown', (e) => {
+        const cursorStart = phoneInput.selectionStart || 0;
+        const cursorEnd = phoneInput.selectionEnd || 0;
+        const isPrefixArea = cursorStart <= 3 || cursorEnd <= 3;
+        if ((e.key === 'Backspace' || e.key === 'Delete') && isPrefixArea) {
+          e.preventDefault();
+          phoneInput.setSelectionRange(3, 3);
+        }
+      });
+
+      phoneInput.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+        const digits = text.replace(/\D/g, '');
+        const localDigits = digits.startsWith('91') ? digits.slice(2) : digits;
+        phoneInput.value = `+91${localDigits}`;
+      });
+
+      channelInput.addEventListener('change', updateChannelUI);
+      updateChannelUI();
+      enforcePhonePrefix();
+
+      document.querySelectorAll('.forgot-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const tab = link.closest('.tab-content')?.id || '';
+          if (tab === 'reception-tab') openModal('reception');
+          else if (tab === 'parent-tab') openModal('parent');
+          else openModal('main_admin');
+        });
+      });
+
+      cancelBtn.addEventListener('click', closeModal);
+
+      sendOtpBtn.addEventListener('click', async () => {
+        clearMsgs();
+        const role = roleInput.value;
+        const channel = channelInput.value;
+        const username = usernameInput.value.trim();
+        const phone = phoneInput.value.trim();
+
+        if (role === 'parent') {
+          showError(err, 'Parent password reset is managed by admin. Please contact school office.');
+          return;
+        }
+
+        if (!username) {
+          showError(err, 'Please enter username first.');
+          return;
+        }
+
+        const recoveryEmail = getRecoveryEmail();
+        if (channel === 'sms' && !phone) {
+          showError(err, 'Please enter mobile number for SMS OTP.');
+          return;
+        }
+        if (channel === 'email' && !recoveryEmail) {
+          showError(err, 'Recovery email is not configured. Set School Email in Settings first.');
+          return;
+        }
+
+        try {
+          otpVerified = false;
+          setVerifyStatus(false);
+          let response = await fetch(`${API_URL}/auth/otp/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              role,
+              channel,
+              email: recoveryEmail,
+              phone
+            })
+          });
+          let data = await parseApiResponse(response);
+
+          if (response.status === 405) {
+            const params = new URLSearchParams({ role, channel, email: recoveryEmail, phone });
+            response = await fetch(`${API_URL}/auth/otp/send?${params.toString()}`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            data = await parseApiResponse(response);
+          }
+
+          if (!response.ok) {
+            const fallback = data?.raw ? `Failed to send OTP (HTTP ${response.status})` : 'Failed to send OTP';
+            const providerCode = data?.provider_error_code;
+            const providerStatus = data?.provider_status;
+            const providerText = providerCode || providerStatus
+              ? ` [provider=${data?.provider || 'unknown'} code=${providerCode || 'n/a'} status=${providerStatus || 'n/a'}]`
+              : '';
+            showError(err, `${data.error || fallback}${providerText}`);
+            return;
+          }
+
+          if (isHtmlPayload(data)) {
+            showError(err, 'Wrong API server (HTML received). Please point API URL to backend /api endpoint.');
+            return;
+          }
+
+          if (!data?.request_id) {
+            showError(err, 'Unexpected API response. Please verify backend API URL and OTP endpoint.');
+            return;
+          }
+
+          otpRequestId = data.request_id || '';
+          const destination = data.destination || (channel === 'sms' ? phone : recoveryEmail);
+          const masked = channel === 'sms' ? maskPhone(destination) : maskEmail(destination);
+          showSuccess(ok, `OTP sent to ${masked}.`);
+          const providerStatus = data?.provider?.status;
+          const providerSid = data?.provider?.sid;
+          const providerMeta = channel === 'sms' && (providerStatus || providerSid)
+            ? ` [status=${providerStatus || 'n/a'} sid=${providerSid || 'n/a'}]`
+            : '';
+          otpHint.textContent = `OTP sent via ${channel.toUpperCase()} to ${masked}. It expires in 5 minutes.${providerMeta}`;
+
+          if (channel === 'sms' && providerSid) {
+            setTimeout(() => checkSmsDeliveryStatus(providerSid), 7000);
+          }
+
+          startCooldown(30);
+        } catch (e) {
+          showError(err, `OTP send failed: ${e.message}`);
+        }
+      });
+
+      verifyOtpBtn.addEventListener('click', async () => {
+        clearMsgs();
+        const role = roleInput.value;
+        const channel = channelInput.value;
+        const otp = otpInput.value.trim();
+
+        if (role === 'parent') {
+          showError(err, 'Parent password reset is managed by admin. Please contact school office.');
+          return;
+        }
+
+        if (!otpRequestId || !otp) {
+          showError(err, 'Please request OTP first and enter OTP.');
+          return;
+        }
+
+        verifyOtpBtn.disabled = true;
+        const originalText = verifyOtpBtn.textContent;
+        verifyOtpBtn.textContent = 'Verifying...';
+
+        try {
+          let verifyResp = await fetch(`${API_URL}/auth/otp/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ request_id: otpRequestId, otp, role, channel })
+          });
+          let verifyData = await parseApiResponse(verifyResp);
+
+          if (verifyResp.status === 405) {
+            const params = new URLSearchParams({ request_id: otpRequestId, otp, role, channel });
+            verifyResp = await fetch(`${API_URL}/auth/otp/verify?${params.toString()}`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            verifyData = await parseApiResponse(verifyResp);
+          }
+
+          if (!verifyResp.ok) {
+            const fallback = verifyData?.raw ? `OTP verification failed (HTTP ${verifyResp.status})` : 'OTP verification failed.';
+            showError(err, verifyData.error || fallback);
+            otpVerified = false;
+            setVerifyStatus(false);
+            return;
+          }
+
+          otpVerified = true;
+          setVerifyStatus(true);
+          showSuccess(ok, 'OTP verified successfully.');
+        } catch (e) {
+          otpVerified = false;
+          setVerifyStatus(false);
+          showError(err, `OTP verification failed: ${e.message}`);
+        } finally {
+          verifyOtpBtn.disabled = false;
+          verifyOtpBtn.textContent = originalText;
+        }
+      });
+
+      checkOtpSetupBtn.addEventListener('click', async () => {
+        clearMsgs();
+        otpHint.textContent = '';
+        checkOtpSetupBtn.disabled = true;
+        const originalText = checkOtpSetupBtn.textContent;
+        checkOtpSetupBtn.textContent = 'Checking...';
+
+        try {
+          const channel = channelInput.value;
+          const response = await fetch(`${API_URL}/auth/otp/health`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const data = await parseApiResponse(response);
+
+          if (!response.ok) {
+            const fallback = data?.raw ? `OTP setup check failed (HTTP ${response.status}). Backend may not have /auth/otp/health deployed.` : 'OTP setup check failed.';
+            showError(err, data.error || fallback);
+            return;
+          }
+
+          if (channel === 'sms') {
+            if (data?.sms?.ok) {
+              showSuccess(ok, 'SMS OTP setup is ready.');
+              otpHint.textContent = 'Twilio SMS configuration check passed.';
+            } else {
+              const missing = Array.isArray(data?.sms?.missing) ? data.sms.missing.join(', ') : 'Unknown';
+              showError(err, `Missing SMS settings: ${missing}`);
+              otpHint.textContent = 'Set missing Twilio environment variables on backend.';
+            }
+          } else {
+            if (data?.smtp?.ok) {
+              showSuccess(ok, 'Email OTP setup is ready. SMTP configuration is complete.');
+              otpHint.textContent = `SMTP check passed. TLS: ${data.smtp_use_tls ? 'enabled' : 'disabled'}.`;
+            } else {
+              const missing = Array.isArray(data?.smtp?.missing) ? data.smtp.missing.join(', ') : 'Unknown';
+              showError(err, `Missing SMTP settings: ${missing}`);
+              otpHint.textContent = 'Set missing SMTP environment variables on backend.';
+            }
+          }
+        } catch (e) {
+          showError(err, `OTP setup check failed: ${e.message}`);
+        } finally {
+          checkOtpSetupBtn.disabled = false;
+          checkOtpSetupBtn.textContent = originalText;
+        }
+      });
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+
+      resetBtn.addEventListener('click', async () => {
+        clearMsgs();
+        const role = roleInput.value;
+        const channel = channelInput.value;
+        const username = usernameInput.value.trim();
+        const otp = otpInput.value.trim();
+        const newPassword = newPasswordInput.value;
+        const confirmPassword = confirmPasswordInput.value;
+
+        if (role === 'parent') {
+          showError(err, 'Parent password reset is managed by admin. Please contact school office.');
+          return;
+        }
+
+        if (!username || !newPassword || !confirmPassword) {
+          showError(err, 'Please fill all fields.');
+          return;
+        }
+
+        if (!otpRequestId || !otp) {
+          showError(err, 'Please request and enter OTP first.');
+          return;
+        }
+
+        if (newPassword.length < 4) {
+          showError(err, 'Password must be at least 4 characters.');
+          return;
+        }
+
+        if (newPassword !== confirmPassword) {
+          showError(err, 'Passwords do not match.');
+          return;
+        }
+
+        const managed = getManagedCredentials();
+        const roleData = managed?.[role];
+
+        if (!roleData || !roleData.username || !roleData.password) {
+          showError(err, 'Credentials are not managed yet. Ask Main Admin to set them in Settings.');
+          return;
+        }
+
+        if (username !== roleData.username) {
+          showError(err, 'Username does not match this account type.');
+          return;
+        }
+
+        if (!otpVerified) {
+          showError(err, 'Please verify OTP first using Verify OTP button.');
+          return;
+        }
+
+        managed[role] = { ...roleData, password: newPassword };
+        managed.updatedAt = new Date().toISOString();
+        setManagedCredentials(managed);
+        otpRequestId = '';
+        showSuccess(ok, 'Password reset successful. You can login now.');
+
+        setTimeout(() => {
+          closeModal();
+          if (role === 'reception') switchTab('reception');
+          else switchTab('login');
+        }, 900);
+      });
+    }
 
     // ===========================
     // SERVER STATUS CHECKER
     // ===========================
     let serverCheckInterval = null;
+    let isServerCheckInProgress = false;
 
     async function checkServerStatus() {
+      if (isServerCheckInProgress || document.visibilityState === 'hidden') return;
+
       const indicator = document.querySelector('.status-indicator');
       const statusText = document.getElementById('statusText');
       const serverStatusBtn = document.getElementById('serverStatus');
+
+      isServerCheckInProgress = true;
 
       try {
         // Use AbortController for timeout
@@ -605,21 +1463,21 @@
         statusText.textContent = 'Disconnected';
         serverStatusBtn.title = `Server connection failed: ${error.message}. Make sure the backend is running on port 5000.`;
         console.warn('✗ Server connection check failed:', error.message);
+      } finally {
+        isServerCheckInProgress = false;
       }
     }
 
     // Check server status when page loads
     window.addEventListener('load', async () => {
       checkServerStatus();
-      // Check every 5 seconds
-      serverCheckInterval = setInterval(checkServerStatus, 5000);
+      // Check every 15 seconds to avoid UI flicker/heavy repaint loops
+      serverCheckInterval = setInterval(checkServerStatus, 15000);
+    });
 
-      try {
-        const response = await fetch(`${API_URL}/auth/verify`, {headers: {'Content-Type': 'application/json'}}).catch(e => {throw e;});
-        console.log('✓ Backend connection successful:', response.status);
-      } catch (error) {
-        console.warn('⚠ Backend connection test failed:', error.message);
-        console.warn('Set window.__API_BASE_URL in login.html when frontend and backend are hosted on different domains.');
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        checkServerStatus();
       }
     });
 
@@ -654,21 +1512,16 @@
       // Clear messages
       document.getElementById('loginError').classList.remove('show');
       document.getElementById('loginSuccess').classList.remove('show');
-      document.getElementById('registerError').classList.remove('show');
-      document.getElementById('registerSuccess').classList.remove('show');
       document.getElementById('parentError').classList.remove('show');
       document.getElementById('parentSuccess').classList.remove('show');
+      document.getElementById('receptionError').classList.remove('show');
+      document.getElementById('receptionSuccess').classList.remove('show');
     }
 
-    async function handleLogin(event) {
-      event.preventDefault();
+    initForgotPassword();
 
-      const username = document.getElementById('loginUsername').value.trim();
-      const password = document.getElementById('loginPassword').value;
-      const errorEl = document.getElementById('loginError');
-      const successEl = document.getElementById('loginSuccess');
-      const loginBtn = document.getElementById('loginBtn');
-      const loadingEl = document.getElementById('loginLoading');
+    async function performAdminLogin({ username, password, panelRole, errorEl, successEl, submitBtn, loadingEl }) {
+      const role = panelRole === 'reception' ? 'reception' : 'main_admin';
 
       // Clear messages
       errorEl.classList.remove('show');
@@ -679,8 +1532,37 @@
         return;
       }
 
-      loginBtn.disabled = true;
+      submitBtn.disabled = true;
       loadingEl.style.display = 'block';
+
+      const managedCredentials = getManagedCredentials();
+      const roleCredentials = managedCredentials?.[role];
+
+      if (roleCredentials?.username && roleCredentials?.password) {
+        const isValid = username === roleCredentials.username && password === roleCredentials.password;
+
+        if (!isValid) {
+          showError(errorEl, 'Invalid credentials');
+          submitBtn.disabled = false;
+          loadingEl.style.display = 'none';
+          return;
+        }
+
+        const userName = role === 'reception' ? 'Reception User' : 'Main Admin';
+        const adminUser = { username, full_name: userName, panelRole: role };
+        sessionStorage.setItem('user', JSON.stringify(adminUser));
+        sessionStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.setItem('userType', 'admin');
+        sessionStorage.setItem('khushi_portal_auth', 'true');
+        sessionStorage.setItem('khushi_portal_role', 'admin');
+        sessionStorage.setItem('khushi_admin_panel_role', role);
+
+        showSuccess(successEl, 'Login successful! Redirecting...');
+        setTimeout(() => {
+          window.location.href = 'index.html';
+        }, 1200);
+        return;
+      }
 
       try {
         const loginUrl = `${API_URL}/auth/login`;
@@ -705,14 +1587,19 @@
 
         if (!response.ok) {
           showError(errorEl, data.error || 'Login failed');
-          loginBtn.disabled = false;
+          submitBtn.disabled = false;
           loadingEl.style.display = 'none';
           return;
         }
 
         // Save user info to localStorage
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('isAuthenticated', 'true');
+        const adminUser = { ...(data.user || {}), panelRole: role };
+        sessionStorage.setItem('user', JSON.stringify(adminUser));
+        sessionStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.setItem('userType', 'admin');
+        sessionStorage.setItem('khushi_portal_auth', 'true');
+        sessionStorage.setItem('khushi_portal_role', 'admin');
+        sessionStorage.setItem('khushi_admin_panel_role', role);
 
         showSuccess(successEl, 'Login successful! Redirecting...');
         
@@ -727,86 +1614,37 @@
           apiUrl: API_URL
         });
         showError(errorEl, `Connection error: ${error.message}. Trying alternative connection...`);
-        loginBtn.disabled = false;
+        submitBtn.disabled = false;
         loadingEl.style.display = 'none';
       }
     }
 
-    async function handleRegister(event) {
+    async function handleLogin(event) {
       event.preventDefault();
 
-      const fullName = document.getElementById('regFullName').value.trim();
-      const username = document.getElementById('regUsername').value.trim();
-      const email = document.getElementById('regEmail').value.trim();
-      const password = document.getElementById('regPassword').value;
-      const passwordConfirm = document.getElementById('regPassword2').value;
-      const errorEl = document.getElementById('registerError');
-      const successEl = document.getElementById('registerSuccess');
-      const registerBtn = document.getElementById('registerBtn');
-      const loadingEl = document.getElementById('registerLoading');
+      await performAdminLogin({
+        username: document.getElementById('loginUsername').value.trim(),
+        password: document.getElementById('loginPassword').value,
+        panelRole: 'main_admin',
+        errorEl: document.getElementById('loginError'),
+        successEl: document.getElementById('loginSuccess'),
+        submitBtn: document.getElementById('loginBtn'),
+        loadingEl: document.getElementById('loginLoading')
+      });
+    }
 
-      // Clear messages
-      errorEl.classList.remove('show');
-      successEl.classList.remove('show');
+    async function handleReceptionLogin(event) {
+      event.preventDefault();
 
-      // Validation
-      if (!fullName || !username || !email || !password) {
-        showError(errorEl, 'Please fill in all fields');
-        return;
-      }
-
-      if (password.length < 6) {
-        showError(errorEl, 'Password must be at least 6 characters');
-        return;
-      }
-
-      if (password !== passwordConfirm) {
-        showError(errorEl, 'Passwords do not match');
-        return;
-      }
-
-      registerBtn.disabled = true;
-      loadingEl.style.display = 'block';
-
-      try {
-        const response = await fetch(`${API_URL}/auth/register`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            full_name: fullName,
-            username: username,
-            email: email,
-            password: password
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          showError(errorEl, data.error || 'Registration failed');
-          registerBtn.disabled = false;
-          loadingEl.style.display = 'none';
-          return;
-        }
-
-        showSuccess(successEl, 'Registration successful! Please log in with your credentials.');
-        document.getElementById('registerForm').reset();
-
-        // Switch to login tab after 2 seconds
-        setTimeout(() => {
-          switchTab('login');
-          document.getElementById('loginUsername').value = username;
-          document.getElementById('loginPassword').focus();
-        }, 2000);
-
-      } catch (error) {
-        console.error('Registration error:', error);
-        showError(errorEl, 'Connection error. Please try again.');
-        registerBtn.disabled = false;
-        loadingEl.style.display = 'none';
-      }
+      await performAdminLogin({
+        username: document.getElementById('receptionUsername').value.trim(),
+        password: document.getElementById('receptionPassword').value,
+        panelRole: 'reception',
+        errorEl: document.getElementById('receptionError'),
+        successEl: document.getElementById('receptionSuccess'),
+        submitBtn: document.getElementById('receptionBtn'),
+        loadingEl: document.getElementById('receptionLoading')
+      });
     }
 
     async function handleParentLogin(event) {
@@ -862,9 +1700,12 @@
         }
 
         // Save parent info to localStorage
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('userType', 'parent');
-        localStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.setItem('user', JSON.stringify(data.user));
+        sessionStorage.setItem('userType', 'parent');
+        sessionStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.removeItem('khushi_admin_panel_role');
+        sessionStorage.setItem('khushi_portal_auth', 'true');
+        sessionStorage.setItem('khushi_portal_role', 'parent');
 
         showSuccess(successEl, 'Login successful! Redirecting...');
         
@@ -894,12 +1735,41 @@
       element.classList.add('show');
     }
 
-    // Check if already logged in
+    // If this same tab already has a valid session, skip login screen and redirect.
+    // New tabs still start unauthenticated because sessionStorage is tab-scoped.
     window.addEventListener('load', () => {
-      const isAuthenticated = localStorage.getItem('isAuthenticated');
-      if (isAuthenticated === 'true') {
-        window.location.href = 'index.html';
+      const isAuthed = sessionStorage.getItem('isAuthenticated') === 'true';
+      const userType = (sessionStorage.getItem('userType') || '').trim();
+      const userRaw = sessionStorage.getItem('user');
+
+      let hasValidUser = false;
+      if (userRaw) {
+        try {
+          const parsed = JSON.parse(userRaw);
+          hasValidUser = !!(parsed && (parsed.username || parsed.full_name || parsed.email));
+        } catch (_) {
+          hasValidUser = false;
+        }
       }
+
+      const hasValidSession = isAuthed && hasValidUser && (userType === 'admin' || userType === 'parent' || userType === 'public');
+
+      if (hasValidSession) {
+        if (userType === 'parent') {
+          window.location.replace('parent-portal.html');
+          return;
+        }
+        window.location.replace('index.html');
+        return;
+      }
+
+      // Clear only invalid/partial session remnants for this tab.
+      sessionStorage.removeItem('user');
+      sessionStorage.removeItem('userType');
+      sessionStorage.removeItem('isAuthenticated');
+      sessionStorage.removeItem('khushi_portal_auth');
+      sessionStorage.removeItem('khushi_portal_role');
+      sessionStorage.removeItem('khushi_admin_panel_role');
     });
   </script>
 </body>

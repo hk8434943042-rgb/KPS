@@ -188,7 +188,7 @@ python health_check.py
 
 ### New Files Created:
 ```
-DATABASE_GUIDE.md          - Detailed documentation
+docs/root-guides/DATABASE_GUIDE.md  - Detailed documentation
 MAINTENANCE.bat            - One-click maintenance
 database/health_check.py   - Database health checker
 database/clear_db_now.py   - Clear all data (testing)
@@ -235,9 +235,9 @@ Your database is now **production-ready** and can handle:
 **Start adding your real student data now!**
 
 ### Need Help?
-- Check `DATABASE_GUIDE.md` for detailed documentation
+- Check `docs/root-guides/DATABASE_GUIDE.md` for detailed documentation
 - Watch backend terminal for operation logs
-- Run `health_check.py` to verify everything is working
+- Run `database/health_check.py` to verify everything is working
 
 ---
 

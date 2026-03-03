@@ -28,15 +28,6 @@ window.addEventListener('unhandledrejection', e => {
 // ===========================
 // AUTHENTICATION CHECK
 // ===========================
-window.addEventListener('load', () => {
-  // Check if user is authenticated
-  const isAuthenticated = localStorage.getItem('isAuthenticated');
-  if (isAuthenticated !== 'true') {
-    // Redirect to login page
-    window.location.href = 'login.html';
-  }
-});
-
 // ===========================
 // GLOBAL API CONFIGURATION
 // ===========================
@@ -52,7 +43,17 @@ const API_URL = (() => {
   }
 
   const host = window.location.hostname;
+  const port = window.location.port;
+  if (window.location.protocol === 'file:') {
+    return 'http://localhost:5000/api';
+  }
   if (host === 'localhost' || host === '127.0.0.1') {
+    return `http://${host}:5000/api`;
+  }
+
+  // If frontend is served from a dev/static server port (e.g. 8000/5500/5173),
+  // assume backend is running on port 5000 on the same machine/IP.
+  if (port && port !== '5000') {
     return `http://${host}:5000/api`;
   }
 
@@ -80,7 +81,8 @@ const AppState = {
 
   // Pagination config
   pagination: {
-    students: { page: 1, pageSize: 10, totalPages: 1, filtered: [] }
+    students: { page: 1, pageSize: 10, totalPages: 1, filtered: [] },
+    fees: { page: 1, pageSize: 12, totalPages: 1, filtered: [] }
   },
 
   // Fee heads by class
@@ -117,10 +119,10 @@ const AppState = {
     chartAnimation: false,
     school: {
       name: 'KHUSHI PUBLIC SCHOOL',
-      tagline: 'Admin Portal',
+      tagline: 'Deoley Sheikhpura',
       address: 'Sheikhpura, Bihar',
       phone: '+91-XXXXXXXXXX',
-      email: '',
+      email: 'himanshunsingh3596@gmail.com',
       logo: 'assets/logo.png'
     }
   },
@@ -141,16 +143,49 @@ const AppState = {
   teacherAttendance: {}, // key: `${teacherId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
   salaryPayments: [], // { id, teacherId, month, amount, date, status }
 
+  // Staff module (non-teaching)
+  staff: [], // { id, name, role, phone, joinDate, salary, status }
+
   // Classes module
   classes: [], // { id, class, section, classTeacherId, subjects: {subjectName: teacherId}, capacity, status }
 
   // Notices module
-  notices: [] // { id, title, description, author, date, priority, status, audience }
+  notices: [], // { id, title, description, author, date, priority, status, audience }
+
+  // Parents module
+  parents: [], // { id, name, email, phone, address, relation, children? }
+  selectedParentId: null
 };
 
 // ---------- Persistence ----------
 const STORAGE_KEY = 'khushi_school_admin';
-function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState)); }
+const RECEIPTS_CACHE_KEY = 'khushi_receipts_cache';
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState));
+  if (Array.isArray(AppState.receipts) && AppState.receipts.length > 0) {
+    localStorage.setItem(RECEIPTS_CACHE_KEY, JSON.stringify(AppState.receipts));
+  }
+}
+
+function restoreReceiptsFromBackupIfNeeded() {
+  const hasReceipts = Array.isArray(AppState.receipts) && AppState.receipts.length > 0;
+  if (hasReceipts) return false;
+
+  try {
+    const backupRaw = localStorage.getItem(RECEIPTS_CACHE_KEY);
+    if (!backupRaw) return false;
+    const backupReceipts = JSON.parse(backupRaw);
+    if (Array.isArray(backupReceipts) && backupReceipts.length > 0) {
+      AppState.receipts = backupReceipts;
+      return true;
+    }
+  } catch (e) {
+    console.warn('Failed to restore receipt backup cache:', e);
+  }
+
+  return false;
+}
 
 // helper that performs fetch with a timeout (default 5s)
 async function fetchWithTimeout(url, opts = {}, timeout = 5000) {
@@ -373,12 +408,16 @@ async function autoSyncData() {
   try {
     console.log('🔄 Auto-syncing data from database...');
     await fetchStudentsFromBackend();
+    await fetchTeachersFromBackend();
     console.log('✅ Auto-sync complete');
     saveState(); // Save synced data to localStorage as backup
     
     // Re-render if on students view
     if (AppState.view === 'students' && typeof renderStudents === 'function') {
       renderStudents();
+    }
+    if (AppState.view === 'teachers' && typeof renderTeachers === 'function') {
+      renderTeachers();
     }
   } catch (e) {
     console.warn('⚠️ Auto-sync failed:', e.message);
@@ -449,6 +488,10 @@ function loadState() {
     seedDemoData();
     saveState();
   }
+
+  // Recover receipts from dedicated backup cache if main state has none.
+  // This prevents Recent Receipts from disappearing due to partial/stale state writes.
+  restoreReceiptsFromBackupIfNeeded();
   
   // IMPORTANT: Always fetch fresh data from database on page reload
   // This ensures data is always up-to-date, not stale from cache
@@ -462,12 +505,59 @@ function loadState() {
     .catch(e => {
       console.warn('[WARN] Could not fetch from database, using cached data:', e.message);
     });
+
+  fetchTeachersFromBackend()
+    .then(() => {
+      console.log('✅ Teachers loaded from database');
+      saveState();
+    })
+    .catch(e => {
+      console.warn('[WARN] Could not fetch teachers from database, using cached data:', e.message);
+    });
+
+  hydrateReceiptsFromBackend()
+    .then((loaded) => {
+      if (loaded) {
+        console.log('✅ Payments/receipts loaded from database');
+        saveState();
+      }
+    })
+    .catch(e => {
+      console.warn('[WARN] Could not fetch payments from database, using cached receipts:', e.message);
+    });
 }
 
 // ---------- Authentication ----------
 const AUTH_KEY = 'khushi_portal_auth';
 const ROLE_KEY = 'khushi_portal_role';
 const USER_KEY = 'khushi_portal_user';
+const ADMIN_PANEL_ROLE_KEY = 'khushi_admin_panel_role';
+const MANAGED_CREDENTIALS_KEY = 'khushi_managed_credentials';
+
+const ADMIN_PANEL_PERMISSIONS = {
+  main_admin: {
+    allowedViews: ['dashboard', 'students', 'attendance', 'fees', 'classes', 'exams', 'teachers', 'staff', 'parents', 'transport', 'notices', 'settings', 'audit'],
+    hiddenActionIds: []
+  },
+  reception: {
+    allowedViews: ['dashboard', 'students', 'fees', 'teachers', 'staff', 'notices'],
+    hiddenActionIds: [
+      'btnExportCSV',
+      'btnBulkSMS',
+      'btnBulkExport',
+      'feesBtnExport',
+      'feesBtnHeads',
+      'feesBtnConcession',
+      'feesBtnImport',
+      'feesBtnAging',
+      'feesBtnReceiptsExport',
+      'teacherBtnAdd',
+      'teacherBtnExport',
+      'noticeBtnCreate',
+      'noticeBtnExport'
+    ]
+  }
+};
 
 // Multi-role user credentials
 const VALID_USERS = {
@@ -500,22 +590,86 @@ const RazorpayState = {
 };
 
 function isAuthenticated() {
-  return localStorage.getItem(AUTH_KEY) === 'true';
+  return sessionStorage.getItem(AUTH_KEY) === 'true';
 }
 
 function getUserRole() {
-  return localStorage.getItem(ROLE_KEY) || 'public';
+  return sessionStorage.getItem(ROLE_KEY) || 'public';
+}
+
+function getAdminPanelRole() {
+  const userType = sessionStorage.getItem('userType');
+  if (userType && userType !== 'admin') return 'main_admin';
+
+  const stored = (sessionStorage.getItem(ADMIN_PANEL_ROLE_KEY) || '').trim();
+  if (stored === 'reception' || stored === 'main_admin') return stored;
+
+  try {
+    const user = JSON.parse(sessionStorage.getItem('user') || '{}');
+    const fromUser = (user.panelRole || user.role || '').trim();
+    if (fromUser === 'reception' || fromUser === 'main_admin') return fromUser;
+  } catch {}
+
+  return 'main_admin';
+}
+
+function canAccessAdminView(viewId) {
+  const panelRole = getAdminPanelRole();
+  const permissions = ADMIN_PANEL_PERMISSIONS[panelRole] || ADMIN_PANEL_PERMISSIONS.main_admin;
+  return (permissions.allowedViews || []).includes(viewId);
+}
+
+function applyAdminPanelPermissions() {
+  if (getUserRole() !== 'admin') return;
+
+  const panelRole = getAdminPanelRole();
+  const permissions = ADMIN_PANEL_PERMISSIONS[panelRole] || ADMIN_PANEL_PERMISSIONS.main_admin;
+  const allowedSet = new Set(permissions.allowedViews || []);
+
+  qsa('.menu__item[data-view]').forEach(item => {
+    const view = item.getAttribute('data-view') || '';
+    item.style.display = allowedSet.has(view) ? '' : 'none';
+  });
+
+  const teacherMenuItem = document.querySelector('.menu__item[data-view="teachers"]');
+  if (teacherMenuItem) {
+    const teacherMenuLabel = teacherMenuItem.querySelector('span:last-child');
+    if (teacherMenuLabel) {
+      teacherMenuLabel.textContent = panelRole === 'reception' ? 'Teacher Attendance' : 'Teachers';
+    }
+  }
+
+  const adminSection = document.querySelector('.menu__section');
+  if (adminSection) adminSection.style.display = panelRole === 'reception' ? 'none' : '';
+
+  const hiddenActionIds = permissions.hiddenActionIds || [];
+  hiddenActionIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
+  if (!canAccessAdminView(AppState.view || 'dashboard')) {
+    AppState.view = 'dashboard';
+  }
+}
+
+function getManagedCredentials() {
+  try {
+    return JSON.parse(localStorage.getItem(MANAGED_CREDENTIALS_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
 }
 
 function getCurrentUser() {
-  return localStorage.getItem(USER_KEY) || '';
+  return sessionStorage.getItem(USER_KEY) || '';
 }
 
 function accessPublicPortal() {
   // Allow direct access to public portal without authentication
-  localStorage.setItem(AUTH_KEY, 'true');
-  localStorage.setItem(ROLE_KEY, 'public');
-  localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+  sessionStorage.setItem(AUTH_KEY, 'true');
+  sessionStorage.setItem(ROLE_KEY, 'public');
+  sessionStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
   const loginPage = document.getElementById('loginPage');
   if (loginPage) loginPage.classList.add('hidden');
   document.body.style.overflow = 'auto';
@@ -545,9 +699,9 @@ function handleLogin(event, role) {
 
   // Allow public role without strict credential checking
   if (role === 'public') {
-    localStorage.setItem(AUTH_KEY, 'true');
-    localStorage.setItem(ROLE_KEY, 'public');
-    localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+    sessionStorage.setItem(AUTH_KEY, 'true');
+    sessionStorage.setItem(ROLE_KEY, 'public');
+    sessionStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
     const loginPage = document.getElementById('loginPage');
     if (loginPage) loginPage.classList.add('hidden');
     document.body.style.overflow = 'auto';
@@ -560,9 +714,9 @@ function handleLogin(event, role) {
   const user = users.find(u => u.username === username && u.password === password);
   
   if (user) {
-    localStorage.setItem(AUTH_KEY, 'true');
-    localStorage.setItem(ROLE_KEY, role);
-    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, role }));
+    sessionStorage.setItem(AUTH_KEY, 'true');
+    sessionStorage.setItem(ROLE_KEY, role);
+    sessionStorage.setItem(USER_KEY, JSON.stringify({ ...user, role }));
     errorDiv.classList.remove('show');
     const loginPage = document.getElementById('loginPage');
     if (loginPage) loginPage.classList.add('hidden');
@@ -578,11 +732,13 @@ function handleLogin(event, role) {
 function handleLogout() {
   if (confirm('Are you sure you want to logout?')) {
     stopServerStatusCheck();
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(ROLE_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem(ROLE_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(ADMIN_PANEL_ROLE_KEY);
+    sessionStorage.removeItem('isAuthenticated');
+    sessionStorage.removeItem('userType');
+    sessionStorage.removeItem('user');
     
     // Call backend logout endpoint
     fetch(`${API_URL}/auth/logout`, {
@@ -596,9 +752,20 @@ function handleLogout() {
 }
 
 function initializeAuth() {
-  // always treat the user as admin-authenticated; remove login page if it exists
-  localStorage.setItem(AUTH_KEY, 'true');
-  localStorage.setItem(ROLE_KEY, 'admin');
+  const isAuthed = sessionStorage.getItem('isAuthenticated') === 'true';
+  if (!isAuthed) {
+    window.location.replace('login.html');
+    return;
+  }
+
+  const userType = sessionStorage.getItem('userType');
+  if (isAuthed) {
+    sessionStorage.setItem(AUTH_KEY, 'true');
+    if (!sessionStorage.getItem(ROLE_KEY)) {
+      const mappedRole = userType === 'parent' ? 'parent' : (userType === 'public' ? 'public' : 'admin');
+      sessionStorage.setItem(ROLE_KEY, mappedRole);
+    }
+  }
 
   const loginPage = document.getElementById('loginPage');
   if (loginPage) {
@@ -635,15 +802,20 @@ function initializeAuth() {
 
 function displayUserInfo() {
   const userDisplayEl = document.getElementById('userDisplayName');
-  const userStr = localStorage.getItem('user');
+  const userStr = sessionStorage.getItem('user');
   if (userDisplayEl && userStr) {
     try {
       const user = JSON.parse(userStr);
-      const displayName = user.full_name || user.username || 'Admin';
+      let displayName = user.full_name || user.username || 'Himanshu Kumar';
+      if (getUserRole() === 'admin' && getAdminPanelRole() !== 'reception') {
+        displayName = 'Himanshu Kumar';
+      }
       userDisplayEl.textContent = displayName;
     } catch (e) {
-      userDisplayEl.textContent = 'Admin';
+      userDisplayEl.textContent = 'Himanshu Kumar';
     }
+  } else if (userDisplayEl) {
+    userDisplayEl.textContent = 'Himanshu Kumar';
   }
 }
 
@@ -684,6 +856,31 @@ function initLoginHandlers() {
   }
 }
 
+function updatePortalTitles() {
+  const role = getUserRole();
+  const panelRole = getAdminPanelRole();
+  const dashTitle = qs('#dash-title');
+
+  if (role === 'admin' && panelRole === 'reception') {
+    if (dashTitle) dashTitle.textContent = 'Reception Dashboard';
+    document.title = 'Khushi Public School Reception';
+    return;
+  }
+
+  if (role === 'admin') {
+    if (dashTitle) dashTitle.textContent = 'Dashboard';
+    document.title = 'Khushi Public School Admin';
+    return;
+  }
+
+  if (role === 'parent') {
+    document.title = 'Khushi Public School Parent Portal';
+    return;
+  }
+
+  document.title = 'Khushi Public School';
+}
+
 // ---------- Role-based Switching ----------
 function switchRole(role) {
   const role_val = role || getUserRole();
@@ -699,6 +896,9 @@ function switchRole(role) {
     // Show admin interface
     if (sidebar) sidebar.classList.remove('hidden');
     if (app) app.classList.remove('hidden');
+    applyAdminPanelPermissions();
+    updatePortalTitles();
+    initFeePaymentButton();
     // Start server status monitoring for admin
     startServerStatusCheck();
     switchView(AppState.view || 'dashboard');
@@ -707,12 +907,14 @@ function switchRole(role) {
     stopServerStatusCheck();
     if (sidebar) sidebar.classList.add('hidden');
     if (app) app.classList.add('hidden');
+    updatePortalTitles();
     renderParentPortal();
   } else if (role_val === 'public') {
     // Hide admin UI, show public portal
     stopServerStatusCheck();
     if (sidebar) sidebar.classList.add('hidden');
     if (app) app.classList.add('hidden');
+    updatePortalTitles();
     renderPublicPortal();
   }
 }
@@ -1081,9 +1283,10 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
   
   AppState.receipts.push(receipt);
   saveState();
+  const receiptNo = getReceiptKey(receipt);
   
   // Show success message with Razorpay details
-  const successMsg = `✅ Payment Successful!\n\nReceipt No: ${receipt.no}\nAmount: ₹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
+  const successMsg = `✅ Payment Successful!\n\nReceipt No: ${receiptNo}\nAmount: ₹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
   alert(successMsg);
   
   // Close modal and refresh
@@ -1099,6 +1302,7 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
  */
 async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose) {
   try {
+    const school = (AppState.settings && AppState.settings.school) ? AppState.settings.school : {};
     const receiptData = {
       payment_id: paymentId,
       student_name: studentName,
@@ -1106,6 +1310,15 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
       amount: parseFloat(amount),
       payment_method: paymentMethod,
       purpose: purpose || 'School Fee',
+      course: purpose || 'School Fee',
+      duration: '',
+      paid_by: paymentMethod || 'Cash',
+      school_name: school.name || 'KIDS CARE PLAY SCHOOL',
+      school_address: school.address || '1751, Gali no 5, Rajiv Puram, Karnal-132001',
+      school_contact: school.phone || '0149-2082596',
+      school_email: school.email || 'kidscps@gmail.co.in',
+      font_variant: 'large',
+      particulars: [purpose || 'School Fee'],
       receipt_number: 'RCP-' + String(AppState.receipts.length + 1).padStart(5, '0'),
       payment_date: todayYYYYMMDD()
     };
@@ -1244,8 +1457,10 @@ function seedDemoData() {
   // No demo fees - will be created when students pay
   // AppState.fees remains as is (empty or existing)
 
-  // No demo receipts - ready for real receipts
-  AppState.receipts = [];
+  // Preserve real receipts; only initialize if missing/corrupt
+  if (!Array.isArray(AppState.receipts)) {
+    AppState.receipts = [];
+  }
 
   // KPIs
   AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
@@ -1313,6 +1528,102 @@ function monthOfToday() {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth()+1).padStart(2,'0');
   return `${yyyy}-${mm}`;
+}
+
+let topbarDayTimer = null;
+let topbarReceiptSearchQuery = '';
+let teacherAttendanceMonthView = currentMonth();
+function formatTopbarDay(dateObj = new Date()) {
+  const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayName = weekDays[dateObj.getDay()];
+  const dateText = `${String(dateObj.getDate()).padStart(2, '0')} ${months[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+  return `${dayName} . ${dateText}`;
+}
+
+function initTopbarDayPill() {
+  const pill = qs('#topbarDayPill');
+  if (!pill) return;
+
+  const render = () => {
+    pill.textContent = formatTopbarDay(new Date());
+  };
+
+  render();
+  if (topbarDayTimer) clearInterval(topbarDayTimer);
+  topbarDayTimer = setInterval(render, 60000);
+}
+
+function initTopbarGlobalSearch() {
+  const searchInput = qs('#topbarSearchInput');
+  const searchBtn = qs('#topbarSearchBtn');
+  if (!searchInput || !searchBtn) return;
+
+  const executeSearch = () => {
+    const raw = (searchInput.value || '').trim();
+    const query = raw.toLowerCase();
+
+    if (!query) {
+      topbarReceiptSearchQuery = '';
+      return;
+    }
+
+    const studentScore = (AppState.students || []).reduce((score, s) => {
+      const hay = `${s.roll || ''} ${s.name || ''} ${s.phone || ''} ${s.class || ''} ${s.section || ''}`.toLowerCase();
+      return score + (hay.includes(query) ? 1 : 0);
+    }, 0);
+
+    const receiptScore = (AppState.receipts || []).reduce((score, r) => {
+      const hay = `${getReceiptKey(r)} ${r.date || ''} ${r.roll || ''} ${r.name || ''} ${r.method || ''} ${r.ref || ''}`.toLowerCase();
+      return score + (hay.includes(query) ? 1 : 0);
+    }, 0);
+
+    const classScore = (AppState.classes || []).reduce((score, c) => {
+      const teacherName = AppState.teachers.find(t => String(t.id) === String(c.classTeacherId))?.name || '';
+      const hay = `${c.class || ''} ${c.section || ''} ${teacherName}`.toLowerCase();
+      return score + (hay.includes(query) ? 1 : 0);
+    }, 0);
+
+    const ranked = [
+      { view: 'students', score: studentScore },
+      { view: 'fees', score: receiptScore },
+      { view: 'classes', score: classScore }
+    ].sort((a, b) => b.score - a.score);
+
+    const best = ranked[0]?.view || 'students';
+
+    if (best === 'fees') {
+      topbarReceiptSearchQuery = query;
+      switchView('fees');
+      setTimeout(() => {
+        if (AppState.view === 'fees') renderRecentReceipts();
+      }, 120);
+      return;
+    }
+
+    topbarReceiptSearchQuery = '';
+
+    if (best === 'students') {
+      switchView('students');
+      const studentSearch = qs('#searchStudent');
+      if (studentSearch) studentSearch.value = raw;
+      renderStudents();
+      return;
+    }
+
+    switchView('classes');
+    const classSearch = qs('#classSearch');
+    if (classSearch) classSearch.value = raw;
+    renderClasses();
+  };
+
+  searchBtn.onclick = executeSearch;
+  searchInput.onkeydown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      executeSearch();
+    }
+  };
 }
 
 // return YYYY-MM string for the month following the given one
@@ -1645,9 +1956,10 @@ function applySchoolBranding() {
   const brandLogo = document.querySelector('.sidebar .brand-logo');
   const brandTextStrong = document.querySelector('.sidebar .brand-text strong');
   const brandTextSmall  = document.querySelector('.sidebar .brand-text small');
+  const resolvedTagline = (!sch.tagline || sch.tagline === 'Admin Portal') ? 'Deoley Sheikhpura' : sch.tagline;
   if (brandLogo) brandLogo.src = sch.logo || 'assets/logo.png';
   if (brandTextStrong) brandTextStrong.textContent = sch.name || 'KHUSHI PUBLIC SCHOOL';
-  if (brandTextSmall)  brandTextSmall.textContent  = sch.tagline || 'Admin Portal';
+  if (brandTextSmall)  brandTextSmall.textContent  = resolvedTagline;
 }
 
 // ---------- Sidebar & Routing ----------
@@ -1690,15 +2002,43 @@ function initSidebarNavigation(){
     });
   });
 
-  // initial view
-  switchView(AppState.view || 'dashboard');
+  // Initial view is handled by switchRole('admin') during app init.
 }
 
 // ---------- Performance Optimization ----------
 let viewSwitchInProgress = false;
 let switchViewTimeout;
 
+function ensureViewVisible(viewId) {
+  const requested = document.getElementById(`view-${viewId}`);
+  const fallback = document.getElementById('view-dashboard');
+  const visible = document.querySelector('.view:not(.hidden)');
+
+  if (visible) return;
+
+  if (requested) {
+    requested.classList.remove('hidden');
+    return;
+  }
+
+  if (fallback) {
+    fallback.classList.remove('hidden');
+    AppState.view = 'dashboard';
+    qsa('.menu__item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-view') === 'dashboard');
+    });
+  }
+}
+
 function switchView(viewId) {
+  if (viewId === 'attendance') {
+    viewId = 'dashboard';
+  }
+
+  if (getUserRole() === 'admin' && !canAccessAdminView(viewId)) {
+    viewId = 'dashboard';
+  }
+
   // Debounce rapid view switches
   if (viewSwitchInProgress) return;
   viewSwitchInProgress = true;
@@ -1709,6 +2049,11 @@ function switchView(viewId) {
   }, 300);
 
   AppState.view = viewId;
+
+  // Keep sidebar state in sync for programmatic navigation (dashboard quick actions)
+  qsa('.menu__item').forEach(item => {
+    item.classList.toggle('active', item.getAttribute('data-view') === viewId);
+  });
   
   // Hide all views
   const views = document.querySelectorAll('.view');
@@ -1718,10 +2063,20 @@ function switchView(viewId) {
   const target = document.getElementById(`view-${viewId}`);
   if (target) {
     target.classList.remove('hidden');
+  } else {
+    console.warn(`View not found: view-${viewId}. Falling back to dashboard.`);
+    const fallback = document.getElementById('view-dashboard');
+    if (fallback) {
+      fallback.classList.remove('hidden');
+      viewId = 'dashboard';
+      AppState.view = 'dashboard';
+    }
   }
+
+  ensureViewVisible(viewId);
   
-  // Smooth scroll to top on view change
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Scroll to top without animation to prevent UI flicker on low-end devices
+  window.scrollTo({ top: 0, behavior: 'auto' });
 
   // Use requestAnimationFrame for smooth rendering
   requestAnimationFrame(async () => {
@@ -1731,15 +2086,402 @@ function switchView(viewId) {
     else if (viewId === 'exams')     renderExams();
     else if (viewId === 'classes')   renderClasses();
     else if (viewId === 'teachers')  renderTeachers();
+    else if (viewId === 'staff')     renderStaff();
+    else if (viewId === 'parents')   renderParents();
     else if (viewId === 'transport') renderTransport();
     else if (viewId === 'notices')   renderNotices();
     else if (viewId === 'settings')  renderSettings();
+
+    // Safety check for any runtime path that accidentally leaves all views hidden
+    ensureViewVisible(viewId);
   });
 }
 
 // ---------- Dashboard ----------
 let admissionsChart, attendanceChart;
 let chartRenderInProgress = false;
+let dashboardInteractionsBound = false;
+let issuesDeltaInitialized = false;
+const dashboardIssueRowMap = new Map();
+const kpiAnimationFrameByElement = new WeakMap();
+const RECEIPT_SCHOOL_HEADER = 'KHUSHI PUBLIC SCHOOL';
+
+function extractNumericValue(text = '') {
+  const cleaned = String(text).replace(/[^0-9.-]/g, '');
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : NaN;
+}
+
+function animateKpiValue(element, targetValue, formatter, duration = 700) {
+  if (!element) return;
+
+  const target = Number(targetValue);
+  if (!Number.isFinite(target)) {
+    element.textContent = typeof formatter === 'function' ? formatter(0) : String(targetValue ?? '');
+    return;
+  }
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const format = typeof formatter === 'function' ? formatter : (value) => String(value);
+
+  if (reduceMotion) {
+    element.textContent = format(target);
+    element.dataset.kpiValue = String(target);
+    return;
+  }
+
+  const previousFrame = kpiAnimationFrameByElement.get(element);
+  if (previousFrame) cancelAnimationFrame(previousFrame);
+
+  const storedValue = Number(element.dataset.kpiValue);
+  const parsedTextValue = extractNumericValue(element.textContent);
+  const startValue = Number.isFinite(storedValue)
+    ? storedValue
+    : (Number.isFinite(parsedTextValue) ? parsedTextValue : 0);
+
+  if (startValue === target) {
+    element.textContent = format(target);
+    element.dataset.kpiValue = String(target);
+    return;
+  }
+
+  const startTime = performance.now();
+  const delta = target - startValue;
+
+  const tick = (timestamp) => {
+    const progress = Math.min((timestamp - startTime) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = startValue + (delta * eased);
+
+    element.textContent = format(current);
+    element.dataset.kpiValue = String(current);
+
+    if (progress < 1) {
+      const frameId = requestAnimationFrame(tick);
+      kpiAnimationFrameByElement.set(element, frameId);
+    } else {
+      element.textContent = format(target);
+      element.dataset.kpiValue = String(target);
+      kpiAnimationFrameByElement.delete(element);
+    }
+  };
+
+  const firstFrame = requestAnimationFrame(tick);
+  kpiAnimationFrameByElement.set(element, firstFrame);
+}
+
+function openStudentsViewWithFilters({ status = '', search = '' } = {}) {
+  switchView('students');
+
+  requestAnimationFrame(() => {
+    const filterClass = qs('#filterClass');
+    const filterSection = qs('#filterSection');
+    const filterStatus = qs('#filterStatus');
+    const searchInput = qs('#searchStudent');
+
+    if (!filterClass || !filterSection || !filterStatus || !searchInput) return;
+
+    filterClass.value = '';
+    filterSection.value = '';
+    filterStatus.value = status;
+    searchInput.value = search;
+
+    filterStatus.dispatchEvent(new Event('change', { bubbles: true }));
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function initDashboardInteractions() {
+  if (dashboardInteractionsBound) return;
+  dashboardInteractionsBound = true;
+
+  qsa('.kpi--interactive').forEach(card => {
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+
+    const handleActivate = () => {
+      const targetView = card.getAttribute('data-kpi-target') || 'dashboard';
+      const status = card.getAttribute('data-kpi-status') || '';
+
+      if (targetView === 'issues') {
+        openDashboardIssuesModal();
+        return;
+      }
+
+      if (targetView === 'students') {
+        openStudentsViewWithFilters({ status });
+        return;
+      }
+      switchView(targetView);
+    };
+
+    card.addEventListener('click', handleActivate);
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleActivate();
+      }
+    });
+  });
+}
+
+function updateIssuesDelta(nextIssuesCount) {
+  const deltaEl = qs('#kpiIssuesDelta');
+  if (!deltaEl) return;
+
+  const previous = Number(AppState?.kpi?.issuesOpen || 0);
+  const next = Number(nextIssuesCount || 0);
+
+  if (!issuesDeltaInitialized) {
+    issuesDeltaInitialized = true;
+    deltaEl.classList.remove('positive', 'negative', 'delta-pop');
+    deltaEl.classList.add('neutral');
+    deltaEl.textContent = '—';
+    return;
+  }
+
+  const diff = next - previous;
+
+  deltaEl.classList.remove('positive', 'negative', 'neutral', 'delta-pop');
+
+  if (!Number.isFinite(diff) || diff === 0) {
+    deltaEl.textContent = '— no change';
+    deltaEl.classList.add('neutral');
+    return;
+  }
+
+  if (diff < 0) {
+    deltaEl.textContent = `▼ ${Math.abs(diff)} decreased`;
+    deltaEl.classList.add('positive');
+  } else {
+    deltaEl.textContent = `▲ ${diff} increased`;
+    deltaEl.classList.add('negative');
+  }
+
+  void deltaEl.offsetWidth;
+  deltaEl.classList.add('delta-pop');
+}
+
+async function openDashboardIssuesModal() {
+  const body = qs('#dashboardIssuesBody');
+  const meta = qs('#dashboardIssuesMeta');
+  if (!body || !meta) return;
+
+  meta.textContent = 'Loading payment issues...';
+  body.innerHTML = '<tr><td colspan="8" class="muted">Loading...</td></tr>';
+
+  try {
+    const allPayments = await fetchAllPayments();
+    const normalizedPayments = Array.isArray(allPayments)
+      ? allPayments
+      : (allPayments && Array.isArray(allPayments.payments) ? allPayments.payments : []);
+
+    const issueRows = getPaymentIssueRows(normalizedPayments);
+
+    if (!issueRows.length) {
+      meta.textContent = 'No open payment issues found.';
+      body.innerHTML = '<tr><td colspan="8" class="muted">No pending/failed payments.</td></tr>';
+      openModal('#modalDashboardIssues');
+      return;
+    }
+
+    const pendingCount = issueRows.filter(p => String(p?.status || '').toLowerCase() === 'pending').length;
+    const failedCount = issueRows.filter(p => String(p?.status || '').toLowerCase() === 'failed').length;
+
+    meta.textContent = `${issueRows.length} payment issue(s): Pending ${pendingCount}, Failed ${failedCount}.`;
+    body.innerHTML = buildPaymentIssuesRowsHtml(issueRows, 'modal');
+    bindPaymentIssueActions('modal');
+
+    openModal('#modalDashboardIssues');
+  } catch (error) {
+    console.warn('Failed to load dashboard issues:', error);
+    meta.textContent = 'Unable to load payment issues right now.';
+    body.innerHTML = '<tr><td colspan="8" class="muted">Could not load payment issues.</td></tr>';
+    openModal('#modalDashboardIssues');
+  }
+}
+
+function renderDashboardIssuesTab(allPayments) {
+  const meta = qs('#dashboardIssuesTabMeta');
+  const body = qs('#dashboardIssuesTabBody');
+  if (!meta || !body) return;
+
+  const normalizedPayments = Array.isArray(allPayments)
+    ? allPayments
+    : (allPayments && Array.isArray(allPayments.payments) ? allPayments.payments : []);
+
+  const issueRows = getPaymentIssueRows(normalizedPayments);
+
+  if (!issueRows.length) {
+    meta.textContent = 'No open issues right now.';
+    body.innerHTML = '<tr><td colspan="8" class="muted">No pending/failed payments.</td></tr>';
+    return;
+  }
+
+  const pendingCount = issueRows.filter(p => String(p?.status || '').toLowerCase() === 'pending').length;
+  const failedCount = issueRows.filter(p => String(p?.status || '').toLowerCase() === 'failed').length;
+  meta.textContent = `${issueRows.length} issue(s): Pending ${pendingCount}, Failed ${failedCount}.`;
+
+  body.innerHTML = buildPaymentIssuesRowsHtml(issueRows, 'tab');
+  bindPaymentIssueActions('tab');
+}
+
+function getPaymentIssueRows(payments = []) {
+  return (payments || [])
+    .filter(p => {
+      const status = String(p?.status || '').toLowerCase();
+      return status === 'pending' || status === 'failed';
+    })
+    .sort((a, b) => String(b?.payment_date || '').localeCompare(String(a?.payment_date || '')));
+}
+
+function buildPaymentIssuesRowsHtml(issueRows = [], scope = 'tab') {
+  dashboardIssueRowMap.clear();
+  return issueRows.map(p => {
+    const paymentId = Number(p?.id);
+    if (Number.isFinite(paymentId)) {
+      dashboardIssueRowMap.set(paymentId, p);
+    }
+
+    return `
+      <tr>
+        <td>${p.id || '-'}</td>
+        <td>${p.payment_date || '-'}</td>
+        <td>${p.roll_no || '-'}</td>
+        <td>${p.name || '-'}</td>
+        <td>${p.payment_method || '-'}</td>
+        <td>${fmtINR(Number(p.amount || 0))}</td>
+        <td>${p.status || '-'}</td>
+        <td>
+          <div class="flex gap-8">
+            <button type="button" class="btn btn-ghost small" data-issue-act="set-completed" data-issue-id="${p.id}" data-issue-scope="${scope}">Mark Completed</button>
+            <button type="button" class="btn btn-ghost small" data-issue-act="set-failed" data-issue-id="${p.id}" data-issue-scope="${scope}">Mark Failed</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function bindPaymentIssueActions(scope = 'tab') {
+  qsa(`button[data-issue-scope="${scope}"]`).forEach(btn => {
+    btn.onclick = async () => {
+      const action = btn.getAttribute('data-issue-act');
+      const paymentId = Number(btn.getAttribute('data-issue-id'));
+      if (!Number.isFinite(paymentId)) return;
+
+      const nextStatus = action === 'set-completed' ? 'Completed' : 'Failed';
+      await updatePaymentIssueStatus(paymentId, nextStatus);
+    };
+  });
+}
+
+async function updatePaymentIssueStatus(paymentId, nextStatus) {
+  const payment = dashboardIssueRowMap.get(Number(paymentId));
+  if (!payment) {
+    alert('Could not update issue status. Please refresh dashboard and try again.');
+    return;
+  }
+
+  const payload = {
+    amount: Number(payment.amount || 0),
+    payment_date: payment.payment_date || todayYYYYMMDD(),
+    payment_method: payment.payment_method || payment.method || 'Cash',
+    transaction_id: payment.transaction_id || payment.ref || '',
+    purpose: payment.purpose || 'Fee',
+    status: nextStatus,
+    remarks: payment.remarks || ''
+  };
+
+  try {
+    const resp = await fetch(`${API_URL}/payments/${paymentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Failed to update payment (${resp.status})`);
+    }
+
+    await loadDashboardData();
+
+    const modal = qs('#modalDashboardIssues');
+    if (modal && modal.open) {
+      await openDashboardIssuesModal();
+    }
+  } catch (error) {
+    console.warn('Failed to update payment issue status:', error);
+    alert('Could not update issue status in database. Please try again.');
+  }
+}
+
+function getAdmissionsSeries(students = [], rangeMonths = 6) {
+  const safeMonths = Math.max(1, Number(rangeMonths) || 6);
+  const now = new Date();
+  const labels = [];
+  const keys = [];
+  const countsByMonth = {};
+
+  for (let i = safeMonths - 1; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const key = `${year}-${month}`;
+    const label = date.toLocaleDateString('en-IN', {
+      month: 'short',
+      year: safeMonths > 6 ? '2-digit' : undefined
+    });
+
+    keys.push(key);
+    labels.push(label);
+    countsByMonth[key] = 0;
+  }
+
+  students.forEach(student => {
+    const admissionDate = student.admission_date || student.admissionDate;
+    if (!admissionDate) return;
+
+    const parsed = new Date(admissionDate);
+    if (Number.isNaN(parsed.getTime())) return;
+
+    const key = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+    if (key in countsByMonth) countsByMonth[key] += 1;
+  });
+
+  return {
+    labels,
+    data: keys.map(key => countsByMonth[key])
+  };
+}
+
+function getTeacherAttendanceSummaryForDate(dateYMD, teachers = AppState.teachers || []) {
+  const teacherList = Array.isArray(teachers) ? teachers : [];
+  const totalTeachers = teacherList.length;
+  if (!totalTeachers) {
+    return { present: 0, marked: 0, total: 0, percent: 0 };
+  }
+
+  let presentCount = 0;
+  let markedCount = 0;
+  teacherList.forEach(teacher => {
+    const key = `${teacher.id}|${dateYMD}`;
+    const record = (AppState.teacherAttendance || {})[key];
+    if (!record) return;
+    markedCount += 1;
+    if (String(record.status || '').toLowerCase() === 'present') {
+      presentCount += 1;
+    }
+  });
+
+  const attendancePercent = (presentCount / totalTeachers) * 100;
+  return {
+    present: presentCount,
+    marked: markedCount,
+    total: totalTeachers,
+    percent: Number.isFinite(attendancePercent) ? attendancePercent : 0
+  };
+}
 
 // Fetch dashboard statistics from database (with timeout)
 async function fetchDashboardStats() {
@@ -1794,6 +2536,67 @@ async function fetchAllPayments() {
   }
 }
 
+async function hydrateReceiptsFromBackend() {
+  try {
+    const payments = await fetchAllPayments();
+    const normalizedPayments = Array.isArray(payments)
+      ? payments
+      : (payments && Array.isArray(payments.payments) ? payments.payments : []);
+
+    if (!normalizedPayments.length) return false;
+
+    const serverReceipts = normalizedPayments.map(p => ({
+      id: p.id,
+      no: p.id,
+      date: p.payment_date,
+      roll: p.roll_no || p.roll || '',
+      name: p.name || '',
+      method: p.payment_method || p.method || '',
+      amount: Number(p.amount || 0),
+      ref: p.transaction_id || p.ref || '',
+      status: p.status || 'completed',
+      discount: Number(p.discount || 0),
+      late_fee: Number(p.late_fee || 0)
+    }));
+
+    AppState.receipts = mergeReceipts(serverReceipts);
+    saveState();
+    return true;
+  } catch (e) {
+    console.warn('Failed to hydrate receipts from backend:', e);
+    return false;
+  }
+}
+
+async function fetchTeachersFromBackend() {
+  try {
+    const response = await fetchWithTimeout(`${API_URL}/teachers`, {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch teachers: ${response?.status || 'no response'}`);
+    const teachers = await response.json();
+
+    const backendList = (teachers || []).map(t => ({
+      id: t.id,
+      emp_id: t.emp_id || '',
+      name: t.name || '',
+      phone: t.phone || '',
+      email: t.email || '',
+      subjects: t.subject || '',
+      joinDate: t.date_of_joining || '',
+      salary: Number(t.salary || 0),
+      status: (t.status || 'active').toLowerCase()
+    }));
+
+    const backendIds = new Set(backendList.map(t => String(t.id)));
+    const localOnly = (AppState.teachers || []).filter(t => t.id == null || !backendIds.has(String(t.id)));
+
+    AppState.teachers = backendList.concat(localOnly);
+    return AppState.teachers;
+  } catch (e) {
+    console.warn('Could not load teachers from backend:', e);
+    return [];
+  }
+}
+
 function renderDashboard(){
   if (chartRenderInProgress) return;
   
@@ -1802,8 +2605,11 @@ function renderDashboard(){
   
   // Update month label for fees KPI
   const titleEl = qs('#kpiFeesTitle');
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
   if (titleEl) {
-    titleEl.textContent = `Fees Collected (${formatMonthYear(monthOfToday())})`;
+    titleEl.textContent = isReceptionPanel
+      ? 'Fees Collected (Today)'
+      : `Fees Collected (${formatMonthYear(monthOfToday())})`;
   }
   
   // Load data from database
@@ -1830,6 +2636,8 @@ function renderDashboard(){
   if (btnExportCSV) btnExportCSV.onclick = exportStudentsCSV;
   const btnPrint = qs('#btnPrint');
   if (btnPrint) btnPrint.onclick = ()=> window.print();
+
+  initDashboardInteractions();
 }
 
 function renderStudentStatusOverview(students = []) {
@@ -1863,22 +2671,24 @@ function renderStudentStatusOverview(students = []) {
   const statusHTML = Object.entries(statusCounts)
     .sort((a, b) => b[1] - a[1]) // Sort by count descending
     .map(([status, count]) => `
-      <div style="
-        background: linear-gradient(135deg, ${statusColors[status] || '#6366f1'}15 0%, ${statusColors[status] || '#6366f1'}05 100%);
-        border: 1px solid ${statusColors[status] || '#6366f1'}30;
-        border-radius: 8px;
-        padding: 12px;
-        text-align: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      " class="status-card" data-status="${status}">
-        <div style="font-size: 20px; margin-bottom: 4px;">
+      <div
+        class="status-card"
+        data-status="${status}"
+        role="button"
+        tabindex="0"
+        title="Filter students by ${status}"
+        style="
+          background: linear-gradient(135deg, ${statusColors[status] || '#6366f1'}15 0%, ${statusColors[status] || '#6366f1'}05 100%);
+          border: 1px solid ${statusColors[status] || '#6366f1'}30;
+        "
+      >
+        <div class="status-card__icon">
           ${statusIcons[status] || '📌'}
         </div>
-        <div style="font-size: 20px; font-weight: bold; color: ${statusColors[status] || '#6366f1'};">
+        <div class="status-card__count" style="color: ${statusColors[status] || '#6366f1'};">
           ${count}
         </div>
-        <div style="font-size: 11px; color: #666; margin-top: 2px;">
+        <div class="status-card__label">
           ${status}
         </div>
       </div>
@@ -1887,15 +2697,19 @@ function renderStudentStatusOverview(students = []) {
 
   container.innerHTML = statusHTML || '<div style="padding: 12px; color: #999;">No student data available</div>';
 
-  // Add hover effects
+  // Open students view and apply status filter on interaction
   qsa('.status-card').forEach(card => {
-    card.addEventListener('mouseenter', () => {
-      card.style.transform = 'translateY(-2px)';
-      card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-    });
-    card.addEventListener('mouseleave', () => {
-      card.style.transform = 'translateY(0)';
-      card.style.boxShadow = 'none';
+    const activateStatusFilter = () => {
+      const status = card.getAttribute('data-status') || '';
+      openStudentsViewWithFilters({ status });
+    };
+
+    card.addEventListener('click', activateStatusFilter);
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activateStatusFilter();
+      }
     });
   });
 }
@@ -1903,28 +2717,36 @@ function renderStudentStatusOverview(students = []) {
 
 async function loadDashboardData() {
   // Fetch all data in parallel, but don't let one slow request block everything
-  const [statsRes, attendanceRes, studentsRes, paymentsRes] = await Promise.allSettled([
+  const [statsRes, attendanceRes, studentsRes, paymentsRes, teachersRes] = await Promise.allSettled([
     fetchDashboardStats(),
     fetchTodayAttendance(),
     fetchAllStudents(),
-    fetchAllPayments()
+    fetchAllPayments(),
+    fetchTeachersFromBackend()
   ]);
 
   const stats = statsRes.status === 'fulfilled' ? statsRes.value : null;
   const todayAttendance = attendanceRes.status === 'fulfilled' ? attendanceRes.value : [];
   const allStudents = studentsRes.status === 'fulfilled' ? studentsRes.value : [];
   const allPayments = paymentsRes.status === 'fulfilled' ? paymentsRes.value : [];
+  const allTeachers = teachersRes.status === 'fulfilled' ? teachersRes.value : (AppState.teachers || []);
+  const normalizedPayments = Array.isArray(allPayments)
+    ? allPayments
+    : (allPayments && Array.isArray(allPayments.payments) ? allPayments.payments : []);
 
   if (statsRes.status === 'rejected') console.warn('Dashboard stats failed:', statsRes.reason);
   if (attendanceRes.status === 'rejected') console.warn('Attendance fetch failed:', attendanceRes.reason);
   if (studentsRes.status === 'rejected') console.warn('Students fetch failed:', studentsRes.reason);
   if (paymentsRes.status === 'rejected') console.warn('Payments fetch failed:', paymentsRes.reason);
+  if (teachersRes.status === 'rejected') console.warn('Teachers fetch failed:', teachersRes.reason);
+
+  renderDashboardIssuesTab(normalizedPayments);
 
   // Map backend payments into AppState.receipts so fee KPIs use real data
   try {
     const studentById = {};
     allStudents.forEach(s => { studentById[s.id] = s; });
-    const serverReceipts = (allPayments || []).map(p => {
+    const serverReceipts = (normalizedPayments || []).map(p => {
       const student = studentById[p.student_id] || {};
       return {
         id: p.id,
@@ -1949,33 +2771,112 @@ async function loadDashboardData() {
   // Update KPI cards with real data
   const kpiStudents = qs('#kpiStudents');
   const kpiAttendance = qs('#kpiAttendance');
+  const kpiAttendanceDelta = qs('#kpiAttendanceDelta');
   const kpiFees = qs('#kpiFees');
+  const kpiFeesDelta = qs('#kpiFeesDelta');
   const kpiIssues = qs('#kpiIssues');
   // refresh label since month may have changed since last render
   const titleEl = qs('#kpiFeesTitle');
-  if (titleEl) titleEl.textContent = `Fees Collected (${formatMonthYear(monthOfToday())})`;
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
+  if (titleEl) {
+    titleEl.textContent = isReceptionPanel
+      ? 'Fees Collected (Today)'
+      : `Fees Collected (${formatMonthYear(monthOfToday())})`;
+  }
+  if (kpiFeesDelta) {
+    if (isReceptionPanel) {
+      const breakdown = getTodayMethodBreakdown();
+      kpiFeesDelta.textContent = [
+        `Cash ${breakdown.cash.count} (${fmtINR(breakdown.cash.amount)})`,
+        `Bank ${breakdown.bank.count} (${fmtINR(breakdown.bank.amount)})`,
+        `UPI ${breakdown.upi.count} (${fmtINR(breakdown.upi.amount)})`
+      ].join(' | ');
+    } else {
+      kpiFeesDelta.textContent = formatMonthYear(monthOfToday());
+    }
+  }
   
   if (stats) {
-    if (kpiStudents) kpiStudents.textContent = stats.total_students.toLocaleString('en-IN');
-    // prefer month-specific revenue if backend returns it, else fallback to total
-    const rev = (stats.month_revenue !== undefined ? stats.month_revenue : stats.total_revenue);
-    if (kpiFees) kpiFees.textContent = fmtINR(rev);
+    const issuesCount = normalizedPayments.filter(p => {
+      const status = String(p?.status || '').toLowerCase();
+      return status === 'pending' || status === 'failed';
+    }).length;
+
+    if (kpiStudents) {
+      animateKpiValue(
+        kpiStudents,
+        Number(stats.total_students || 0),
+        (value) => Math.round(value).toLocaleString('en-IN')
+      );
+    }
+    // Prefer receipt-derived totals (already mapped from /payments), then fallback to stats.
+    const computedRev = isReceptionPanel ? sumReceiptsToday() : sumReceiptsThisMonth();
+    const rev = Number(computedRev || 0) > 0
+      ? computedRev
+      : (isReceptionPanel
+        ? (stats.today_revenue !== undefined ? stats.today_revenue : 0)
+        : (stats.month_revenue !== undefined ? stats.month_revenue : stats.total_revenue));
+    if (kpiFees) {
+      animateKpiValue(
+        kpiFees,
+        Number(rev || 0),
+        (value) => fmtINR(Math.round(value))
+      );
+    }
     // keep AppState in sync so offline/dashboard refreshes behave
     AppState.kpi.feesCollectedMonth = rev;
-    if (kpiIssues) kpiIssues.textContent = stats.pending_payments;
+    if (kpiIssues) {
+      animateKpiValue(
+        kpiIssues,
+        issuesCount,
+        (value) => String(Math.round(value))
+      );
+    }
+    updateIssuesDelta(issuesCount);
+    AppState.kpi.issuesOpen = issuesCount;
   } else {
-    if (kpiStudents) kpiStudents.textContent = AppState.kpi.totalStudents;
-    if (kpiFees) kpiFees.textContent = fmtINR(AppState.kpi.feesCollectedMonth);
-    if (kpiIssues) kpiIssues.textContent = AppState.kpi.issuesOpen;
+    const issuesCount = normalizedPayments.filter(p => {
+      const status = String(p?.status || '').toLowerCase();
+      return status === 'pending' || status === 'failed';
+    }).length || Number(AppState.kpi.issuesOpen || 0);
+
+    if (kpiStudents) {
+      animateKpiValue(
+        kpiStudents,
+        Number(AppState.kpi.totalStudents || 0),
+        (value) => Math.round(value).toLocaleString('en-IN')
+      );
+    }
+    if (kpiFees) {
+      animateKpiValue(
+        kpiFees,
+        Number(AppState.kpi.feesCollectedMonth || 0),
+        (value) => fmtINR(Math.round(value))
+      );
+    }
+    if (kpiIssues) {
+      animateKpiValue(
+        kpiIssues,
+        issuesCount,
+        (value) => String(Math.round(value))
+      );
+    }
+    updateIssuesDelta(issuesCount);
   }
 
-  // Calculate attendance percentage
-  if (todayAttendance && todayAttendance.length > 0 && allStudents.length > 0) {
-    const presentCount = todayAttendance.filter(a => a.status === 'Present').length;
-    const attendancePercent = (presentCount / allStudents.length) * 100;
-    if (kpiAttendance) kpiAttendance.textContent = attendancePercent.toFixed(1) + '%';
-  } else if (kpiAttendance) {
-    kpiAttendance.textContent = '0%';
+  // Dashboard Attendance Today KPI = Teacher attendance marked for today.
+  const teacherAttendanceToday = getTeacherAttendanceSummaryForDate(todayYYYYMMDD(), allTeachers);
+  if (kpiAttendance) {
+    animateKpiValue(
+      kpiAttendance,
+      Number(teacherAttendanceToday.percent || 0),
+      (value) => `${value.toFixed(1)}%`
+    );
+  }
+  if (kpiAttendanceDelta) {
+    kpiAttendanceDelta.textContent = `Present ${teacherAttendanceToday.present} / Total ${teacherAttendanceToday.total}`;
+    kpiAttendanceDelta.classList.remove('positive', 'negative');
+    kpiAttendanceDelta.classList.add('neutral');
   }
 
   // Render student status overview
@@ -2005,24 +2906,18 @@ function initAdmissionsChart(students = []){
       admissionsChart = null;
     }
 
-    // Group students by class to show distribution
-    const classDistribution = {};
-    students.forEach(s => {
-      const cls = s.class_name || 'Unknown';
-      classDistribution[cls] = (classDistribution[cls] || 0) + 1;
-    });
-
-    const classes = Object.keys(classDistribution).sort();
-    const data = classes.map(cls => classDistribution[cls]);
+    const rangeSel = qs('#admissionsRange');
+    const months = Number(rangeSel?.value || 6);
+    const series = getAdmissionsSeries(students, months);
     const animate = !!(AppState.settings?.chartAnimation);
 
     admissionsChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: classes,
+        labels: series.labels,
         datasets: [{
-          label: 'Students per Class',
-          data,
+          label: 'Admissions',
+          data: series.data,
           borderColor: '#2563eb',
           backgroundColor: 'rgba(37,99,235,0.1)',
           tension: 0.3,
@@ -2040,10 +2935,8 @@ function initAdmissionsChart(students = []){
       }
     });
 
-    const rangeSel = qs('#admissionsRange');
     if (rangeSel) {
-      rangeSel.onchange = (e) => {
-        // For now, just redraw the same chart
+      rangeSel.onchange = () => {
         initAdmissionsChart(students);
       };
     }
@@ -2165,17 +3058,34 @@ function renderStudents(){
     return Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
   }
 
+  function getCurrentMonthDue(student){
+    const month = monthOfToday();
+    const financials = getStudentMonthFinancials(student, month);
+    return Number(financials.balance || 0);
+  }
+
+  function getDueHighlightClass(dueAmount){
+    if (dueAmount > 2000) return 'student-due-high';
+    if (dueAmount > 1000 && dueAmount <= 2000) return 'student-due-mid-high';
+    if (dueAmount >= 500 && dueAmount <= 1000) return 'student-due-mid';
+    if (dueAmount < 500) return 'student-due-low';
+    return '';
+  }
+
   function renderStudentsTable(){
     const {page,pageSize,filtered}=AppState.pagination.students;
     const start=(page-1)*pageSize;
     const pageRows=filtered.slice(start,start+pageSize);
-    tbody.innerHTML=pageRows.map(r=> `
+    tbody.innerHTML=pageRows.map(r=> {
+      const dueAmount = getCurrentMonthDue(r);
+      const dueClass = getDueHighlightClass(dueAmount);
+      return `
       <tr>
         <td><input type="checkbox" aria-label="Select row" /></td>
         <td>${r.roll}</td>
         <td>${r.admission_date||''}</td>
         <td>${r.aadhar||''}</td>
-        <td>${r.name}</td>
+        <td class="student-due-name ${dueClass}">${r.name}</td>
         <td>${r.class}</td>
         <td>${r.section}</td>
         <td>${r.phone}</td>
@@ -2186,7 +3096,8 @@ function renderStudents(){
           <button class="btn btn-ghost small" data-act="delete" data-roll="${r.roll}">Delete</button>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
     qsa('button[data-act="edit"]').forEach(btn=>{
       btn.onclick=()=> openEditStudent(btn.getAttribute('data-roll'));
     });
@@ -2327,8 +3238,334 @@ function openEditStudent(roll){
   openModal('#modalAddStudent');
 }
 
+// ---------- Parents View ----------
+async function fetchParentsFromBackend() {
+  try {
+    const response = await fetchWithTimeout(`${API_URL}/parents`, {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch parents: ${response?.status || 'no response'}`);
+    const parents = await response.json();
+    AppState.parents = Array.isArray(parents) ? parents : [];
+    return AppState.parents;
+  } catch (e) {
+    console.error('Error fetching parents:', e);
+    AppState.parents = [];
+    return [];
+  }
+}
+
+async function fetchParentDetails(parentId) {
+  const response = await fetchWithTimeout(`${API_URL}/parents/${parentId}`, {}, 8000);
+  if (!response || !response.ok) throw new Error(`Failed to fetch parent details: ${response?.status || 'no response'}`);
+  return response.json();
+}
+
+function renderParents() {
+  const tableBody = qs('#parentsTableBody');
+  const filterInput = qs('#filterParent');
+  const detailBody = qs('#parentDetailBody');
+  const btnAddParent = qs('#btnAddParent');
+  const btnRefreshParents = qs('#btnRefreshParents');
+  const btnExportParents = qs('#btnExportParents');
+  const formParentEdit = qs('#formParentEdit');
+  const parentModalTitle = qs('#parentModalTitle');
+
+  if (!tableBody || !filterInput || !detailBody || !btnAddParent || !btnRefreshParents || !formParentEdit) {
+    console.error('Parents view elements missing');
+    return;
+  }
+
+  const renderTable = () => {
+    const search = (filterInput.value || '').trim().toLowerCase();
+    const rows = (AppState.parents || []).filter(p => {
+      const name = (p.name || '').toLowerCase();
+      const phone = (p.phone || '').toLowerCase();
+      const email = (p.email || '').toLowerCase();
+      return !search || name.includes(search) || phone.includes(search) || email.includes(search);
+    });
+
+    tableBody.innerHTML = rows.map(p => {
+      const childrenCount = Array.isArray(p.children) ? p.children.length : 0;
+      return `
+        <tr>
+          <td>${p.name || ''}</td>
+          <td>${p.phone || ''}</td>
+          <td>${p.email || ''}</td>
+          <td>${childrenCount}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost small" data-parent-act="view" data-id="${p.id}">View</button>
+            <button class="btn btn-ghost small" data-parent-act="edit" data-id="${p.id}">Edit</button>
+            <button class="btn btn-ghost small" data-parent-act="delete" data-id="${p.id}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="5" class="muted">No parents found.</td></tr>';
+
+    qsa('button[data-parent-act="view"]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = Number(btn.getAttribute('data-id'));
+        AppState.selectedParentId = id;
+        await renderParentDetails(id, detailBody);
+      };
+    });
+
+    qsa('button[data-parent-act="edit"]').forEach(btn => {
+      btn.onclick = () => {
+        const id = Number(btn.getAttribute('data-id'));
+        const parent = (AppState.parents || []).find(p => Number(p.id) === id);
+        if (!parent) return;
+        formParentEdit.dataset.parentId = String(id);
+        if (parentModalTitle) parentModalTitle.textContent = 'Edit Parent';
+        qs('#parentNameInput').value = parent.name || '';
+        qs('#parentRelationInput').value = parent.relation || '';
+        qs('#parentPhoneInput').value = parent.phone || '';
+        qs('#parentEmailInput').value = parent.email || '';
+        qs('#parentAddressInput').value = parent.address || '';
+        openModal('#modalParentEdit');
+      };
+    });
+
+    qsa('button[data-parent-act="delete"]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = Number(btn.getAttribute('data-id'));
+        const parent = (AppState.parents || []).find(p => Number(p.id) === id);
+        if (!parent) return;
+        if (!confirm(`Delete parent ${parent.name}?`)) return;
+
+        try {
+          const response = await fetchWithTimeout(`${API_URL}/parents/${id}`, { method: 'DELETE' }, 8000);
+          if (!response || !response.ok) throw new Error(`Delete failed: ${response?.status || 'no response'}`);
+          await refreshParents();
+          if (AppState.selectedParentId === id) {
+            AppState.selectedParentId = null;
+            detailBody.innerHTML = '<p class="muted">Select a parent to view details and manage children.</p>';
+          }
+        } catch (e) {
+          alert(`Failed to delete parent: ${e.message}`);
+        }
+      };
+    });
+  };
+
+  const renderParentDetails = async (parentId, targetEl) => {
+    if (!parentId || !targetEl) return;
+    targetEl.innerHTML = '<p class="muted">Loading parent details…</p>';
+    try {
+      const details = await fetchParentDetails(parentId);
+      const children = Array.isArray(details.children) ? details.children : [];
+      const childrenHtml = children.length
+        ? `<ul class="m-8-0-0-20">${children.map(c => `<li>${c.name || ''} (${c.roll_no || ''})</li>`).join('')}</ul>`
+        : '<p class="muted">No children linked yet.</p>';
+
+      targetEl.innerHTML = `
+        <div class="grid gap-8">
+          <div><strong>Name:</strong> ${details.name || ''}</div>
+          <div><strong>Relation:</strong> ${details.relation || ''}</div>
+          <div><strong>Phone:</strong> ${details.phone || ''}</div>
+          <div><strong>Email:</strong> ${details.email || ''}</div>
+          <div><strong>Address:</strong> ${details.address || ''}</div>
+          <div><strong>Children:</strong>${childrenHtml}</div>
+        </div>
+      `;
+    } catch (e) {
+      targetEl.innerHTML = `<p class="error-note">Failed to load parent details: ${e.message}</p>`;
+    }
+  };
+
+  const refreshParents = async () => {
+    await fetchParentsFromBackend();
+    renderTable();
+    if (AppState.selectedParentId) {
+      await renderParentDetails(AppState.selectedParentId, detailBody);
+    }
+  };
+
+  btnAddParent.onclick = () => {
+    formParentEdit.reset();
+    delete formParentEdit.dataset.parentId;
+    if (parentModalTitle) parentModalTitle.textContent = 'Create Parent';
+    openModal('#modalParentEdit');
+  };
+
+  btnRefreshParents.onclick = refreshParents;
+
+  if (btnExportParents) {
+    btnExportParents.onclick = () => {
+      const header = ['id', 'name', 'relation', 'phone', 'email', 'address'];
+      const rows = (AppState.parents || []).map(p => [p.id || '', p.name || '', p.relation || '', p.phone || '', p.email || '', p.address || '']);
+      const csv = arrayToCSV([header, ...rows]);
+      downloadFile('parents_export.csv', csv);
+    };
+  }
+
+  filterInput.oninput = renderTable;
+
+  formParentEdit.onsubmit = async (e) => {
+    e.preventDefault();
+    const parentId = formParentEdit.dataset.parentId;
+    const payload = {
+      name: (qs('#parentNameInput')?.value || '').trim(),
+      relation: (qs('#parentRelationInput')?.value || '').trim(),
+      phone: (qs('#parentPhoneInput')?.value || '').trim(),
+      email: (qs('#parentEmailInput')?.value || '').trim(),
+      address: (qs('#parentAddressInput')?.value || '').trim()
+    };
+
+    if (!payload.name) {
+      alert('Parent name is required');
+      return;
+    }
+
+    try {
+      const url = parentId ? `${API_URL}/parents/${parentId}` : `${API_URL}/parents`;
+      const method = parentId ? 'PUT' : 'POST';
+      const response = await fetchWithTimeout(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, 8000);
+
+      if (!response || !response.ok) {
+        const body = await (response ? response.text() : Promise.resolve('no response'));
+        throw new Error(`${response?.status || ''} ${body}`.trim());
+      }
+
+      formParentEdit.closest('dialog')?.close();
+      await refreshParents();
+    } catch (err) {
+      alert(`Failed to save parent: ${err.message}`);
+    }
+  };
+
+  refreshParents();
+}
+
+function exportStaffCSV() {
+  const header = ['id', 'name', 'role', 'phone', 'join_date', 'monthly_salary', 'status'];
+  const rows = (AppState.staff || []).map(s => [
+    s.id || '',
+    s.name || '',
+    s.role || '',
+    s.phone || '',
+    s.joinDate || '',
+    Number(s.salary || 0),
+    s.status || 'active'
+  ]);
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('staff_export.csv', csv);
+}
+
+function renderStaff() {
+  const tableBody = qs('#staffTableBody');
+  const searchInput = qs('#staffSearch');
+  const btnAdd = qs('#staffBtnAdd');
+  const btnExport = qs('#staffBtnExport');
+  if (!tableBody || !searchInput || !btnAdd || !btnExport) return;
+
+  if (!Array.isArray(AppState.staff)) AppState.staff = [];
+  const isMainAdmin = getUserRole() === 'admin' && getAdminPanelRole() === 'main_admin';
+
+  const renderTable = () => {
+    const query = (searchInput.value || '').trim().toLowerCase();
+    const rows = AppState.staff.filter(s => {
+      const hay = `${s.name || ''} ${s.role || ''} ${s.phone || ''}`.toLowerCase();
+      return !query || hay.includes(query);
+    });
+
+    tableBody.innerHTML = rows.map(s => `
+      <tr>
+        <td>${s.name || ''}</td>
+        <td>${s.role || ''}</td>
+        <td>${s.phone || ''}</td>
+        <td>${s.joinDate || ''}</td>
+        <td>${isMainAdmin ? fmtINR(Number(s.salary || 0)) : '—'}</td>
+        <td><span class="badge ${String(s.status || 'active').toLowerCase() === 'active' ? 'success' : 'warn'}">${s.status || 'active'}</span></td>
+        <td style="text-align:right;">
+          ${isMainAdmin ? `<button class="btn btn-ghost small" data-staff-salary="${s.id}">Salary</button>` : ''}
+          <button class="btn btn-ghost small" data-staff-del="${s.id}">Delete</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="muted">No staff records yet.</td></tr>';
+
+    qsa('button[data-staff-salary]').forEach(btn => {
+      btn.onclick = () => {
+        const id = Number(btn.getAttribute('data-staff-salary'));
+        const item = AppState.staff.find(s => Number(s.id) === id);
+        if (!item) return;
+
+        const nextSalaryRaw = prompt(`Enter monthly salary for ${item.name}:`, String(Number(item.salary || 0)));
+        if (nextSalaryRaw == null) return;
+
+        const nextSalary = Number(nextSalaryRaw);
+        if (!Number.isFinite(nextSalary) || nextSalary < 0) {
+          alert('Please enter a valid non-negative salary amount.');
+          return;
+        }
+
+        item.salary = nextSalary;
+        saveState();
+        renderTable();
+      };
+    });
+
+    qsa('button[data-staff-del]').forEach(btn => {
+      btn.onclick = () => {
+        const id = Number(btn.getAttribute('data-staff-del'));
+        const item = AppState.staff.find(s => Number(s.id) === id);
+        if (!item) return;
+        if (!confirm(`Delete staff ${item.name}?`)) return;
+        AppState.staff = AppState.staff.filter(s => Number(s.id) !== id);
+        saveState();
+        renderTable();
+      };
+    });
+  };
+
+  searchInput.oninput = renderTable;
+
+  btnAdd.onclick = () => {
+    const name = (prompt('Enter staff name:') || '').trim();
+    if (!name) return;
+    const role = (prompt('Enter staff role (e.g., Receptionist, Accountant, Clerk):') || '').trim();
+    if (!role) return;
+    const phone = (prompt('Enter phone number:') || '').trim();
+    let salary = 0;
+
+    if (isMainAdmin) {
+      const salaryInput = prompt('Enter monthly salary (₹):', '0');
+      if (salaryInput == null) return;
+      const parsedSalary = Number(salaryInput);
+      if (!Number.isFinite(parsedSalary) || parsedSalary < 0) {
+        alert('Please enter a valid non-negative salary amount.');
+        return;
+      }
+      salary = parsedSalary;
+    }
+
+    AppState.staff.push({
+      id: Date.now(),
+      name,
+      role,
+      phone,
+      joinDate: todayYYYYMMDD(),
+      salary,
+      status: 'active'
+    });
+
+    saveState();
+    renderTable();
+  };
+
+  btnExport.onclick = exportStaffCSV;
+  renderTable();
+}
+
 // ---------- Fees View ----------
 async function renderFees(){
+  const topbarSearchInput = qs('#topbarSearchInput');
+  if (!((topbarSearchInput?.value || '').trim())) {
+    topbarReceiptSearchQuery = '';
+  }
+
   // Always load the latest fees data from backend whenever we enter this view
   try {
     console.log('[Fees] Loading latest payment and student data...');
@@ -2361,17 +3598,21 @@ async function renderFees(){
     }
     
     // Map payments to receipts
-    if (allPayments && Array.isArray(allPayments)) {
+    const normalizedPayments = Array.isArray(allPayments)
+      ? allPayments
+      : (allPayments && Array.isArray(allPayments.payments) ? allPayments.payments : []);
+
+    if (normalizedPayments.length > 0) {
       const studentById = {};
       AppState.students.forEach(s => { studentById[s.id] = s; });
-      const serverReceipts = allPayments.map(p => {
+      const serverReceipts = normalizedPayments.map(p => {
         const student = studentById[p.student_id] || {};
         return {
           id: p.id,
           no: p.id,
           date: p.payment_date,
-          roll: student.roll_no || student.roll || '',
-          name: student.name || '',
+          roll: p.roll_no || p.roll || student.roll || '',
+          name: p.name || student.name || '',
           method: p.payment_method || p.method || '',
           amount: Number(p.amount || 0),
           ref: p.transaction_id || p.ref || '',
@@ -2379,23 +3620,123 @@ async function renderFees(){
         };
       });
       AppState.receipts = mergeReceipts(serverReceipts);
+      saveState();
       console.log('[Fees] Updated receipts:', AppState.receipts.length);
+    } else if (await hydrateReceiptsFromBackend()) {
+      console.log('[Fees] Hydrated receipts from backend fallback:', AppState.receipts.length);
+    } else if (restoreReceiptsFromBackupIfNeeded()) {
+      console.log('[Fees] Restored receipts from backup cache:', AppState.receipts.length);
+    } else if (!Array.isArray(allPayments)) {
+      console.warn('[Fees] Unexpected payments response shape:', allPayments);
     }
   } catch (e) {
     console.warn('[Fees] Failed to load payment data:', e);
+    restoreReceiptsFromBackupIfNeeded();
   }
 
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
+  const feesKpiCollectedTitle = qs('#feesKpiCollectedTitle');
+  const feesKpiOverdueTitle = qs('#feesKpiOverdueTitle');
+  const feesKpiReceiptsTitle = qs('#feesKpiReceiptsTitle');
+  const feesKpiOutstandingTitle = qs('#feesKpiOutstandingTitle');
+  if (feesKpiCollectedTitle) {
+    feesKpiCollectedTitle.textContent = isReceptionPanel ? 'Collected (Today)' : 'Collected (This Month)';
+  }
+  if (feesKpiOverdueTitle) {
+    feesKpiOverdueTitle.textContent = isReceptionPanel ? 'Overdue Students' : 'Overdue (Aging > 30d)';
+  }
+  if (feesKpiReceiptsTitle) {
+    feesKpiReceiptsTitle.textContent = isReceptionPanel ? 'Receipts (Today)' : 'Receipts (This Month)';
+  }
+  if (feesKpiOutstandingTitle) {
+    feesKpiOutstandingTitle.textContent = isReceptionPanel ? 'Due Students' : 'Outstanding (This Month)';
+  }
   const feesKpiCollected = qs('#feesKpiCollected');
-  if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
+  if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(isReceptionPanel ? sumReceiptsToday() : sumReceiptsThisMonth());
+  const feesKpiCollectedDelta = qs('#feesKpiCollectedDelta');
+  if (feesKpiCollectedDelta) {
+    if (isReceptionPanel) {
+      const breakdown = getTodayMethodBreakdown();
+      feesKpiCollectedDelta.textContent = [
+        `Cash ${breakdown.cash.count} (${fmtINR(breakdown.cash.amount)})`,
+        `Bank ${breakdown.bank.count} (${fmtINR(breakdown.bank.amount)})`,
+        `UPI ${breakdown.upi.count} (${fmtINR(breakdown.upi.amount)})`
+      ].join(' | ');
+    } else {
+      feesKpiCollectedDelta.textContent = formatMonthYear(monthOfToday());
+    }
+  }
   const feesKpiOutstanding = qs('#feesKpiOutstanding');
-  if (feesKpiOutstanding) feesKpiOutstanding.textContent = fmtINR(sumOutstandingThisMonth());
+  const dueStudentsCount = isReceptionPanel
+    ? getDueStudentsListExcludingOverdue(3).length
+    : countDueStudentsAll();
+  if (feesKpiOutstanding) {
+    feesKpiOutstanding.textContent = isReceptionPanel
+      ? String(dueStudentsCount)
+      : fmtINR(sumOutstandingThisMonth());
+  }
+  const feesKpiOutstandingCount = qs('#feesKpiOutstandingCount');
+  if (feesKpiOutstandingCount) {
+    feesKpiOutstandingCount.textContent = isReceptionPanel
+      ? `${dueStudentsCount} students`
+      : `${dueStudentsCount} dues`;
+  }
+  const feesKpiDueCard = qs('#feesKpiDueCard');
+  if (feesKpiDueCard) {
+    if (isReceptionPanel) {
+      feesKpiDueCard.style.cursor = 'pointer';
+      feesKpiDueCard.title = 'Click to view due student names';
+      feesKpiDueCard.onclick = () => openReceptionDueStudentsModal();
+    } else {
+      feesKpiDueCard.style.cursor = '';
+      feesKpiDueCard.title = '';
+      feesKpiDueCard.onclick = null;
+    }
+  }
+  const overdueSummary = getOverdueSummary();
   const feesKpiOverdue = qs('#feesKpiOverdue');
-  if (feesKpiOverdue) feesKpiOverdue.textContent = fmtINR(sumOverdue());
+  if (feesKpiOverdue) {
+    feesKpiOverdue.textContent = isReceptionPanel
+      ? `${overdueSummary.studentCount} students`
+      : fmtINR(overdueSummary.amount);
+  }
+  const feesKpiOverdueCount = qs('#feesKpiOverdueCount');
+  if (feesKpiOverdueCount) feesKpiOverdueCount.textContent = `${overdueSummary.studentCount} students`;
+  const feesKpiOverdueCard = qs('#feesKpiOverdueCard');
+  if (feesKpiOverdueCard) {
+    if (isReceptionPanel) {
+      feesKpiOverdueCard.style.cursor = 'pointer';
+      feesKpiOverdueCard.title = 'Click to view overdue student names';
+      feesKpiOverdueCard.onclick = () => openReceptionOverdueStudentsModal();
+    } else {
+      feesKpiOverdueCard.style.cursor = '';
+      feesKpiOverdueCard.title = '';
+      feesKpiOverdueCard.onclick = null;
+    }
+  }
   const feesKpiReceipts = qs('#feesKpiReceipts');
-  if (feesKpiReceipts) feesKpiReceipts.textContent = String(countReceiptsThisMonth());
+  if (feesKpiReceipts) feesKpiReceipts.textContent = String(isReceptionPanel ? countReceiptsToday() : countReceiptsThisMonth());
+  const feesKpiReceiptsDelta = qs('#feesKpiReceiptsDelta');
+  if (feesKpiReceiptsDelta) feesKpiReceiptsDelta.textContent = isReceptionPanel ? 'Today' : formatMonthYear(monthOfToday());
 
   const feesBtnCollect = qs('#feesBtnCollect');
   if (feesBtnCollect) feesBtnCollect.onclick = ()=> openModal('#modalRecordPayment');
+  const feesReceiptLookup = qs('#feesReceiptLookup');
+  if (feesReceiptLookup) {
+    feesReceiptLookup.onkeydown = (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      findAndOpenReceiptFlow();
+    };
+  }
+  const feesBtnFindReceipt = qs('#feesBtnFindReceipt');
+  if (feesBtnFindReceipt) feesBtnFindReceipt.onclick = findAndOpenReceiptFlow;
+  const feesBtnExport = qs('#feesBtnExport');
+  if (feesBtnExport) feesBtnExport.onclick = exportFeesDuesCSV;
+  const feesBtnPrintAllDue = qs('#feesBtnPrintAllDue');
+  if (feesBtnPrintAllDue) feesBtnPrintAllDue.onclick = printAllDueReceiptsThermal2Inch;
+  const feesBtnPrintAllDueCompact = qs('#feesBtnPrintAllDueCompact');
+  if (feesBtnPrintAllDueCompact) feesBtnPrintAllDueCompact.onclick = () => printAllDueReceipts({ ultraCompact: true });
   const feesBtnHeads = qs('#feesBtnHeads');
   if (feesBtnHeads) feesBtnHeads.onclick = ()=> openModal('#modalFeeHeads');
   const feesBtnConcession = qs('#feesBtnConcession');
@@ -2405,7 +3746,720 @@ async function renderFees(){
   const feesBtnAging = qs('#feesBtnAging');
   if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
 
+  bindFeesFilters();
+  renderFeesDuesTable();
   renderRecentReceipts();
+}
+
+function getStudentMonthFinancials(student, month){
+  const key = `${student.roll}|${month}`;
+  const fee = AppState.fees[key] || {};
+  const heads = fee.heads || getFeesForStudentMonth(student, month) || {};
+  const baseDue = Object.values(heads).reduce((sum, value) => sum + Number(value || 0), 0);
+  const paid = Number(fee.paid || 0);
+  const discount = Number(fee.discount || 0);
+  const lateFee = Number(fee.lateFee || 0);
+  const due = Math.max(0, baseDue + lateFee - discount);
+  const balance = Math.max(0, due - paid);
+  return {
+    heads,
+    due,
+    paid,
+    balance,
+    discount,
+    lateFee,
+    lastReceipt: fee.lastReceipt || ''
+  };
+}
+
+function getStudentStatusForMonth(student, month){
+  const financials = getStudentMonthFinancials(student, month);
+  const todayMonth = monthOfToday();
+  if (financials.balance <= 0) return 'paid';
+  if (financials.paid > 0 && financials.balance > 0) return 'partial';
+  if (month < todayMonth) return 'overdue';
+  return 'due';
+}
+
+function bindFeesFilters(){
+  const controls = [
+    '#feesFilterClass',
+    '#feesFilterSection',
+    '#feesFilterMonth',
+    '#feesFilterStatus',
+    '#feesSearch'
+  ];
+
+  controls.forEach(sel => {
+    const el = qs(sel);
+    if (!el) return;
+    if (el.dataset.boundFees === '1') return;
+    el.dataset.boundFees = '1';
+
+    const trigger = () => {
+      AppState.pagination.fees.page = 1;
+      renderFeesDuesTable();
+    };
+
+    el.addEventListener('change', trigger);
+    el.addEventListener('input', trigger);
+  });
+}
+
+function renderFeesDuesTable(){
+  const tbody = qs('#feesBody');
+  const pagination = qs('#feesPagination');
+  if (!tbody || !pagination) return;
+
+  const fClass = (qs('#feesFilterClass')?.value || '').trim();
+  const fSection = (qs('#feesFilterSection')?.value || '').trim();
+  const fMonth = (qs('#feesFilterMonth')?.value || '').trim() || monthOfToday();
+  const fStatus = (qs('#feesFilterStatus')?.value || '').trim();
+  const query = (qs('#feesSearch')?.value || '').trim().toLowerCase();
+
+  const rows = (AppState.students || []).map(student => {
+    const financials = getStudentMonthFinancials(student, fMonth);
+    const status = getStudentStatusForMonth(student, fMonth);
+    const latestReceipt = getLatestReceiptKeyForStudent(student.roll);
+    return {
+      student,
+      month: fMonth,
+      heads: financials.heads,
+      due: financials.due,
+      paid: financials.paid,
+      balance: financials.balance,
+      status,
+      lastReceipt: financials.lastReceipt || latestReceipt || '—'
+    };
+  }).filter(r => {
+    if (fClass && r.student.class !== fClass) return false;
+    if (fSection && r.student.section !== fSection) return false;
+    if (fStatus && r.status !== fStatus) return false;
+    if (query) {
+      const text = `${r.student.name} ${r.student.roll} ${r.student.phone || ''}`.toLowerCase();
+      if (!text.includes(query)) return false;
+    }
+    return true;
+  }).sort((a, b) => b.balance - a.balance);
+
+  AppState.pagination.fees.filtered = rows;
+  const pageSize = AppState.pagination.fees.pageSize || 12;
+  AppState.pagination.fees.totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  AppState.pagination.fees.page = Math.min(AppState.pagination.fees.page, AppState.pagination.fees.totalPages);
+
+  const start = (AppState.pagination.fees.page - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+
+  tbody.innerHTML = pageRows.map(r => {
+    const headSummary = Object.entries(r.heads || {}).map(([head, amt]) => `${head}: ${fmtINR(amt)}`).join(' | ');
+    return `
+      <tr>
+        <td>${r.student.roll}</td>
+        <td>${r.student.name}</td>
+        <td>${r.student.class}-${r.student.section}</td>
+        <td>${r.student.phone || '-'}</td>
+        <td>${r.month}</td>
+        <td title="${headSummary}">${headSummary || '-'}</td>
+        <td>${fmtINR(r.due)}</td>
+        <td>${fmtINR(r.paid)}</td>
+        <td>${fmtINR(r.balance)}</td>
+        <td>${r.lastReceipt}</td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost small" data-fee-act="collect" data-roll="${r.student.roll}">Collect</button>
+          <button class="btn btn-ghost small" data-fee-act="view-due" data-roll="${r.student.roll}">View</button>
+          <button class="btn btn small" data-fee-act="due-receipt" data-roll="${r.student.roll}">Due Receipt</button>
+          <button class="btn btn-ghost small" data-fee-act="last-receipt" data-no="${r.lastReceipt !== '—' ? r.lastReceipt : ''}" ${r.lastReceipt === '—' ? 'disabled' : ''}>Last Receipt</button>
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="11" class="muted">No records found.</td></tr>';
+
+  qsa('button[data-fee-act="collect"]').forEach(btn => {
+    btn.onclick = () => {
+      const roll = btn.getAttribute('data-roll');
+      const rollInput = qs('#rpRoll');
+      if (rollInput) rollInput.value = roll;
+      openModal('#modalRecordPayment');
+    };
+  });
+
+  qsa('button[data-fee-act="due-receipt"]').forEach(btn => {
+    btn.onclick = () => {
+      const roll = btn.getAttribute('data-roll');
+      printDueReceiptForStudent(roll);
+    };
+  });
+
+  qsa('button[data-fee-act="view-due"]').forEach(btn => {
+    btn.onclick = () => {
+      const roll = btn.getAttribute('data-roll');
+      openDueReceiptPreview(roll);
+    };
+  });
+
+  qsa('button[data-fee-act="last-receipt"]').forEach(btn => {
+    btn.onclick = () => {
+      const receiptNo = String(btn.getAttribute('data-no') || '').trim();
+      if (!receiptNo) {
+        alert('No previous receipt found for this student.');
+        return;
+      }
+      openReceiptPreview(receiptNo);
+    };
+  });
+
+  pagination.innerHTML = `
+    <button class="btn btn-ghost small" ${AppState.pagination.fees.page <= 1 ? 'disabled' : ''} data-fee-pg="prev">◀ Prev</button>
+    <span class="muted">Page ${AppState.pagination.fees.page} of ${AppState.pagination.fees.totalPages}</span>
+    <button class="btn btn-ghost small" ${AppState.pagination.fees.page >= AppState.pagination.fees.totalPages ? 'disabled' : ''} data-fee-pg="next">Next ▶</button>
+  `;
+
+  qsa('button[data-fee-pg]').forEach(btn => {
+    btn.onclick = () => {
+      const act = btn.getAttribute('data-fee-pg');
+      if (act === 'prev' && AppState.pagination.fees.page > 1) AppState.pagination.fees.page -= 1;
+      if (act === 'next' && AppState.pagination.fees.page < AppState.pagination.fees.totalPages) AppState.pagination.fees.page += 1;
+      renderFeesDuesTable();
+    };
+  });
+}
+
+function printFromRoot(root, cleanupDelay = 800){
+  if (!root) return;
+
+  const isThermalBatch = !!root.querySelector('.thermal-batch-root');
+  const prevWidth = root.style.width;
+  const prevPadding = root.style.padding;
+
+  root.classList.remove('d-none');
+  root.style.display = 'block';
+  if (isThermalBatch) {
+    root.style.width = '58mm';
+    root.style.padding = '0';
+  }
+  root.setAttribute('aria-hidden', 'false');
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    root.style.display = 'none';
+    root.style.width = prevWidth;
+    root.style.padding = prevPadding;
+    root.classList.add('d-none');
+    root.setAttribute('aria-hidden', 'true');
+    root.innerHTML = '';
+  };
+
+  window.addEventListener('afterprint', cleanup, { once: true });
+
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      window.print();
+      setTimeout(cleanup, cleanupDelay);
+    }, 80);
+  });
+}
+
+function printDueReceiptForStudent(roll){
+  const student = (AppState.students || []).find(s => String(s.roll) === String(roll));
+  if (!student) {
+    alert('Student not found');
+    return;
+  }
+
+  const summary = calculateTotalUnpaidFees(student);
+  const months = (summary.months || []).filter(m => m && m !== '__NO_ADMISSION_DATE__');
+  const dueRows = months.map(month => {
+    const info = getStudentMonthFinancials(student, month);
+    return { month, balance: info.balance };
+  }).filter(r => r.balance > 0);
+
+  if ((summary.totalDue || 0) <= 0) {
+    alert('No pending due for this student.');
+    return;
+  }
+
+  const sch = AppState.settings.school || {};
+  const printedAt = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+
+  const root = qs('#receiptPrintRoot');
+  if (!root) return;
+
+  root.innerHTML = createDueReceiptBlock(student, summary, dueRows, printedAt);
+  printFromRoot(root, 900);
+}
+
+function buildDueReceiptText(student, summary, dueRows, printedAt) {
+  const monthsText = dueRows.length
+    ? dueRows.map(r => `${formatMonthYear(r.month)}: ${fmtINR(r.balance || 0)}`).join(', ')
+    : 'None';
+
+  return [
+    RECEIPT_SCHOOL_HEADER,
+    'Due Fee Receipt',
+    `Printed: ${printedAt}`,
+    `Student: ${student.name || ''}`,
+    `Admission No: ${student.roll || ''}`,
+    `Class: ${student.class || ''}-${student.section || ''}`,
+    `Total Due: ${fmtINR(summary.totalDue || 0)}`,
+    `Due Months: ${monthsText}`
+  ].join('\n');
+}
+
+function openDueReceiptPreview(roll) {
+  const student = (AppState.students || []).find(s => String(s.roll) === String(roll));
+  if (!student) {
+    alert('Student not found');
+    return;
+  }
+
+  const summary = calculateTotalUnpaidFees(student);
+  const months = (summary.months || []).filter(m => m && m !== '__NO_ADMISSION_DATE__');
+  const dueRows = months.map(month => {
+    const info = getStudentMonthFinancials(student, month);
+    return { month, balance: info.balance };
+  }).filter(r => r.balance > 0);
+
+  if ((summary.totalDue || 0) <= 0) {
+    alert('No pending due for this student.');
+    return;
+  }
+
+  const body = qs('#receiptPreviewBody');
+  const meta = qs('#receiptPreviewMeta');
+  const btnPrint = qs('#receiptPreviewPrint');
+  const btnCopy = qs('#receiptPreviewCopy');
+  const btnToggleView = qs('#receiptPreviewToggleView');
+  const btnPdf = qs('#receiptPreviewPdf');
+  const btnThermal = qs('#receiptPreviewThermal');
+  const modal = qs('#modalReceiptPreview');
+
+  if (!body || !meta || !btnPrint || !btnCopy || !btnToggleView || !btnPdf || !btnThermal || !modal) return;
+
+  const printedAt = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+  body.innerHTML = createDueReceiptBlock(student, summary, dueRows, printedAt);
+  meta.textContent = `Due Receipt · ${student.name} · ${student.roll} · Shortcuts: Ctrl+P Print, Ctrl+C Copy`;
+
+  btnToggleView.textContent = '🧩 Compact View';
+  btnToggleView.disabled = true;
+  btnPdf.disabled = true;
+  btnThermal.disabled = true;
+
+  btnPrint.onclick = () => printDueReceiptForStudent(student.roll);
+  btnCopy.onclick = async () => {
+    const oldText = btnCopy.textContent;
+    try {
+      await navigator.clipboard.writeText(buildDueReceiptText(student, summary, dueRows, printedAt));
+      btnCopy.textContent = '✅ Copied';
+      setTimeout(() => { btnCopy.textContent = oldText; }, 1200);
+    } catch {
+      alert('Could not copy due receipt. Please try again.');
+    }
+  };
+
+  const keyHandler = (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = String(e.key || '').toLowerCase();
+    if (key === 'p') {
+      e.preventDefault();
+      btnPrint.click();
+    } else if (key === 'c') {
+      e.preventDefault();
+      btnCopy.click();
+    }
+  };
+
+  modal.addEventListener('close', () => {
+    document.removeEventListener('keydown', keyHandler);
+  }, { once: true });
+  document.addEventListener('keydown', keyHandler);
+
+  openModal('#modalReceiptPreview');
+}
+
+function createDueReceiptBlock(student, summary, dueRows, printedAt){
+  const sch = AppState.settings.school || {};
+  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  const parts = getDueFeeComponents(student, dueRows);
+  return `
+    <div class="receipt-paper receipt-paper--due">
+      <div class="receipt-school">
+        <h2>${RECEIPT_SCHOOL_HEADER}</h2>
+        ${sch.tagline ? `<div class="muted">${sch.tagline}</div>` : ''}
+        ${addressLine ? `<div class="muted">${addressLine}</div>` : ''}
+      </div>
+      <hr />
+      <div class="due-title-row">
+        <h3 class="due-title">Fee Due Receipt</h3>
+        <span class="due-badge">Outstanding</span>
+      </div>
+
+      <div class="due-meta-grid">
+        <div class="receipt-row"><span><strong>Student</strong></span><span>${student.name}</span></div>
+        <div class="receipt-row"><span><strong>Admission No.</strong></span><span>${student.roll}</span></div>
+        <div class="receipt-row"><span><strong>Class</strong></span><span>${student.class}-${student.section}</span></div>
+        <div class="receipt-row"><span><strong>Generated At</strong></span><span>${printedAt}</span></div>
+      </div>
+
+      <div class="due-amount-grid">
+        <div class="due-amount-card">
+          <span class="muted">Due Tuition Fee</span>
+          <strong>${fmtINR(parts.dueTuitionFee)}</strong>
+        </div>
+        <div class="due-amount-card">
+          <span class="muted">Late Fee</span>
+          <strong>${fmtINR(parts.lateFee)}</strong>
+        </div>
+      </div>
+
+      <div class="receipt-total"><span>Total Outstanding</span><span>${fmtINR(summary.totalDue || 0)}</span></div>
+
+      <div class="due-table-wrap">
+        <strong>Month-wise Due</strong>
+        <table class="due-table">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Due Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dueRows.map(r => `<tr><td>${formatMonthYear(r.month)}</td><td>${fmtINR(r.balance)}</td></tr>`).join('') || '<tr><td colspan="2">No pending dues.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div class="muted mt-12">Please clear dues by due date to avoid late fee.</div>
+    </div>
+  `;
+}
+
+function getDueFeeComponents(student, dueRows){
+  let dueTuitionFee = 0;
+  let lateFee = 0;
+
+  (dueRows || []).forEach(row => {
+    const info = getStudentMonthFinancials(student, row.month);
+    const monthBalance = Number(row.balance || 0);
+    if (monthBalance <= 0) return;
+
+    const tuition = Number(info.heads?.Tuition || 0);
+    const monthLate = Number(info.lateFee || 0);
+    const componentTotal = tuition + monthLate;
+
+    if (componentTotal > 0) {
+      const ratio = Math.min(1, monthBalance / componentTotal);
+      dueTuitionFee += tuition * ratio;
+      lateFee += monthLate * ratio;
+    } else {
+      dueTuitionFee += monthBalance;
+    }
+  });
+
+  return {
+    dueTuitionFee: Math.max(0, Number(dueTuitionFee.toFixed(2))),
+    lateFee: Math.max(0, Number(lateFee.toFixed(2)))
+  };
+}
+
+function createCompactDueReceiptCard(student, summary, dueRows, options = {}){
+  const { ultraCompact = false } = options;
+  const parts = getDueFeeComponents(student, dueRows);
+  const duePreview = dueRows.slice(0, 3).map(r => `${formatMonthYear(r.month)}: ${fmtINR(r.balance)}`).join(' • ');
+  const cardClass = ultraCompact ? 'due-compact-card due-compact-card--ultra' : 'due-compact-card';
+  const bodyClass = ultraCompact ? 'due-compact-body due-compact-body--ultra' : 'due-compact-body';
+  const monthsClass = ultraCompact ? 'due-compact-months due-compact-months--ultra' : 'due-compact-months';
+  return `
+    <div class="${cardClass}">
+      <div class="due-compact-school">${RECEIPT_SCHOOL_HEADER}</div>
+      <div class="due-compact-title">DUE TUITION FEE RECEIPT</div>
+      <div class="${bodyClass}">
+        <div><strong>Student:</strong> ${student.name}</div>
+        <div><strong>Admission No:</strong> ${student.roll}</div>
+        <div><strong>Class:</strong> ${student.class}-${student.section}</div>
+        <div><strong>Due Tuition Fee:</strong> ${fmtINR(parts.dueTuitionFee)}</div>
+        <div><strong>Late Fee:</strong> ${fmtINR(parts.lateFee)}</div>
+        <div><strong>Total Due:</strong> ${fmtINR(summary.totalDue || 0)}</div>
+      </div>
+      <div class="${monthsClass}">
+        ${duePreview || 'No month-wise due'}
+      </div>
+    </div>
+  `;
+}
+
+function getFilteredDueStudentsFromFeesFilters(){
+  const selectedClass = (qs('#feesFilterClass')?.value || '').trim();
+  const selectedSection = (qs('#feesFilterSection')?.value || '').trim();
+  const searchQuery = (qs('#feesSearch')?.value || '').trim().toLowerCase();
+
+  const filteredStudents = (AppState.students || []).filter(student => {
+    if (selectedClass && student.class !== selectedClass) return false;
+    if (selectedSection && student.section !== selectedSection) return false;
+    if (searchQuery) {
+      const haystack = `${student.name || ''} ${student.roll || ''} ${student.phone || ''}`.toLowerCase();
+      if (!haystack.includes(searchQuery)) return false;
+    }
+    return true;
+  });
+
+  return filteredStudents.map(student => {
+    const summary = calculateTotalUnpaidFees(student);
+    const months = (summary.months || []).filter(m => m && m !== '__NO_ADMISSION_DATE__');
+    const dueRows = months.map(month => {
+      const info = getStudentMonthFinancials(student, month);
+      return { month, balance: info.balance };
+    }).filter(r => r.balance > 0);
+    return { student, summary, dueRows };
+  }).filter(item => (item.summary.totalDue || 0) > 0);
+}
+
+function createThermalDueReceiptCard(student, summary, dueRows, printedAt){
+  const parts = getDueFeeComponents(student, dueRows);
+  const monthsText = dueRows.length
+    ? dueRows.map(r => `${formatMonthYear(r.month)}: ${fmtINR(r.balance || 0)}`).join(' | ')
+    : 'No month-wise due';
+
+  return `
+    <div class="thermal-due-ticket">
+      <div class="thermal-ticket-school">${escapedText(RECEIPT_SCHOOL_HEADER)}</div>
+      <div class="thermal-ticket-title">DUE FEE RECEIPT</div>
+      <div class="thermal-ticket-line"></div>
+      <div class="thermal-ticket-row"><span>Printed</span><span>${escapedText(printedAt)}</span></div>
+      <div class="thermal-ticket-row"><span>Student</span><span>${escapedText(student.name || '')}</span></div>
+      <div class="thermal-ticket-row"><span>Adm No</span><span>${escapedText(String(student.roll || ''))}</span></div>
+      <div class="thermal-ticket-row"><span>Class</span><span>${escapedText(`${student.class || ''}-${student.section || ''}`)}</span></div>
+      <div class="thermal-ticket-row"><span>Due Tuition</span><span>${fmtINR(parts.dueTuitionFee || 0)}</span></div>
+      <div class="thermal-ticket-row"><span>Late Fee</span><span>${fmtINR(parts.lateFee || 0)}</span></div>
+      <div class="thermal-ticket-row thermal-ticket-total"><span>Total Due</span><span>${fmtINR(summary.totalDue || 0)}</span></div>
+      <div class="thermal-ticket-line"></div>
+      <div class="thermal-ticket-months">${escapedText(monthsText)}</div>
+    </div>
+  `;
+}
+
+function printAllDueReceiptsThermal2Inch(){
+  const dueStudents = getFilteredDueStudentsFromFeesFilters();
+
+  if (dueStudents.length === 0) {
+    alert('No due fee found for students in current filters (Class/Section/Search).');
+    return;
+  }
+
+  const printedAt = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+  const root = qs('#receiptPrintRoot');
+  if (!root) return;
+
+  root.innerHTML = `
+    <div class="thermal-batch-root">
+      ${dueStudents.map(item => createThermalDueReceiptCard(item.student, item.summary, item.dueRows, printedAt)).join('')}
+    </div>
+  `;
+
+  printFromRoot(root, 1500);
+}
+
+function printAllDueReceipts(options = {}){
+  const { ultraCompact = false } = options;
+  const printedAt = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+  const dueStudents = getFilteredDueStudentsFromFeesFilters();
+
+  if (dueStudents.length === 0) {
+    alert('No due fee found for students in current filters (Class/Section/Search).');
+    return;
+  }
+
+  const root = qs('#receiptPrintRoot');
+  if (!root) return;
+
+  const pages = [];
+  for (let i = 0; i < dueStudents.length; i += 4) {
+    pages.push(dueStudents.slice(i, i + 4));
+  }
+
+  root.innerHTML = `
+    ${pages.map((page, pageIndex) => `
+      <div class="bulk-due-page" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
+        <div class="bulk-due-headline">${RECEIPT_SCHOOL_HEADER}</div>
+        ${ultraCompact ? '<div class="bulk-due-mode">Ultra-Compact Layout</div>' : ''}
+        <div class="bulk-due-generated">Generated: ${printedAt}</div>
+        <div class="bulk-due-grid ${ultraCompact ? 'bulk-due-grid--ultra' : ''}">
+          ${page.map(item => createCompactDueReceiptCard(item.student, item.summary, item.dueRows, { ultraCompact })).join('')}
+          ${Array.from({ length: Math.max(0, 4 - page.length) }).map(() => '<div></div>').join('')}
+        </div>
+      </div>
+    `).join('')}
+  `;
+  printFromRoot(root, 1200);
+}
+
+function exportFeesDuesCSV(){
+  const rows = AppState.pagination?.fees?.filtered || [];
+  const header = ['Admission No', 'Name', 'Class', 'Phone', 'Month', 'Due', 'Paid', 'Balance', 'Status'];
+  const data = rows.map(r => [
+    r.student.roll,
+    r.student.name,
+    `${r.student.class}-${r.student.section}`,
+    r.student.phone || '',
+    r.month,
+    r.due,
+    r.paid,
+    r.balance,
+    r.status
+  ]);
+  const csv = arrayToCSV([header, ...data]);
+  downloadFile(`fees_dues_${new Date().toISOString().slice(0, 10)}.csv`, csv);
+}
+
+function loadDemoReceiptData(){
+  const existingDemoCount = (AppState.receipts || []).filter(r => r?.__demoReceipt === true || String(r?.no || '').startsWith('DEMO-R-')).length;
+  if (existingDemoCount > 0) {
+    const replace = confirm(`Demo receipts already loaded (${existingDemoCount}). Replace with fresh demo data?`);
+    if (!replace) return;
+    clearDemoReceiptData({ silent: true });
+  }
+
+  const now = new Date();
+  const currentMonth = monthOfToday();
+  const baseNo = `DEMO-R-${Date.now()}`;
+
+  const samples = [
+    { roll: 'DEMO-001', name: 'Aarav Kumar', method: 'Cash', amount: 3200, discount: 100, late_fee: 0, ref: 'DEMO-CASH-01' },
+    { roll: 'DEMO-002', name: 'Anaya Singh', method: 'UPI', amount: 2850, discount: 0, late_fee: 50, ref: 'DEMO-UPI-02' },
+    { roll: 'DEMO-003', name: 'Rohan Verma', method: 'Card', amount: 4100, discount: 200, late_fee: 0, ref: 'DEMO-CARD-03' },
+    { roll: 'DEMO-004', name: 'Priya Sharma', method: 'Bank Transfer', amount: 3500, discount: 0, late_fee: 75, ref: 'DEMO-BANK-04' },
+    { roll: 'DEMO-005', name: 'Kabir Ali', method: 'Cash', amount: 2600, discount: 50, late_fee: 0, ref: 'DEMO-CASH-05' }
+  ];
+
+  const demoReceipts = samples.map((sample, index) => {
+    const d = new Date(now);
+    d.setDate(Math.max(1, now.getDate() - index));
+    const date = d.toISOString().slice(0, 10);
+    return {
+      no: `${baseNo}-${index + 1}`,
+      date,
+      roll: sample.roll,
+      name: sample.name,
+      method: sample.method,
+      amount: Number(sample.amount || 0),
+      discount: Number(sample.discount || 0),
+      late_fee: Number(sample.late_fee || 0),
+      ref: sample.ref,
+      months: [currentMonth],
+      status: 'completed',
+      synced: false,
+      __demoReceipt: true
+    };
+  });
+
+  AppState.receipts = [...(AppState.receipts || []), ...demoReceipts];
+  saveState();
+
+  const feesKpiCollected = qs('#feesKpiCollected');
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
+  if (feesKpiCollected) {
+    feesKpiCollected.textContent = fmtINR(isReceptionPanel ? sumReceiptsToday() : sumReceiptsThisMonth());
+  }
+  const feesKpiOutstanding = qs('#feesKpiOutstanding');
+  const dueStudentsCount = isReceptionPanel
+    ? getDueStudentsListExcludingOverdue(3).length
+    : countDueStudentsAll();
+  if (feesKpiOutstanding) {
+    feesKpiOutstanding.textContent = isReceptionPanel
+      ? String(dueStudentsCount)
+      : fmtINR(sumOutstandingThisMonth());
+  }
+  const feesKpiOutstandingCount = qs('#feesKpiOutstandingCount');
+  if (feesKpiOutstandingCount) {
+    feesKpiOutstandingCount.textContent = isReceptionPanel
+      ? `${dueStudentsCount} students`
+      : `${dueStudentsCount} dues`;
+  }
+  const overdueSummary = getOverdueSummary();
+  const feesKpiOverdue = qs('#feesKpiOverdue');
+  if (feesKpiOverdue) {
+    feesKpiOverdue.textContent = isReceptionPanel
+      ? `${overdueSummary.studentCount} students`
+      : fmtINR(overdueSummary.amount);
+  }
+  const feesKpiOverdueCount = qs('#feesKpiOverdueCount');
+  if (feesKpiOverdueCount) feesKpiOverdueCount.textContent = `${overdueSummary.studentCount} students`;
+  const feesKpiReceipts = qs('#feesKpiReceipts');
+  if (feesKpiReceipts) feesKpiReceipts.textContent = String(isReceptionPanel ? countReceiptsToday() : countReceiptsThisMonth());
+
+  renderRecentReceipts();
+  alert(`Loaded ${demoReceipts.length} demo receipts. You can remove them anytime using "Clear Demo".`);
+}
+
+function clearDemoReceiptData(options = {}){
+  const { silent = false } = options;
+  const beforeReceipts = (AppState.receipts || []).length;
+
+  AppState.receipts = (AppState.receipts || []).filter(r => !(r?.__demoReceipt === true || String(r?.no || '').startsWith('DEMO-R-')));
+
+  const demoRolls = new Set(
+    (AppState.students || [])
+      .filter(s => s?.__demo === true || /^DEMO-/.test(String(s?.roll || '')))
+      .map(s => String(s.roll))
+  );
+
+  if (demoRolls.size > 0) {
+    AppState.students = (AppState.students || []).filter(s => !demoRolls.has(String(s.roll)));
+    Object.keys(AppState.fees || {}).forEach(key => {
+      const roll = String(key).split('|')[0];
+      if (demoRolls.has(roll)) delete AppState.fees[key];
+    });
+  }
+
+  Object.keys(AppState.fees || {}).forEach(key => {
+    if (String(key).startsWith('DEMO-')) delete AppState.fees[key];
+  });
+
+  const removedReceipts = beforeReceipts - (AppState.receipts || []).length;
+  saveState();
+
+  const feesKpiCollected = qs('#feesKpiCollected');
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
+  if (feesKpiCollected) {
+    feesKpiCollected.textContent = fmtINR(isReceptionPanel ? sumReceiptsToday() : sumReceiptsThisMonth());
+  }
+  const feesKpiOutstanding = qs('#feesKpiOutstanding');
+  const dueStudentsCount = isReceptionPanel
+    ? getDueStudentsListExcludingOverdue(3).length
+    : countDueStudentsAll();
+  if (feesKpiOutstanding) {
+    feesKpiOutstanding.textContent = isReceptionPanel
+      ? String(dueStudentsCount)
+      : fmtINR(sumOutstandingThisMonth());
+  }
+  const feesKpiOutstandingCount = qs('#feesKpiOutstandingCount');
+  if (feesKpiOutstandingCount) {
+    feesKpiOutstandingCount.textContent = isReceptionPanel
+      ? `${dueStudentsCount} students`
+      : `${dueStudentsCount} dues`;
+  }
+  const overdueSummary = getOverdueSummary();
+  const feesKpiOverdue = qs('#feesKpiOverdue');
+  if (feesKpiOverdue) {
+    feesKpiOverdue.textContent = isReceptionPanel
+      ? `${overdueSummary.studentCount} students`
+      : fmtINR(overdueSummary.amount);
+  }
+  const feesKpiOverdueCount = qs('#feesKpiOverdueCount');
+  if (feesKpiOverdueCount) feesKpiOverdueCount.textContent = `${overdueSummary.studentCount} students`;
+  const feesKpiReceipts = qs('#feesKpiReceipts');
+  if (feesKpiReceipts) feesKpiReceipts.textContent = String(isReceptionPanel ? countReceiptsToday() : countReceiptsThisMonth());
+
+  renderFeesDuesTable();
+  renderRecentReceipts();
+
+  if (!silent) {
+    if (removedReceipts > 0) {
+      alert(`Cleared ${removedReceipts} demo receipts.`);
+    } else {
+      alert('No demo receipts found to clear.');
+    }
+  }
 }
 
 function sumReceiptsThisMonth(){
@@ -2417,6 +4471,49 @@ function sumReceiptsThisMonth(){
     })
     .reduce((sum,r)=> sum+Number(r.amount||0),0);
 }
+function sumReceiptsToday(){
+  const todayReceipts = getCompletedReceiptsForDate(todayYYYYMMDD());
+  return todayReceipts.reduce((sum,r)=> sum+Number(r.amount||0),0);
+}
+
+function getCompletedReceiptsForDate(dateYMD){
+  return AppState.receipts.filter(r=> {
+      if ((r.date||'').slice(0,10)!==dateYMD) return false;
+      const st = String(r.status||'completed').toLowerCase();
+      return st === 'completed';
+    });
+}
+
+function getTodayMethodBreakdown(){
+  const buckets = {
+    cash: { count: 0, amount: 0 },
+    bank: { count: 0, amount: 0 },
+    upi: { count: 0, amount: 0 }
+  };
+
+  const todayReceipts = getCompletedReceiptsForDate(todayYYYYMMDD());
+  todayReceipts.forEach((r) => {
+    const amount = Number(r.amount || 0);
+    const method = String(r.method || '').toLowerCase();
+
+    let key = 'bank';
+    if (method.includes('upi')) key = 'upi';
+    else if (method.includes('cash')) key = 'cash';
+    else if (
+      method.includes('bank') ||
+      method.includes('transfer') ||
+      method.includes('neft') ||
+      method.includes('rtgs') ||
+      method.includes('imps') ||
+      method.includes('card')
+    ) key = 'bank';
+
+    buckets[key].count += 1;
+    buckets[key].amount += amount;
+  });
+
+  return buckets;
+}
 function countReceiptsThisMonth(){
   const m=monthOfToday();
   return AppState.receipts.filter(r=> {
@@ -2424,6 +4521,9 @@ function countReceiptsThisMonth(){
       const st = String(r.status||'completed').toLowerCase();
       return st === 'completed';
     }).length;
+}
+function countReceiptsToday(){
+  return getCompletedReceiptsForDate(todayYYYYMMDD()).length;
 }
 function sumOutstandingThisMonth(){
   const m=monthOfToday();
@@ -2441,9 +4541,46 @@ function sumOutstandingThisMonth(){
   });
   return Math.max(0, totalDue+totalLate-totalDiscount-totalPaid);
 }
-function sumOverdue(){
+
+function getOverdueStudentsList(minOverdueMonths = 3){
+  const m = monthOfToday();
+  return (AppState.students || []).map(student => {
+    let overdueMonths = 0;
+    let overdueAmount = 0;
+
+    const start = student.admission_date ? String(student.admission_date).slice(0, 7) : null;
+    if (!start) {
+      return { student, overdueMonths: 0, overdueAmount: 0 };
+    }
+
+    const months = genMonthsBetween(start, m);
+    months.forEach(month => {
+      if (month >= m) return;
+      const heads = getFeesForStudentMonth(student, month) || {};
+      const due = Object.values(heads).reduce((a, b) => a + Number(b || 0), 0);
+      const key = `${student.roll}|${month}`;
+      const v = AppState.fees[key] || {};
+      const paid = Number(v.paid || 0);
+      const discount = Number(v.discount || 0);
+      const lateFee = Number(v.lateFee || 0);
+      const bal = Math.max(0, due + lateFee - discount - paid);
+      if (bal > 0) {
+        overdueMonths += 1;
+        overdueAmount += bal;
+      }
+    });
+
+    return { student, overdueMonths, overdueAmount };
+  })
+    .filter(item => item.overdueMonths >= minOverdueMonths)
+    .sort((a, b) => (b.overdueMonths - a.overdueMonths) || (b.overdueAmount - a.overdueAmount));
+}
+
+function getOverdueSummary(){
   const m=monthOfToday();
   let total=0;
+  const overdueStudents = getOverdueStudentsList(3);
+  const studentCount = overdueStudents.length;
   AppState.students.forEach(student=>{
     // determine starting month
     let start = student.admission_date ? student.admission_date.slice(0,7) : null;
@@ -2462,14 +4599,131 @@ function sumOverdue(){
       total += bal;
     });
   });
-  return total;
+  return { amount: total, studentCount };
 }
-function renderRecentReceipts(){
+
+function sumOverdue(){
+  return getOverdueSummary().amount;
+}
+
+function countOverdueStudents(){
+  return getOverdueSummary().studentCount;
+}
+
+function countDueStudentsAll(){
+  return (AppState.students || []).reduce((count, student) => {
+    const summary = calculateTotalUnpaidFees(student);
+    return count + (Number(summary?.totalDue || 0) > 0 ? 1 : 0);
+  }, 0);
+}
+
+function getDueStudentsListExcludingOverdue(minOverdueMonths = 3){
+  const m = monthOfToday();
+  return (AppState.students || []).map(student => {
+    const summary = calculateTotalUnpaidFees(student);
+    const totalDue = Number(summary?.totalDue || 0);
+    let overdueMonths = 0;
+
+    const start = student.admission_date ? String(student.admission_date).slice(0, 7) : null;
+    if (start) {
+      const months = genMonthsBetween(start, m);
+      months.forEach(month => {
+        if (month >= m) return;
+        const heads = getFeesForStudentMonth(student, month) || {};
+        const due = Object.values(heads).reduce((a, b) => a + Number(b || 0), 0);
+        const key = `${student.roll}|${month}`;
+        const v = AppState.fees[key] || {};
+        const paid = Number(v.paid || 0);
+        const discount = Number(v.discount || 0);
+        const lateFee = Number(v.lateFee || 0);
+        const bal = Math.max(0, due + lateFee - discount - paid);
+        if (bal > 0) overdueMonths += 1;
+      });
+    }
+
+    return {
+      student,
+      totalDue,
+      dueMonths: Number(summary?.unpaidMonths || 0),
+      overdueMonths
+    };
+  })
+    .filter(item => item.totalDue > 0 && item.overdueMonths < minOverdueMonths)
+    .sort((a, b) => b.totalDue - a.totalDue);
+}
+
+function openReceptionDueStudentsModal(){
+  const body = qs('#dueStudentsBody');
+  const meta = qs('#dueStudentsMeta');
+  if (!body || !meta) return;
+
+  const rows = getDueStudentsListExcludingOverdue(3);
+  meta.textContent = rows.length
+    ? `${rows.length} due students found (excluding overdue list).`
+    : 'No due students found after excluding overdue list.';
+
+  body.innerHTML = rows.length
+    ? rows.map(item => `
+      <tr>
+        <td>${item.student.roll || '-'}</td>
+        <td>${item.student.name || '-'}</td>
+        <td>${item.student.class || '-'}-${item.student.section || '-'}</td>
+        <td>${item.dueMonths}</td>
+        <td>${fmtINR(item.totalDue || 0)}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5" class="muted">No due students for this rule.</td></tr>';
+
+  openModal('#modalDueStudents');
+}
+
+function openReceptionOverdueStudentsModal(){
+  const body = qs('#overdueStudentsBody');
+  const meta = qs('#overdueStudentsMeta');
+  if (!body || !meta) return;
+
+  const rows = getOverdueStudentsList(3);
+  meta.textContent = rows.length
+    ? `${rows.length} students found with fee due in more than 2 months.`
+    : 'No students found with fee due in more than 2 months.';
+
+  body.innerHTML = rows.length
+    ? rows.map(item => `
+      <tr>
+        <td>${item.student.roll || '-'}</td>
+        <td>${item.student.name || '-'}</td>
+        <td>${item.student.class || '-'}-${item.student.section || '-'}</td>
+        <td>${item.overdueMonths}</td>
+        <td>${fmtINR(item.overdueAmount || 0)}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5" class="muted">No overdue student records for this rule.</td></tr>';
+
+  openModal('#modalOverdueStudents');
+}
+
+async function renderRecentReceipts(){
+  restoreReceiptsFromBackupIfNeeded();
+
+  const hasReceiptsBeforeRender = Array.isArray(AppState.receipts) && AppState.receipts.length > 0;
+  if (!hasReceiptsBeforeRender) {
+    await hydrateReceiptsFromBackend();
+    restoreReceiptsFromBackupIfNeeded();
+  }
+
   const tbody=qs('#feesReceiptsBody');
-  const rows=[...AppState.receipts].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
+  if (!tbody) return;
+  const query = (topbarReceiptSearchQuery || '').trim();
+  const safeReceipts = Array.isArray(AppState.receipts) ? AppState.receipts : [];
+  const allRows = [...safeReceipts].sort((a,b)=> String(b?.date || '').localeCompare(String(a?.date || '')));
+  const matchedRows = query
+    ? allRows
+      .filter(r => `${getReceiptKey(r)} ${r.date || ''} ${r.roll || ''} ${r.name || ''} ${r.method || ''} ${r.ref || ''}`.toLowerCase().includes(query))
+    : allRows;
+  const rows = (query && matchedRows.length === 0) ? allRows : matchedRows;
   tbody.innerHTML=rows.map(r=> `
     <tr>
-      <td>${r.no}</td>
+      <td>${getReceiptKey(r)}</td>
       <td>${r.date}</td>
       <td>${r.roll}</td>
       <td>${r.name}</td>
@@ -2478,18 +4732,253 @@ function renderRecentReceipts(){
       <td>${fmtINR(r.discount||0)}</td>
       <td>${fmtINR(r.late_fee||0)}</td>
       <td style="text-align:right;">
-        <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
-        <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
+        <button class="btn btn-ghost small" data-act="view" data-no="${getReceiptKey(r)}">👁️ View</button>
+        <button class="btn btn-ghost small" data-act="print" data-no="${getReceiptKey(r)}">🖨️ Print</button>
+        <button class="btn btn-ghost small" data-act="pdf" data-no="${getReceiptKey(r)}" title="Download as PDF">📄 PDF</button>
       </td>
     </tr>
   `).join('');
+
+  if (!query && rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="muted">No receipts available yet.</td></tr>';
+  } else if (query && matchedRows.length === 0 && allRows.length > 0) {
+    tbody.innerHTML += `<tr><td colspan="9" class="muted">No exact match for "${query}". Showing all receipts.</td></tr>`;
+  } else if (query && rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="muted">No receipts found for "${query}"</td></tr>`;
+  }
+
+  qsa('button[data-act="view"]').forEach(b=>{
+    b.onclick=()=> openReceiptPreview(b.getAttribute('data-no'));
+  });
   qsa('button[data-act="print"]').forEach(b=>{
     b.onclick=()=> printReceipt(b.getAttribute('data-no'));
   });
   qsa('button[data-act="pdf"]').forEach(b=>{
     b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
   });
-  qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
+  const feesBtnReceiptsExport = qs('#feesBtnReceiptsExport');
+  if (feesBtnReceiptsExport) feesBtnReceiptsExport.onclick = exportReceiptsCSV;
+}
+
+function getReceiptKey(receipt) {
+  if (receipt == null) return '';
+  if (receipt.no !== undefined && receipt.no !== null && String(receipt.no).trim() !== '') {
+    return String(receipt.no);
+  }
+  if (receipt.id !== undefined && receipt.id !== null && String(receipt.id).trim() !== '') {
+    return String(receipt.id);
+  }
+  if (receipt.receipt_no !== undefined && receipt.receipt_no !== null && String(receipt.receipt_no).trim() !== '') {
+    return String(receipt.receipt_no);
+  }
+  if (receipt.payment_id !== undefined && receipt.payment_id !== null && String(receipt.payment_id).trim() !== '') {
+    return String(receipt.payment_id);
+  }
+  if (receipt.ref !== undefined && receipt.ref !== null && String(receipt.ref).trim() !== '') {
+    return String(receipt.ref);
+  }
+  if (receipt.transaction_id !== undefined && receipt.transaction_id !== null && String(receipt.transaction_id).trim() !== '') {
+    return String(receipt.transaction_id);
+  }
+  const composite = [receipt.date || '', receipt.roll || '', receipt.amount || 0, receipt.method || ''].join('|').trim();
+  return composite || '';
+}
+
+function getLatestReceiptKeyForStudent(roll) {
+  const normalizedRoll = String(roll ?? '').trim();
+  if (!normalizedRoll) return '';
+
+  const candidate = [...(AppState.receipts || [])]
+    .filter(r => String(r?.roll ?? '').trim() === normalizedRoll)
+    .sort((a, b) => (String(b?.date || '')).localeCompare(String(a?.date || '')))[0];
+
+  return candidate ? getReceiptKey(candidate) : '';
+}
+
+function findAndOpenReceiptFlow(rawQuery = null) {
+  const input = qs('#feesReceiptLookup');
+  const query = String(rawQuery ?? input?.value ?? '').trim();
+  if (!query) {
+    if (input) input.focus();
+    alert('Enter Receipt No or Admission No.');
+    return;
+  }
+
+  const byReceipt = findReceiptByKey(query);
+  if (byReceipt) {
+    openReceiptPreview(getReceiptKey(byReceipt));
+    if (input) input.value = '';
+    return;
+  }
+
+  const latestForStudent = getLatestReceiptKeyForStudent(query);
+  if (latestForStudent) {
+    openReceiptPreview(latestForStudent);
+    if (input) input.value = '';
+    return;
+  }
+
+  alert('No receipt found. Try exact Receipt No or Admission No.');
+}
+
+function findReceiptByKey(key) {
+  const normalized = String(key ?? '').trim();
+  if (!normalized) return null;
+  const safeReceipts = Array.isArray(AppState.receipts) ? AppState.receipts : [];
+  return safeReceipts.find(r => {
+    const directKey = getReceiptKey(r);
+    if (normalized === String(directKey || '').trim()) return true;
+
+    const noKey = r?.no !== undefined && r?.no !== null ? String(r.no).trim() : '';
+    const idKey = r?.id !== undefined && r?.id !== null ? String(r.id).trim() : '';
+    const receiptNoKey = r?.receipt_no !== undefined && r?.receipt_no !== null ? String(r.receipt_no).trim() : '';
+    const paymentIdKey = r?.payment_id !== undefined && r?.payment_id !== null ? String(r.payment_id).trim() : '';
+    const refKey = r?.ref !== undefined && r?.ref !== null ? String(r.ref).trim() : '';
+    const txnKey = r?.transaction_id !== undefined && r?.transaction_id !== null ? String(r.transaction_id).trim() : '';
+
+    return normalized === noKey
+      || normalized === idKey
+      || normalized === receiptNoKey
+      || normalized === paymentIdKey
+      || normalized === refKey
+      || normalized === txnKey;
+  }) || null;
+}
+
+function getDueMonthsByRoll(roll) {
+  const student = (AppState.students || []).find(s => String(s.roll) === String(roll));
+  if (!student) return [];
+
+  const summary = calculateTotalUnpaidFees(student);
+  const months = (summary.months || []).filter(m => m && m !== '__NO_ADMISSION_DATE__');
+
+  return months.filter(month => {
+    const info = getStudentMonthFinancials(student, month);
+    return Number(info.balance || 0) > 0;
+  });
+}
+
+function buildReceiptHTML(r, opts = {}) {
+  const compact = !!opts.compact;
+  const receiptNo = getReceiptKey(r);
+  const sch = AppState.settings.school || {};
+  const tagline = sch.tagline || '';
+  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  const dueMonths = getDueMonthsByRoll(r.roll);
+  const dueMonthsText = dueMonths.map(formatMonthYear).join(', ');
+
+  return `
+    <div class="receipt-paper ${compact ? 'receipt-paper--compact' : ''}">
+      <div class="receipt-school">
+        <h2>${RECEIPT_SCHOOL_HEADER}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        ${addressLine ? `<div class="muted">${addressLine}</div>` : ''}
+      </div>
+      <hr />
+      <div class="receipt-row"><span><strong>Receipt No.</strong></span><span>${receiptNo}</span></div>
+      <div class="receipt-row"><span><strong>Date</strong></span><span>${r.date}</span></div>
+      <div class="receipt-row"><span><strong>Student</strong></span><span>${r.name}</span></div>
+      <div class="receipt-row"><span><strong>Admission No.</strong></span><span>${r.roll}</span></div>
+      <div class="receipt-row"><span><strong>Payment Method</strong></span><span>${r.method} ${r.ref ? `(${r.ref})` : ''}</span></div>
+      ${r.months?.length ? `<div class="receipt-row receipt-row--optional"><span><strong>Months</strong></span><span>${r.months.map(formatMonthYear).join(', ')}</span></div>` : ''}
+      <div class="receipt-row receipt-row--optional"><span><strong>Discount</strong></span><span>${fmtINR(r.discount || 0)}</span></div>
+      <div class="receipt-row receipt-row--optional"><span><strong>Late Fee</strong></span><span>${fmtINR(r.late_fee || 0)}</span></div>
+      ${r.previousUnpaid ? `<div class="receipt-row receipt-row--optional"><span><strong>Previous Unpaid</strong></span><span>${fmtINR(r.previousUnpaid)}</span></div>` : ''}
+      <div class="receipt-total"><span>Total Paid</span><span>${fmtINR(r.amount || 0)}</span></div>
+      ${dueMonths.length ? `<div class="receipt-row receipt-row--optional"><span><strong>Due Months</strong></span><span>${dueMonthsText}</span></div>` : '<div class="receipt-row receipt-row--optional"><span><strong>Due Months</strong></span><span>None</span></div>'}
+      <div class="muted mt-12 receipt-note">This is a system-generated receipt.</div>
+    </div>
+  `;
+}
+
+function buildReceiptText(r) {
+  const receiptNo = getReceiptKey(r);
+  const dueMonths = getDueMonthsByRoll(r.roll);
+  const dueMonthsText = dueMonths.length ? dueMonths.map(formatMonthYear).join(', ') : 'None';
+  return [
+    RECEIPT_SCHOOL_HEADER,
+    `Receipt No: ${receiptNo}`,
+    `Date: ${r.date}`,
+    `Student: ${r.name}`,
+    `Admission No: ${r.roll}`,
+    `Payment Method: ${r.method}${r.ref ? ` (${r.ref})` : ''}`,
+    `Total Paid: ${fmtINR(r.amount || 0)}`,
+    `Due Months: ${dueMonthsText}`
+  ].join('\n');
+}
+
+function openReceiptPreview(no) {
+  const receipt = findReceiptByKey(no);
+  if (!receipt) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const body = qs('#receiptPreviewBody');
+  const meta = qs('#receiptPreviewMeta');
+  const btnPrint = qs('#receiptPreviewPrint');
+  const btnCopy = qs('#receiptPreviewCopy');
+  const btnToggleView = qs('#receiptPreviewToggleView');
+  const btnPdf = qs('#receiptPreviewPdf');
+  const btnThermal = qs('#receiptPreviewThermal');
+  const modal = qs('#modalReceiptPreview');
+
+  if (!body || !meta || !btnPrint || !btnCopy || !btnToggleView || !btnPdf || !btnThermal || !modal) return;
+
+  const state = { compact: false };
+  const receiptKey = getReceiptKey(receipt);
+
+  btnToggleView.disabled = false;
+  btnPdf.disabled = false;
+  btnThermal.disabled = false;
+
+  const renderPreview = () => {
+    body.innerHTML = buildReceiptHTML(receipt, { compact: state.compact });
+    btnToggleView.textContent = state.compact ? '🧾 Detailed View' : '🧩 Compact View';
+    meta.textContent = `Receipt ${receiptKey} · ${receipt.name} · ${state.compact ? 'Compact' : 'Detailed'} · Shortcuts: Ctrl+P Print, Ctrl+S PDF, Ctrl+C Copy`;
+  };
+
+  renderPreview();
+
+  btnPrint.onclick = () => printReceipt(receiptKey, { regularOnly: true });
+  btnCopy.onclick = async () => {
+    const oldText = btnCopy.textContent;
+    try {
+      await navigator.clipboard.writeText(buildReceiptText(receipt));
+      btnCopy.textContent = '✅ Copied';
+      setTimeout(() => { btnCopy.textContent = oldText; }, 1200);
+    } catch {
+      alert('Could not copy receipt. Please try again.');
+    }
+  };
+  btnToggleView.onclick = () => {
+    state.compact = !state.compact;
+    renderPreview();
+  };
+  btnPdf.onclick = () => generateReceiptPDF(receiptKey);
+  btnThermal.onclick = () => printThermalReceipt(receiptKey, receipt.name, receipt.roll, receipt.amount, receipt.method, 'School Fee');
+
+  const keyHandler = (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = String(e.key || '').toLowerCase();
+    if (key === 'p') {
+      e.preventDefault();
+      btnPrint.click();
+    } else if (key === 's') {
+      e.preventDefault();
+      btnPdf.click();
+    } else if (key === 'c') {
+      e.preventDefault();
+      btnCopy.click();
+    }
+  };
+
+  modal.addEventListener('close', () => {
+    document.removeEventListener('keydown', keyHandler);
+  }, { once: true });
+  document.addEventListener('keydown', keyHandler);
+
+  openModal('#modalReceiptPreview');
 }
 
 // ---------- CSV Export (Core) ----------
@@ -2824,6 +5313,41 @@ function initRecordPaymentModal(){
 
   let selectedMonths = [];
   let currentStudent = null;
+  const dueClasses = ['student-due-high', 'student-due-mid-high', 'student-due-mid', 'student-due-low'];
+
+  function getReceptionStudentDue(student){
+    const month = monthOfToday();
+    const financials = getStudentMonthFinancials(student, month);
+    return Number(financials.balance || 0);
+  }
+
+  function getReceptionDueClass(dueAmount){
+    if (dueAmount > 2000) return 'student-due-high';
+    if (dueAmount > 1000 && dueAmount <= 2000) return 'student-due-mid-high';
+    if (dueAmount >= 500 && dueAmount <= 1000) return 'student-due-mid';
+    return 'student-due-low';
+  }
+
+  function clearSelectedStudentDueStyle(){
+    [rpName, rpClass].forEach((el) => {
+      if (!el) return;
+      el.classList.remove('student-due-field', ...dueClasses);
+    });
+  }
+
+  function applySelectedStudentDueStyle(student){
+    if (!student) {
+      clearSelectedStudentDueStyle();
+      return;
+    }
+    const dueAmount = getReceptionStudentDue(student);
+    const dueClass = getReceptionDueClass(dueAmount);
+    [rpName, rpClass].forEach((el) => {
+      if (!el) return;
+      el.classList.remove(...dueClasses);
+      el.classList.add('student-due-field', dueClass);
+    });
+  }
 
   // add recalc button once
   if(!qs('#rpLateFeeRecalc')){
@@ -2851,7 +5375,16 @@ function initRecordPaymentModal(){
       ((s.name || '') + '').toLowerCase().includes(q) ||
       ((s.phone || '') + '').toLowerCase().includes(q)
     ).slice(0, 8);
-    list.innerHTML = matches.map(s => ` <button type="button" class="dropdown__item" data-roll="${s.roll}">${s.roll || ''} · ${s.name || ''} · ${s.class || ''}-${s.section || ''}</button>`).join('');
+    list.innerHTML = matches.map(s => {
+      const dueAmount = getReceptionStudentDue(s);
+      const dueClass = getReceptionDueClass(dueAmount);
+      return `
+        <button type="button" class="dropdown__item dropdown__item--due ${dueClass}" data-roll="${s.roll}">
+          <div class="dropdown__item-main">${s.roll || ''} · ${s.name || ''} · ${s.class || ''}-${s.section || ''}</div>
+          <div class="dropdown__item-meta">Due: ${fmtINR(dueAmount)}</div>
+        </button>
+      `;
+    }).join('');
     list.style.display = matches.length ? 'block' : 'none';
     qsa('#rpStudentList .dropdown__item').forEach(btn => {
       btn.onclick = () => { rpRoll.value = btn.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; };
@@ -2875,9 +5408,10 @@ function initRecordPaymentModal(){
 
   function fillStudentInfo(){
     const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
-    if(!s){ rpName.value=''; rpClass.value=''; rpUnpaidMonthsList.innerHTML=''; return; }
+    if(!s){ rpName.value=''; rpClass.value=''; rpUnpaidMonthsList.innerHTML=''; clearSelectedStudentDueStyle(); return; }
     rpName.value=s.name; 
     rpClass.value=s.class;
+    applySelectedStudentDueStyle(s);
     currentStudent = s;
     loadUnpaidMonths();
   }
@@ -3062,6 +5596,13 @@ function initRecordPaymentModal(){
     rpDiscount.value='0';
     rpLateFee.value='0';
     updateTotals();
+
+    const suggestedPayNow = Number((rpTotalDue.textContent || '').replace(/[^0-9.-]+/g, '')) || 0;
+    if (suggestedPayNow > 0 && Number(rpPayNow.value || 0) <= 0) {
+      rpPayNow.value = String(suggestedPayNow);
+      validatePayNow();
+      updateTotals();
+    }
   }
 
   function updateTotals(){
@@ -3120,8 +5661,22 @@ function initRecordPaymentModal(){
     if(current!==autoFee){ rpLateFee.value=String(autoFee); updateTotals(); }
   }
 
-  qs('#rpSaveNoPrint').onclick=async (e)=>{ e.preventDefault(); if(!savePayment(false)) return; form.parentElement.close(); await renderFees(); };
-  qs('#rpSaveAndPrint').onclick=async (e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); await renderFees(); };
+  qs('#rpSaveNoPrint').onclick=async (e)=>{
+    e.preventDefault();
+    if(!(await savePayment(false))) return;
+    form.parentElement.close();
+    switchView('fees');
+    await renderFees();
+    renderRecentReceipts();
+  };
+  qs('#rpSaveAndPrint').onclick=async (e)=>{
+    e.preventDefault();
+    if(!(await savePayment(true)))  return;
+    form.parentElement.close();
+    switchView('fees');
+    await renderFees();
+    renderRecentReceipts();
+  };
 
   async function syncPendingReceipts(){
   if (!isServerConnected) return;
@@ -3163,7 +5718,7 @@ function initRecordPaymentModal(){
   }
 }
 
-function savePayment(printAfter){
+async function savePayment(printAfter){
     if (!currentStudent) { rpMonthsError.textContent='Invalid student.'; rpMonthsError.style.display='block'; return false; }
     if (selectedMonths.length === 0) { rpMonthsError.textContent='Please select at least one month.'; rpMonthsError.style.display='block'; return false; }
 
@@ -3180,6 +5735,7 @@ function savePayment(printAfter){
     const lateFee=autoFee;
     const payNow=Number(rpPayNow.value||0);
     if(payNow<0){ rpMonthsError.textContent='Pay Now cannot be negative.'; rpMonthsError.style.display='block'; return false; }
+    if(payNow<=0){ rpMonthsError.textContent='Please enter Pay Now amount greater than 0 to generate receipt.'; rpMonthsError.style.display='block'; return false; }
 
     const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
     const netDue=Math.max(0, subtotal+lateFee-discount);
@@ -3216,39 +5772,84 @@ function savePayment(printAfter){
       remainingPayment -= monthPayments[month];
     });
     
-    // Save payment for each selected month
+    // Save payment directly to database first, then reflect it in local state
     let receiptNo = null;
-    if(payNow>0){
-      receiptNo='R-'+String(AppState.receipts.length+1).padStart(4,'0');
-      const receipt = {
-        no: receiptNo, 
-        date: todayYYYYMMDD(), 
-        roll: currentStudent.roll, 
-        name: currentStudent.name, 
-        method: rpMethod.value,
+    if (payNow > 0) {
+      let studentId = currentStudent.id;
+      if (!studentId) {
+        try {
+          studentId = await syncLocalStudentToBackend(currentStudent);
+          currentStudent.id = studentId;
+        } catch (syncErr) {
+          rpMonthsError.textContent = 'Unable to save payment because student is not synced with database.';
+          rpMonthsError.style.display = 'block';
+          return false;
+        }
+      }
+
+      const carry = payNow < totalDue ? (totalDue - payNow) : 0;
+      const paymentPayload = {
+        student_id: studentId,
         amount: payNow,
+        payment_date: todayYYYYMMDD(),
+        payment_method: rpMethod.value,
+        transaction_id: (rpRef.value || '').trim(),
         discount: discount,
         late_fee: lateFee,
-        ref: (rpRef.value||'').trim(),
-        months: selectedMonths, // include months in receipt
-        status: 'Completed' // make KPIs count it
+        purpose: selectedMonths.length ? `Fees ${selectedMonths.join(', ')}` : 'Fee',
+        status: 'Completed',
+        remarks: carry > 0 ? `Carry ₹${carry}` : ''
       };
-      // add carry info if partial payment
-      if(payNow < totalDue){
-        const carry = totalDue - payNow;
+
+      let savedPayment = null;
+      try {
+        const paymentResp = await fetch(`${API_URL}/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paymentPayload)
+        });
+
+        if (!paymentResp.ok) {
+          throw new Error(`Payment save failed (${paymentResp.status})`);
+        }
+
+        savedPayment = await paymentResp.json();
+      } catch (err) {
+        rpMonthsError.textContent = 'Payment was not saved to database. Please try again.';
+        rpMonthsError.style.display = 'block';
+        console.warn('Direct payment save failed:', err);
+        return false;
+      }
+
+      receiptNo = String(savedPayment?.id || ('R-' + String(AppState.receipts.length + 1).padStart(4,'0')));
+      const receipt = {
+        id: savedPayment?.id,
+        no: receiptNo,
+        date: savedPayment?.payment_date || todayYYYYMMDD(),
+        roll: currentStudent.roll,
+        name: currentStudent.name,
+        method: savedPayment?.payment_method || rpMethod.value,
+        amount: Number(savedPayment?.amount ?? payNow),
+        discount: discount,
+        late_fee: lateFee,
+        ref: savedPayment?.transaction_id || (rpRef.value || '').trim(),
+        months: selectedMonths,
+        status: String(savedPayment?.status || 'Completed'),
+        synced: true
+      };
+
+      if (carry > 0) {
         receipt.previousUnpaid = carry;
-        // post to next month
         const next = nextMonth(monthOfToday());
-        if(next){
+        if (next) {
           const nextKey = `${currentStudent.roll}|${next}`;
           AppState.fees[nextKey] = AppState.fees[nextKey] || { heads:{}, paid:0, discount:0, lateFee:0 };
           AppState.fees[nextKey].heads = AppState.fees[nextKey].heads || {};
           AppState.fees[nextKey].heads['Previous Unpaid'] = (AppState.fees[nextKey].heads['Previous Unpaid']||0) + carry;
         }
       }
+
       AppState.receipts.push(receipt);
-      // immediately try to sync new receipt if server is connected
-      syncPendingReceipts();
     }
     
     selectedMonths.forEach(month => {
@@ -3267,6 +5868,7 @@ function savePayment(printAfter){
     }
 
     saveState();
+    renderRecentReceipts();
     let statusMsg = `Saved ₹${payNow} across ${selectedMonths.length} month(s). Remaining: ₹${Math.max(0, netDue - payNow)}`;
     if(payNow < totalDue){
       const carry = totalDue - payNow;
@@ -3394,12 +5996,15 @@ function initConcessionModal(){
 }
 
 // ---------- Print Receipt ----------
-function printReceipt(no){
-  const r=AppState.receipts.find(x=> x.no===no);
+function printReceipt(no, options = {}){
+  const r = findReceiptByKey(no);
   if(!r){ alert('Receipt not found'); return; }
+  const receiptNo = getReceiptKey(r);
 
-  // Offer choice for thermal or regular printer
-  const choice = confirm(
+  const regularOnly = !!options.regularOnly;
+
+  // Offer choice for thermal or regular printer unless forced to regular print
+  const choice = regularOnly ? false : confirm(
     '🖨️ Print Options:\n\n' +
     'OK → Thermal Printer (ESC/POS Format)\n' +
     'Cancel → Regular Printer (Browser Print)\n\n' +
@@ -3409,7 +6014,7 @@ function printReceipt(no){
   if (choice) {
     // Thermal printer
     printThermalReceipt(
-      r.no,
+      receiptNo,
       r.name,
       r.roll,
       r.amount,
@@ -3419,43 +6024,23 @@ function printReceipt(no){
   } else {
     // Regular browser print
     const root=qs('#receiptPrintRoot');
-    const sch = AppState.settings.school || {};
-    const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
-    const tagline     = sch.tagline || '';
-    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
-
-    root.innerHTML=`
-      <div class="receipt">
-        <h2 style="margin:0;">${headerName}</h2>
-        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
-        <div class="muted">${addressLine}</div>
-        <hr />
-        <div><strong>Receipt No:</strong> ${r.no}</div>
-        <div><strong>Date:</strong> ${r.date}</div>
-        <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
-        <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
-        <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
-        ${r.previousUnpaid ? `<div><strong>Prev Unpaid:</strong> ${fmtINR(r.previousUnpaid)}</div>` : ''}
-        <hr />
-        <div class="muted">This is a system-generated receipt.</div>
-      </div>`;
-    root.style.display='block';
-    window.print();
-    setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
+    root.innerHTML = buildReceiptHTML(r);
+    printFromRoot(root, 900);
   }
 }
 
 // Generate Receipt PDF with Logo
 function generateReceiptPDF(receiptNo) {
-  const receipt = AppState.receipts.find(x => x.no === receiptNo);
+  const receipt = findReceiptByKey(receiptNo);
   if (!receipt) {
     alert('Receipt not found');
     return;
   }
+  const normalizedReceiptNo = getReceiptKey(receipt);
 
   const sch = AppState.settings.school || {};
-  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
-  const tagline = sch.tagline || 'Admin Portal';
+  const headerName = RECEIPT_SCHOOL_HEADER;
+  const tagline = sch.tagline || 'Deoley Sheikhpura';
   const address = sch.address || '';
   const phone = sch.phone || '';
   const email = sch.email || '';
@@ -3501,7 +6086,7 @@ function generateReceiptPDF(receiptNo) {
   html += '</div></div></div></div>';
   html += '<div class="receipt-title">FEE RECEIPT</div>';
   html += '<div class="receipt-body">';
-  html += '<div class="receipt-row"><span class="receipt-row-label">Receipt No:</span><span class="receipt-row-value"><strong>' + receipt.no + '</strong></span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Receipt No:</span><span class="receipt-row-value"><strong>' + normalizedReceiptNo + '</strong></span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Date:</span><span class="receipt-row-value">' + receipt.date + '</span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Student Name:</span><span class="receipt-row-value"><strong>' + receipt.name + '</strong></span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Admission No:</span><span class="receipt-row-value">' + receipt.roll + '</span></div>';
@@ -3525,7 +6110,7 @@ function generateReceiptPDF(receiptNo) {
 
   const options = {
     margin: [10, 10, 10, 10],
-    filename: 'receipt_' + receipt.no + '_' + receipt.date + '.pdf',
+    filename: 'receipt_' + normalizedReceiptNo + '_' + receipt.date + '.pdf',
     image: { type: 'png', quality: 0.98 },
     html2canvas: { scale: 2 },
     jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
@@ -3744,15 +6329,76 @@ function exportExamsCSV(){
 
 // ---------- Teachers View ----------
 function renderTeachers(){
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
+  const activeTabId = isReceptionPanel ? 'attendance-tab' : getActiveTeacherTabId();
+  applyTeacherModulePermissions(isReceptionPanel);
+
+  fetchTeachersFromBackend().then(() => {
+    renderTeachersTable();
+    setupTeacherAttendance();
+    renderSalaryPayments();
+    setupTeacherButtons();
+    setActiveTeacherTab(activeTabId);
+  });
+
   renderTeachersTable();
   setupTeacherAttendance();
   renderSalaryPayments();
   setupTeacherButtons();
+  setActiveTeacherTab(activeTabId);
+}
+
+function getActiveTeacherTabId(){
+  const active = qs('#view-teachers .tab-btn.active');
+  return active?.getAttribute('data-tab') || 'teachers-tab';
+}
+
+function applyTeacherModulePermissions(isReceptionPanel){
+  const container = qs('#view-teachers');
+  if (!container) return;
+
+  const teachersTabBtn = container.querySelector('.tab-btn[data-tab="teachers-tab"]');
+  const attendanceTabBtn = container.querySelector('.tab-btn[data-tab="attendance-tab"]');
+  const salaryTabBtn = container.querySelector('.tab-btn[data-tab="salary-tab"]');
+
+  if (isReceptionPanel) {
+    if (teachersTabBtn) teachersTabBtn.style.display = 'none';
+    if (salaryTabBtn) salaryTabBtn.style.display = 'none';
+    if (attendanceTabBtn) attendanceTabBtn.style.display = '';
+  } else {
+    if (teachersTabBtn) teachersTabBtn.style.display = '';
+    if (salaryTabBtn) salaryTabBtn.style.display = '';
+    if (attendanceTabBtn) attendanceTabBtn.style.display = '';
+  }
+}
+
+function setActiveTeacherTab(tabId){
+  const container = qs('#view-teachers');
+  if (!container) return;
+
+  const buttons = qsa('#view-teachers .tab-btn');
+  const tabs = qsa('#view-teachers .tab-content');
+  buttons.forEach(b => b.classList.remove('active'));
+  tabs.forEach(t => {
+    t.classList.add('d-none');
+    t.style.display = '';
+  });
+
+  const selectedBtn = container.querySelector(`.tab-btn[data-tab="${tabId}"]`) || container.querySelector('.tab-btn[data-tab="teachers-tab"]');
+  const selectedTabId = selectedBtn?.getAttribute('data-tab') || 'teachers-tab';
+  const selectedTab = qs(`#${selectedTabId}`);
+
+  if (selectedBtn) selectedBtn.classList.add('active');
+  if (selectedTab) {
+    selectedTab.classList.remove('d-none');
+    selectedTab.style.display = 'block';
+  }
 }
 
 function renderTeachersTable(){
   const tbody = qs('#teachersTableBody');
   if (!tbody) return;
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
   
   tbody.innerHTML = AppState.teachers.map(t => `
     <tr>
@@ -3764,8 +6410,10 @@ function renderTeachersTable(){
       <td>${fmtINR(t.salary)}</td>
       <td><span class="badge">${t.status}</span></td>
       <td style="text-align:right;">
-        <button class="btn btn-ghost small" data-act="editTeacher" data-id="${t.id}">Edit</button>
-        <button class="btn btn-ghost small" data-act="delTeacher" data-id="${t.id}">Delete</button>
+        ${isReceptionPanel
+          ? '<span class="muted">—</span>'
+          : `<button class="btn btn-ghost small" data-act="editTeacher" data-id="${t.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delTeacher" data-id="${t.id}">Delete</button>`}
       </td>
     </tr>
   `).join('');
@@ -3775,29 +6423,366 @@ function renderTeachersTable(){
   });
 
   qsa('button[data-act="delTeacher"]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const teacherId = btn.getAttribute('data-id');
-      const teacher = AppState.teachers.find(t => t.id === teacherId);
+      const teacher = AppState.teachers.find(t => String(t.id) === String(teacherId));
       if (!teacher) return;
       if (!confirm(`Delete teacher ${teacher.name}? This cannot be undone.`)) return;
-      AppState.teachers = AppState.teachers.filter(t => t.id !== teacherId);
-      saveState();
-      renderTeachers();
+
+      try {
+        const isNumericId = /^\d+$/.test(String(teacher.id));
+        if (!isNumericId) {
+          AppState.teachers = AppState.teachers.filter(t => String(t.id) !== String(teacherId));
+          saveState();
+          renderTeachers();
+          return;
+        }
+
+        if (!isServerConnected) throw new Error('Backend server appears offline');
+        const response = await fetchWithTimeout(`${API_URL}/teachers/${teacher.id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        }, 8000);
+
+        if (!response || !response.ok) {
+          const body = await (response ? response.text() : Promise.resolve('no response'));
+          throw new Error(`${response?.status || ''} ${body}`.trim());
+        }
+
+        AppState.teachers = AppState.teachers.filter(t => String(t.id) !== String(teacherId));
+        saveState();
+        renderTeachers();
+      } catch (err) {
+        alert('Unable to delete teacher from database: ' + err.message);
+      }
     };
   });
 }
 
 function setupTeacherAttendance(){
   const datePicker = qs('#attDatePicker');
-  if (datePicker && !datePicker.value) datePicker.value = todayYYYYMMDD();
+  const dateDisplay = qs('#attDateDisplay');
+  const dateBox = datePicker ? datePicker.closest('.attendance-date-box') : null;
+  const monthDisplay = qs('#attMonthDisplay');
+  const monthPrevBtn = qs('#attMonthPrev');
+  const monthNextBtn = qs('#attMonthNext');
+  const monthLoadBtn = qs('#attBtnMonthLoad');
+  const monthPrintBtn = qs('#attBtnMonthPrint');
+  const isReceptionPanel = getUserRole() === 'admin' && getAdminPanelRole() === 'reception';
 
-  if (qs('#attBtnLoad')) qs('#attBtnLoad').onclick = () => loadAttendanceForDate(datePicker.value);
+  const refreshDateDisplay = () => {
+    if (!dateDisplay) return;
+    const selectedDate = datePicker?.value || todayYYYYMMDD();
+    const parsedDate = new Date(`${selectedDate}T00:00:00`);
+    if (Number.isNaN(parsedDate.getTime())) {
+      dateDisplay.textContent = selectedDate;
+      return;
+    }
+    const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayName = weekDays[parsedDate.getDay()];
+    const dateText = `${String(parsedDate.getDate()).padStart(2, '0')} ${months[parsedDate.getMonth()]} ${parsedDate.getFullYear()}`;
+    dateDisplay.textContent = `${dayName} . ${dateText}`;
+  };
+
+  const refreshMonthDisplay = () => {
+    if (!monthDisplay) return;
+    const [yearPart, monthPart] = String(teacherAttendanceMonthView || currentMonth()).split('-');
+    const year = Number(yearPart);
+    const month = Number(monthPart);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+      monthDisplay.textContent = String(teacherAttendanceMonthView || currentMonth());
+      return;
+    }
+    const monthName = new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long' });
+    monthDisplay.textContent = `${monthName} ${year}`;
+  };
+
+  if (isReceptionPanel) {
+    if (datePicker) {
+      datePicker.value = todayYYYYMMDD();
+      datePicker.disabled = true;
+      datePicker.style.display = 'none';
+    }
+    if (dateBox) dateBox.classList.add('attendance-date-box--compact');
+    const attBtnLoad = qs('#attBtnLoad');
+    if (attBtnLoad) attBtnLoad.style.display = 'none';
+  } else {
+    if (datePicker) {
+      datePicker.disabled = false;
+      datePicker.style.display = '';
+    }
+    if (dateBox) dateBox.classList.remove('attendance-date-box--compact');
+    const attBtnLoad = qs('#attBtnLoad');
+    if (attBtnLoad) attBtnLoad.style.display = '';
+  }
+
+  if (datePicker && !datePicker.value) datePicker.value = todayYYYYMMDD();
+  teacherAttendanceMonthView = String(datePicker?.value || '').slice(0, 7) || teacherAttendanceMonthView || currentMonth();
+
+  if (datePicker) {
+    datePicker.onchange = () => {
+      refreshDateDisplay();
+      teacherAttendanceMonthView = String(datePicker.value || '').slice(0, 7) || currentMonth();
+      refreshMonthDisplay();
+      renderMonthlyAttendanceSummary(teacherAttendanceMonthView);
+    };
+  }
+
+  if (monthPrevBtn) {
+    monthPrevBtn.onclick = () => {
+      teacherAttendanceMonthView = shiftMonthValue(teacherAttendanceMonthView || currentMonth(), -1);
+      refreshMonthDisplay();
+      renderMonthlyAttendanceSummary(teacherAttendanceMonthView);
+    };
+  }
+
+  if (monthNextBtn) {
+    monthNextBtn.onclick = () => {
+      teacherAttendanceMonthView = shiftMonthValue(teacherAttendanceMonthView || currentMonth(), 1);
+      refreshMonthDisplay();
+      renderMonthlyAttendanceSummary(teacherAttendanceMonthView);
+    };
+  }
+
+  if (monthLoadBtn) {
+    monthLoadBtn.onclick = () => {
+      refreshMonthDisplay();
+      renderMonthlyAttendanceSummary(teacherAttendanceMonthView || currentMonth());
+    };
+  }
+
+  if (monthPrintBtn) {
+    monthPrintBtn.onclick = () => printTeacherAttendanceMonthA4(teacherAttendanceMonthView || currentMonth());
+  }
+
+  refreshDateDisplay();
+  refreshMonthDisplay();
+
+  if (qs('#attBtnLoad')) {
+    qs('#attBtnLoad').onclick = () => {
+      loadAttendanceForDate(datePicker.value);
+      renderMonthlyAttendanceSummary(teacherAttendanceMonthView || currentMonth());
+    };
+  }
   if (qs('#attBtnMarkAll')) qs('#attBtnMarkAll').onclick = () => {
     qsa('select.att-status').forEach(sel => sel.value = 'present');
   };
   if (qs('#attBtnSave')) qs('#attBtnSave').onclick = () => saveAttendance(datePicker.value);
 
   loadAttendanceForDate(datePicker.value);
+  renderMonthlyAttendanceSummary(teacherAttendanceMonthView || String(datePicker.value || '').slice(0, 7) || currentMonth());
+}
+
+function shiftMonthValue(monthValue, step){
+  const [yearPart, monthPart] = String(monthValue || currentMonth()).split('-');
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return currentMonth();
+  }
+  const shifted = new Date(year, month - 1 + Number(step || 0), 1);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getTeacherMonthlyAttendanceRows(month){
+  const monthKey = String(month || '').trim() || currentMonth();
+  return (AppState.teachers || []).map(teacher => {
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+
+    Object.entries(AppState.teacherAttendance || {}).forEach(([key, value]) => {
+      const [teacherId, date] = String(key).split('|');
+      if (String(teacherId) !== String(teacher.id)) return;
+      if (!date || !date.startsWith(`${monthKey}-`)) return;
+      const status = String(value?.status || '').toLowerCase();
+      if (status === 'present') present += 1;
+      else if (status === 'absent') absent += 1;
+      else if (status === 'leave') leave += 1;
+    });
+
+    const markedDays = present + absent + leave;
+    const presentPct = markedDays > 0 ? `${((present / markedDays) * 100).toFixed(1)}%` : '—';
+
+    return {
+      teacherName: teacher.name,
+      present,
+      absent,
+      leave,
+      markedDays,
+      presentPct
+    };
+  });
+}
+
+function renderMonthlyAttendanceSummary(month){
+  const tbody = qs('#attendanceMonthTableBody');
+  if (!tbody) return;
+
+  const rows = getTeacherMonthlyAttendanceRows(month);
+  const htmlRows = rows.map(row => `
+      <tr>
+        <td>${row.teacherName}</td>
+        <td>${row.present}</td>
+        <td>${row.absent}</td>
+        <td>${row.leave}</td>
+        <td>${row.markedDays}</td>
+        <td>${row.presentPct}</td>
+      </tr>
+    `);
+
+  if (htmlRows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No teachers found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = htmlRows.join('');
+}
+
+function printTeacherAttendanceMonthA4(month){
+  const monthKey = String(month || '').trim() || currentMonth();
+  const rows = getTeacherMonthlyAttendanceRows(monthKey);
+  if (!rows.length) {
+    alert('No teacher data available to print.');
+    return;
+  }
+
+  const school = AppState.settings?.school || {};
+  const locale = AppState.settings?.locale || 'en-IN';
+  const schoolName = escapedText(school.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolAddress = escapedText(school.address || '');
+  const reportMonth = escapedText(formatMonthYear(monthKey) || monthKey);
+  const printedAt = escapedText(new Date().toLocaleString(locale));
+
+  const totalPresent = rows.reduce((sum, row) => sum + row.present, 0);
+  const totalAbsent = rows.reduce((sum, row) => sum + row.absent, 0);
+  const totalLeave = rows.reduce((sum, row) => sum + row.leave, 0);
+  const totalMarked = rows.reduce((sum, row) => sum + row.markedDays, 0);
+
+  const rowsHtml = rows.map(row => `
+    <tr>
+      <td>${escapedText(row.teacherName || '')}</td>
+      <td>${row.present}</td>
+      <td>${row.absent}</td>
+      <td>${row.leave}</td>
+      <td>${row.markedDays}</td>
+      <td>${row.presentPct}</td>
+    </tr>
+  `).join('');
+
+  const dayWiseMap = {};
+  Object.entries(AppState.teacherAttendance || {}).forEach(([key, value]) => {
+    const [, date] = String(key).split('|');
+    if (!date || !date.startsWith(`${monthKey}-`)) return;
+    const status = String(value?.status || '').toLowerCase();
+    if (!dayWiseMap[date]) dayWiseMap[date] = { present: 0, absent: 0, leave: 0 };
+    if (status === 'present') dayWiseMap[date].present += 1;
+    else if (status === 'absent') dayWiseMap[date].absent += 1;
+    else if (status === 'leave') dayWiseMap[date].leave += 1;
+  });
+
+  const dayWiseRows = Object.entries(dayWiseMap)
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([date, totals]) => {
+      const dateObj = new Date(`${date}T00:00:00`);
+      const dayName = Number.isNaN(dateObj.getTime()) ? '—' : dateObj.toLocaleString(locale, { weekday: 'long' });
+      const marked = Number(totals.present || 0) + Number(totals.absent || 0) + Number(totals.leave || 0);
+      return `
+        <tr>
+          <td>${escapedText(date)}</td>
+          <td>${escapedText(dayName)}</td>
+          <td>${totals.present || 0}</td>
+          <td>${totals.absent || 0}</td>
+          <td>${totals.leave || 0}</td>
+          <td>${marked}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const html = `<!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Teacher Attendance Report - ${reportMonth}</title>
+    <style>
+      @page { size: A4 portrait; margin: 12mm; }
+      body { font-family: Arial, sans-serif; color: #111; margin: 0; }
+      .report { width: 100%; }
+      .head { text-align: center; margin-bottom: 10px; }
+      .head h1 { margin: 0; font-size: 20px; }
+      .head .address { margin-top: 4px; font-size: 12px; color: #444; }
+      .meta { display: flex; justify-content: space-between; font-size: 12px; margin: 8px 0 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border: 1px solid #777; padding: 7px 8px; text-align: left; }
+      th { background: #f1f5f9; }
+      td:nth-child(n+2), th:nth-child(n+2) { text-align: center; }
+      .summary { margin-top: 12px; font-size: 12px; }
+      .summary strong { margin-right: 12px; }
+      .daywise-title { margin: 14px 0 8px; font-size: 13px; }
+      .footer { margin-top: 24px; font-size: 11px; color: #555; text-align: right; }
+    </style>
+  </head>
+  <body>
+    <div class="report">
+      <div class="head">
+        <h1>${schoolName}</h1>
+        ${schoolAddress ? `<div class="address">${schoolAddress}</div>` : ''}
+        <div><strong>Teacher Attendance Report</strong></div>
+      </div>
+      <div class="meta">
+        <div><strong>Month:</strong> ${reportMonth}</div>
+        <div><strong>Printed:</strong> ${printedAt}</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Teacher</th>
+            <th>Present</th>
+            <th>Absent</th>
+            <th>Leave</th>
+            <th>Marked Days</th>
+            <th>Present %</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="summary">
+        <strong>Total Present: ${totalPresent}</strong>
+        <strong>Total Absent: ${totalAbsent}</strong>
+        <strong>Total Leave: ${totalLeave}</strong>
+        <strong>Total Marks: ${totalMarked}</strong>
+      </div>
+      <div class="daywise-title"><strong>Day-wise Attendance (This Month)</strong></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Day</th>
+            <th>Present</th>
+            <th>Absent</th>
+            <th>Leave</th>
+            <th>Marked</th>
+          </tr>
+        </thead>
+        <tbody>${dayWiseRows || '<tr><td colspan="6" style="text-align:center;">No day-wise attendance records found for this month.</td></tr>'}</tbody>
+      </table>
+      <div class="footer">Generated from School Admin Portal</div>
+    </div>
+  </body>
+  </html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow pop-ups to print the attendance report.');
+    return;
+  }
+
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 250);
 }
 
 function loadAttendanceForDate(date){
@@ -3808,9 +6793,9 @@ function loadAttendanceForDate(date){
     const key = `${t.id}|${date}`;
     const att = AppState.teacherAttendance[key] || { status: 'absent', remarks: '' };
     return `
-      <tr>
+      <tr class="att-row" data-status="${att.status}">
         <td>${t.name}</td>
-        <td>
+        <td class="att-status-cell">
           <select class="att-status" data-id="${t.id}">
             <option value="present" ${att.status === 'present' ? 'selected' : ''}>Present</option>
             <option value="absent" ${att.status === 'absent' ? 'selected' : ''}>Absent</option>
@@ -3818,15 +6803,40 @@ function loadAttendanceForDate(date){
           </select>
         </td>
         <td>
-          <input type="text" class="att-remarks" data-id="${t.id}" value="${att.remarks || ''}" placeholder="Medical, etc." style="width:150px;" />
+          <input type="text" class="att-remarks att-remarks-input" data-id="${t.id}" value="${att.remarks || ''}" placeholder="Medical, etc." />
         </td>
       </tr>
     `;
   }).join('');
+
+  qsa('select.att-status').forEach(sel => {
+    const syncStyle = () => {
+      const row = sel.closest('tr.att-row');
+      const status = (sel.value || '').toLowerCase();
+      if (row) row.setAttribute('data-status', status);
+      sel.setAttribute('data-status', status);
+    };
+    syncStyle();
+    sel.onchange = syncStyle;
+  });
 }
 
 function saveAttendance(date){
-  const datePicker = qs('#attDatePicker');
+  const hasExistingAttendance = (AppState.teachers || []).some(teacher => {
+    const key = `${teacher.id}|${date}`;
+    return !!AppState.teacherAttendance[key];
+  });
+
+  if (hasExistingAttendance) {
+    const shouldUpdate = confirm(
+      `⚠ Attendance marked before for ${date}.\n\nDo you want to update it?\n\nOK = Update attendance\nCancel = Keep previous attendance`
+    );
+    if (!shouldUpdate) {
+      alert(`Attendance already marked before for ${date}. No changes were saved.`);
+      return;
+    }
+  }
+
   qsa('select.att-status').forEach(sel => {
     const teacherId = sel.getAttribute('data-id');
     const status = sel.value;
@@ -3835,6 +6845,7 @@ function saveAttendance(date){
     AppState.teacherAttendance[key] = { status, remarks };
   });
   saveState();
+  renderMonthlyAttendanceSummary(teacherAttendanceMonthView || String(date || '').slice(0, 7) || currentMonth());
   alert('Attendance saved for ' + date);
 }
 
@@ -3844,7 +6855,7 @@ function renderSalaryPayments(){
 
   const payments = AppState.salaryPayments.sort((a, b) => new Date(b.date) - new Date(a.date));
   tbody.innerHTML = payments.slice(0, 50).map(p => {
-    const teacher = AppState.teachers.find(t => t.id === p.teacherId);
+    const teacher = AppState.teachers.find(t => String(t.id) === String(p.teacherId));
     return `
       <tr>
         <td>${teacher?.name || 'Unknown'}</td>
@@ -3859,7 +6870,96 @@ function renderSalaryPayments(){
   const monthInput = qs('#salaryMonth');
   if (monthInput && !monthInput.value) monthInput.value = currentMonth();
 
+  const teacherSelect = qs('#salaryTeacherSelect');
+  if (teacherSelect) {
+    const prevValue = teacherSelect.value;
+    teacherSelect.innerHTML = '<option value="">Select Teacher</option>';
+    AppState.teachers
+      .filter(t => t.status === 'active')
+      .forEach(t => {
+        const salary = Number(t.salary || 0);
+        teacherSelect.innerHTML += `<option value="${t.id}">${t.name} (${fmtINR(salary)})</option>`;
+      });
+    teacherSelect.value = prevValue;
+  }
+
   if (qs('#salaryBtnProcess')) qs('#salaryBtnProcess').onclick = () => processMonthlySalary(monthInput.value);
+  if (qs('#salaryBtnPaySingle')) qs('#salaryBtnPaySingle').onclick = () => {
+    const teacherId = qs('#salaryTeacherSelect')?.value;
+    const customAmount = Number(qs('#salaryCustomAmount')?.value || 0);
+    processSingleTeacherSalary(monthInput.value, teacherId, customAmount);
+  };
+}
+
+function getMonthBounds(month){
+  const [yearStr, monthStr] = String(month || '').split('-');
+  const year = Number(yearStr);
+  const monthNum = Number(monthStr);
+  if (!Number.isFinite(year) || !Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) {
+    return null;
+  }
+
+  const daysInMonth = new Date(year, monthNum, 0).getDate();
+  return {
+    monthStart: `${year}-${String(monthNum).padStart(2, '0')}-01`,
+    monthEnd: `${year}-${String(monthNum).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`,
+    daysInMonth
+  };
+}
+
+function daysBetweenInclusive(startYMD, endYMD){
+  const start = new Date(`${startYMD}T00:00:00`);
+  const end = new Date(`${endYMD}T00:00:00`);
+  const diff = Math.floor((end - start) / 86400000);
+  return diff >= 0 ? diff + 1 : 0;
+}
+
+function countTeacherAbsences(teacherId, startYMD, endYMD){
+  const teacherKey = String(teacherId);
+  let absentDays = 0;
+
+  Object.entries(AppState.teacherAttendance || {}).forEach(([key, value]) => {
+    const [attTeacherId, attDate] = key.split('|');
+    if (String(attTeacherId) !== teacherKey) return;
+    if (!attDate || attDate < startYMD || attDate > endYMD) return;
+    if ((value?.status || '').toLowerCase() === 'absent') absentDays += 1;
+  });
+
+  return absentDays;
+}
+
+function calculateTeacherSalaryForMonth(teacher, month, customBaseSalary = null){
+  const bounds = getMonthBounds(month);
+  if (!bounds) {
+    return { amount: 0, daysInMonth: 0, eligibleDays: 0, absentDays: 0, payableDays: 0 };
+  }
+
+  const baseSalary = Number(customBaseSalary > 0 ? customBaseSalary : (teacher?.salary || 0));
+  if (!Number.isFinite(baseSalary) || baseSalary <= 0) {
+    return { amount: 0, baseSalary: 0, daysInMonth: bounds.daysInMonth, eligibleDays: 0, absentDays: 0, payableDays: 0 };
+  }
+
+  const joinDate = (teacher?.joinDate || '').trim();
+  const effectiveStart = joinDate && joinDate > bounds.monthStart ? joinDate : bounds.monthStart;
+
+  if (effectiveStart > bounds.monthEnd) {
+    return { amount: 0, baseSalary, daysInMonth: bounds.daysInMonth, eligibleDays: 0, absentDays: 0, payableDays: 0 };
+  }
+
+  const eligibleDays = daysBetweenInclusive(effectiveStart, bounds.monthEnd);
+  const absentDays = Math.min(eligibleDays, countTeacherAbsences(teacher.id, effectiveStart, bounds.monthEnd));
+  const payableDays = Math.max(0, eligibleDays - absentDays);
+  const perDay = baseSalary / bounds.daysInMonth;
+  const amount = Number((perDay * payableDays).toFixed(2));
+
+  return {
+    amount,
+    baseSalary,
+    daysInMonth: bounds.daysInMonth,
+    eligibleDays,
+    absentDays,
+    payableDays
+  };
 }
 
 function processMonthlySalary(month){
@@ -3867,15 +6967,23 @@ function processMonthlySalary(month){
   let count = 0;
   AppState.teachers.forEach(t => {
     if (t.status === 'active') {
-      const exists = AppState.salaryPayments.some(p => p.teacherId === t.id && p.month === month);
+      const exists = AppState.salaryPayments.some(p => String(p.teacherId) === String(t.id) && p.month === month);
       if (!exists) {
+        const salaryCalc = calculateTeacherSalaryForMonth(t, month);
+        const amount = Number(salaryCalc.amount || 0);
+        if (amount <= 0) return;
         AppState.salaryPayments.push({
           id: 'sal_' + Date.now() + '_' + count++,
           teacherId: t.id,
           month: month,
-          amount: t.salary,
+          amount,
           date: todayYYYYMMDD(),
-          status: 'paid'
+          status: 'paid',
+          baseSalary: salaryCalc.baseSalary,
+          daysInMonth: salaryCalc.daysInMonth,
+          eligibleDays: salaryCalc.eligibleDays,
+          absentDays: salaryCalc.absentDays,
+          payableDays: salaryCalc.payableDays
         });
       }
     }
@@ -3885,8 +6993,50 @@ function processMonthlySalary(month){
   alert(`Salary processed for ${count} teachers in ${month}`);
 }
 
+function processSingleTeacherSalary(month, teacherId, customAmount){
+  if (!month) { alert('Please select a month'); return; }
+  if (!teacherId) { alert('Please select a teacher'); return; }
+
+  const teacher = AppState.teachers.find(t => String(t.id) === String(teacherId));
+  if (!teacher) { alert('Teacher not found'); return; }
+  if (teacher.status !== 'active') { alert('Salary can only be processed for active teachers'); return; }
+
+  const exists = AppState.salaryPayments.some(p => String(p.teacherId) === String(teacher.id) && p.month === month);
+  if (exists) {
+    alert(`Salary already processed for ${teacher.name} in ${month}`);
+    return;
+  }
+
+  const salaryCalc = calculateTeacherSalaryForMonth(teacher, month, customAmount);
+  const amount = Number(salaryCalc.amount || 0);
+  if (amount <= 0) {
+    alert('No payable salary for this month (check join date, base salary, or attendance).');
+    return;
+  }
+
+  AppState.salaryPayments.push({
+    id: 'sal_' + Date.now() + '_single',
+    teacherId: teacher.id,
+    month,
+    amount,
+    date: todayYYYYMMDD(),
+    status: 'paid',
+    baseSalary: salaryCalc.baseSalary,
+    daysInMonth: salaryCalc.daysInMonth,
+    eligibleDays: salaryCalc.eligibleDays,
+    absentDays: salaryCalc.absentDays,
+    payableDays: salaryCalc.payableDays
+  });
+
+  saveState();
+  renderSalaryPayments();
+  const customInput = qs('#salaryCustomAmount');
+  if (customInput) customInput.value = '';
+  alert(`Salary processed for ${teacher.name} (${month})`);
+}
+
 function openEditTeacher(teacherId){
-  const teacher = AppState.teachers.find(t => t.id === teacherId);
+  const teacher = AppState.teachers.find(t => String(t.id) === String(teacherId));
   if (!teacher) return;
 
   const form = qs('#formAddTeacher');
@@ -3910,13 +7060,10 @@ function openEditTeacher(teacherId){
 
 function setupTeacherButtons(){
   // Tab switching
-  qsa('.tab-btn').forEach(btn => {
+  qsa('#view-teachers .tab-btn').forEach(btn => {
     btn.onclick = () => {
-      qsa('.tab-btn').forEach(b => b.classList.remove('active'));
-      qsa('.tab-content').forEach(c => c.style.display = 'none');
-      btn.classList.add('active');
       const tabId = btn.getAttribute('data-tab');
-      qs(`#${tabId}`).style.display = 'block';
+      setActiveTeacherTab(tabId);
     };
   });
 
@@ -3933,9 +7080,9 @@ function setupTeacherButtons(){
 
 function initAddTeacherModal(){
   const form = qs('#formAddTeacher');
-  const isEditMode = form.dataset.editId;
+  const isEditMode = !!form.dataset.editId;
 
-  form.onsubmit = (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     const teacher = {
       name: qs('#teacherName').value.trim(),
@@ -3947,19 +7094,88 @@ function initAddTeacherModal(){
       status: qs('#teacherStatus').value
     };
 
-    if (isEditMode) {
-      const idx = AppState.teachers.findIndex(t => t.id === form.dataset.editId);
-      if (idx === -1) { alert('Teacher not found'); return; }
-      AppState.teachers[idx] = { ...AppState.teachers[idx], ...teacher };
-    } else {
-      teacher.id = 'teacher_' + Date.now();
-      AppState.teachers.push(teacher);
-    }
+    const payload = {
+      emp_id: 'EMP-' + Date.now(),
+      name: teacher.name,
+      email: teacher.email,
+      phone: teacher.phone,
+      subject: teacher.subjects,
+      qualification: '',
+      date_of_joining: teacher.joinDate,
+      address: '',
+      salary: teacher.salary,
+      status: teacher.status
+    };
 
-    saveState();
-    delete form.dataset.editId;
-    form.parentElement.close();
-    if (AppState.view === 'teachers') renderTeachers();
+    try {
+      if (!isServerConnected) throw new Error('Backend server appears offline');
+
+      if (isEditMode) {
+        const idx = AppState.teachers.findIndex(t => String(t.id) === String(form.dataset.editId));
+        if (idx === -1) { alert('Teacher not found'); return; }
+        const existing = AppState.teachers[idx];
+        const isNumericId = /^\d+$/.test(String(existing.id));
+
+        if (isNumericId) {
+          const response = await fetchWithTimeout(`${API_URL}/teachers/${existing.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, emp_id: existing.emp_id || payload.emp_id })
+          }, 10000);
+
+          if (!response || !response.ok) {
+            const body = await (response ? response.text() : Promise.resolve('no response'));
+            throw new Error(`${response?.status || ''} ${body}`.trim());
+          }
+
+          AppState.teachers[idx] = { ...existing, ...teacher };
+        } else {
+          const response = await fetchWithTimeout(`${API_URL}/teachers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, emp_id: existing.emp_id || payload.emp_id })
+          }, 10000);
+
+          if (!response || !response.ok) {
+            const body = await (response ? response.text() : Promise.resolve('no response'));
+            throw new Error(`${response?.status || ''} ${body}`.trim());
+          }
+
+          const saved = await response.json();
+          AppState.teachers[idx] = {
+            id: saved.id,
+            emp_id: saved.emp_id || payload.emp_id,
+            ...teacher
+          };
+        }
+      } else {
+        const response = await fetchWithTimeout(`${API_URL}/teachers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }, 10000);
+
+        if (!response || !response.ok) {
+          const body = await (response ? response.text() : Promise.resolve('no response'));
+          throw new Error(`${response?.status || ''} ${body}`.trim());
+        }
+
+        const saved = await response.json();
+        AppState.teachers.push({
+          id: saved.id,
+          emp_id: saved.emp_id || payload.emp_id,
+          ...teacher
+        });
+      }
+
+      await fetchTeachersFromBackend();
+      saveState();
+      delete form.dataset.editId;
+      form.parentElement.close();
+      if (AppState.view === 'teachers') renderTeachers();
+    } catch (err) {
+      alert('Unable to save teacher to database: ' + err.message);
+    }
   };
 }
 
@@ -4758,6 +7974,7 @@ function renderSettings() {
   const setLocale = qs('#setLocale');
   const setStudentsPageSize = qs('#setStudentsPageSize');
   const setDefaultFeesMonth = qs('#setDefaultFeesMonth');
+  const setApiBaseUrl = qs('#setApiBaseUrl');
   const setChartAnimation = qs('#setChartAnimation');
 
   const saveBtn = qs('#settingsSaveBtn');
@@ -4772,6 +7989,12 @@ function renderSettings() {
   const setSchoolPhone   = qs('#setSchoolPhone');
   const setSchoolEmail   = qs('#setSchoolEmail');
   const setSchoolLogo    = qs('#setSchoolLogo');
+  const credentialCard = qs('#settingsCredentialCard');
+  const saveCredentialsBtn = qs('#settingsSaveCredentialsBtn');
+  const setMainAdminUsername = qs('#setMainAdminUsername');
+  const setMainAdminPassword = qs('#setMainAdminPassword');
+  const setReceptionUsername = qs('#setReceptionUsername');
+  const setReceptionPassword = qs('#setReceptionPassword');
 
   if (!setTheme || !setCurrency || !setLocale || !setStudentsPageSize || !setChartAnimation) {
     console.error('Missing required settings elements');
@@ -4791,6 +8014,10 @@ function renderSettings() {
     setDefaultFeesMonth.value = '';
   }
 
+  if (setApiBaseUrl) {
+    setApiBaseUrl.value = localStorage.getItem('API_URL_OVERRIDE') || '';
+  }
+
   const sch = AppState.settings.school || {};
   if (setSchoolName) setSchoolName.value    = sch.name    || '';
   if (setSchoolTagline) setSchoolTagline.value = sch.tagline || '';
@@ -4799,8 +8026,20 @@ function renderSettings() {
   if (setSchoolEmail) setSchoolEmail.value   = sch.email   || '';
   if (setSchoolLogo) setSchoolLogo.value    = sch.logo    || '';
 
+  const isMainAdmin = getUserRole() === 'admin' && getAdminPanelRole() === 'main_admin';
+  if (credentialCard) credentialCard.style.display = isMainAdmin ? '' : 'none';
+
+  const managedCredentials = getManagedCredentials();
+  if (setMainAdminUsername) setMainAdminUsername.value = managedCredentials?.main_admin?.username || '';
+  if (setMainAdminPassword) setMainAdminPassword.value = managedCredentials?.main_admin?.password || '';
+  if (setReceptionUsername) setReceptionUsername.value = managedCredentials?.reception?.username || '';
+  if (setReceptionPassword) setReceptionPassword.value = managedCredentials?.reception?.password || '';
+
   // Save settings handler
   if (saveBtn) saveBtn.onclick = () => {
+    const previousApiOverride = (localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+    const nextApiOverride = (setApiBaseUrl?.value || '').trim().replace(/\/+$/, '');
+
     const pageSize = Math.max(5, Number(setStudentsPageSize.value || 10));
     AppState.settings.theme = setTheme.value;
     AppState.settings.currency = (setCurrency.value || '₹').trim();
@@ -4833,8 +8072,53 @@ function renderSettings() {
     // Rebuild dashboard charts if open (for animation toggle)
     if (AppState.view === 'dashboard') renderDashboard();
 
+    if (nextApiOverride) {
+      localStorage.setItem('API_URL_OVERRIDE', nextApiOverride);
+    } else {
+      localStorage.removeItem('API_URL_OVERRIDE');
+    }
+
     saveState();
+
+    if (previousApiOverride !== nextApiOverride) {
+      alert('Settings saved. API URL updated. The page will reload now.');
+      window.location.reload();
+      return;
+    }
+
     alert('Settings saved.');
+  };
+
+  if (saveCredentialsBtn) saveCredentialsBtn.onclick = () => {
+    const canManageCredentials = getUserRole() === 'admin' && getAdminPanelRole() === 'main_admin';
+    if (!canManageCredentials) {
+      alert('Only Main Admin can change usernames and passwords.');
+      return;
+    }
+
+    const mainAdminUsername = (setMainAdminUsername?.value || '').trim();
+    const mainAdminPassword = (setMainAdminPassword?.value || '').trim();
+    const receptionUsername = (setReceptionUsername?.value || '').trim();
+    const receptionPassword = (setReceptionPassword?.value || '').trim();
+
+    if (!mainAdminUsername || !mainAdminPassword || !receptionUsername || !receptionPassword) {
+      alert('Please fill all credential fields.');
+      return;
+    }
+
+    if (mainAdminPassword.length < 4 || receptionPassword.length < 4) {
+      alert('Passwords must be at least 4 characters.');
+      return;
+    }
+
+    const payload = {
+      main_admin: { username: mainAdminUsername, password: mainAdminPassword },
+      reception: { username: receptionUsername, password: receptionPassword },
+      updatedAt: new Date().toISOString()
+    };
+
+    localStorage.setItem(MANAGED_CREDENTIALS_KEY, JSON.stringify(payload));
+    alert('Login credentials updated successfully.');
   };
 
   // Export backup (as JSON)
@@ -5079,6 +8363,34 @@ function initQuickAdd(){
   }
 }
 
+function initFeePaymentButton(){
+  const btnFeePayment = qs('#btnFeePayment');
+  if (!btnFeePayment) return;
+
+  const panelRole = getAdminPanelRole();
+  const isAdminLike =
+    getUserRole() === 'admin' ||
+    sessionStorage.getItem('userType') === 'admin' ||
+    panelRole === 'main_admin' ||
+    panelRole === 'reception';
+
+  btnFeePayment.style.display = isAdminLike ? '' : 'none';
+  if (!isAdminLike) return;
+
+  btnFeePayment.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const opened = openModal('#modalRecordPayment');
+    if (opened) return;
+
+    switchView('fees');
+    window.setTimeout(() => {
+      openModal('#modalRecordPayment');
+    }, 180);
+  };
+}
+
 function initNotifications(){
   const btnNotifications = qs('#btnNotifications');
   if (btnNotifications) {
@@ -5120,6 +8432,10 @@ function init(){
     applySchoolBranding();
     console.log('[init] initThemeToggle');
     initThemeToggle();
+    console.log('[init] initTopbarGlobalSearch');
+    initTopbarGlobalSearch();
+    console.log('[init] initTopbarDayPill');
+    initTopbarDayPill();
     
     // Role-based initialization
     if (isAuthenticated()) {
@@ -5130,6 +8446,7 @@ function init(){
         console.log('📊 Initializing Admin Portal...');
         try {
           initSidebarNavigation();
+          applyAdminPanelPermissions();
         } catch (e) {
           console.error('⚠️ Sidebar init error:', e);
         }
@@ -5138,6 +8455,12 @@ function init(){
           initQuickAdd();
         } catch (e) {
           console.error('⚠️ Quick add init error:', e);
+        }
+
+        try {
+          initFeePaymentButton();
+        } catch (e) {
+          console.error('⚠️ Fee payment button init error:', e);
         }
         
         try {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>School Admin Portal</title>
+  <title>Khushi Public School Admin</title>
   
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' fill='%23667eea'>🏫</text></svg>" />
@@ -12,16 +12,21 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Styles -->
-  <link rel="stylesheet" href="style.css" />
-  
-  <!-- Clear demo data script -->
+  <link rel="stylesheet" href="style.css?v=20260301b" />
+
   <script>
-    // Clear all localStorage on first load after demo data removal
-    if (!localStorage.getItem('demo_data_cleared')) {
-      console.log('🗑️ Clearing demo data from localStorage...');
-      localStorage.clear();
-      localStorage.setItem('demo_data_cleared', 'true');
-      console.log('✅ Demo data cleared! Ready for real data.');
+    // Prevent index page paint flicker when session is missing in this tab.
+    if (sessionStorage.getItem('isAuthenticated') !== 'true') {
+      window.location.replace('login.html');
+    }
+  </script>
+  
+  <!-- Safe storage migration marker (non-destructive) -->
+  <script>
+    // Keep this non-destructive: never clear all storage on page load.
+    if (!localStorage.getItem('storage_migrated_v1')) {
+      localStorage.setItem('storage_migrated_v1', 'true');
+      console.log('✅ Storage migration marker initialized.');
     }
   </script>
 </head>
@@ -34,7 +39,7 @@
       <img src="assets/logo.png" alt="School Logo" class="brand-logo" />
       <div class="brand-text">
         <strong>KHUSHI PUBLIC SCHOOL</strong>
-        <small>Admin Portal</small>
+        <small><strong>Deoley Sheikhpura</strong></small>
       </div>
       <button type="button" class="sidebar__close" id="sidebarClose" aria-label="Close sidebar">✖</button>
     </div>
@@ -45,9 +50,6 @@
       </a>
       <a class="menu__item" data-view="students">
         <span class="menu__icon">👩‍🎓</span> <span>Students</span>
-      </a>
-      <a class="menu__item" data-view="attendance">
-        <span class="menu__icon">🗓️</span> <span>Attendance</span>
       </a>
       <a class="menu__item" data-view="fees">
         <span class="menu__icon">💳</span> <span>Fees</span>
@@ -60,6 +62,9 @@
       </a>
       <a class="menu__item" data-view="teachers">
         <span class="menu__icon">👨‍🏫</span> <span>Teachers</span>
+      </a>
+      <a class="menu__item" data-view="staff">
+        <span class="menu__icon">🧑‍💼</span> <span>Staff</span>
       </a>
       <a class="menu__item" data-view="parents">
         <span class="menu__icon">👪</span> <span>Parents</span>
@@ -94,8 +99,8 @@
       <button type="button" class="icon-btn" id="sidebarOpen" aria-label="Open sidebar">☰</button>
 
       <form class="topbar__search" role="search" onsubmit="return false;">
-        <input type="search" placeholder="Search students, receipts, classes..." aria-label="Search" />
-        <button type="button" class="icon-btn" aria-label="Search">🔎</button>
+        <input type="search" id="topbarSearchInput" placeholder="Search students, receipts, classes..." aria-label="Search" />
+        <button type="button" class="icon-btn" id="topbarSearchBtn" aria-label="Search">🔎</button>
       </form>
 
       <div class="topbar__right">
@@ -105,12 +110,13 @@
           <span class="server-status-label" id="serverStatusLabel">Offline</span>
         </div>
 
+        <div class="topbar-day-pill" id="topbarDayPill" title="Today"></div>
+
+        <button type="button" class="btn btn-primary" id="btnFeePayment" title="Open Payment Record">💳 Fee Payment</button>
+
         <button type="button" class="btn btn-primary" id="btnQuickAdd">+ Add Student</button>
         <button type="button" class="icon-btn" id="btnNotifications" aria-label="Notifications">🔔</button>
-        <span id="userDisplayName" style="color: #666; font-size: 14px; padding: 0 10px;"></span>
-        <div class="avatar" title="Admin">
-          <img src="assets/admin.jpg" alt="Admin" />
-        </div>
+        <strong id="userDisplayName">Himanshu Kumar</strong>
         <button type="button" class="btn btn-ghost" id="btnLogout" title="Logout">🚪 Logout</button>
       </div>
     </header>
@@ -129,25 +135,53 @@
         </div>
 
         <div class="kpi-grid">
-          <div class="kpi">
+          <div class="kpi kpi--interactive" data-kpi-target="students" data-kpi-status="" title="Open Students">
             <div class="kpi__title">Total Students</div>
             <div class="kpi__value" id="kpiStudents">1,254</div>
             <div class="kpi__delta positive">▲ 2.1% MoM</div>
           </div>
-          <div class="kpi">
+          <div class="kpi kpi--interactive" data-kpi-target="attendance" title="Open Attendance">
             <div class="kpi__title">Attendance Today</div>
             <div class="kpi__value" id="kpiAttendance">94.2%</div>
-            <div class="kpi__delta neutral">—</div>
+            <div class="kpi__delta neutral" id="kpiAttendanceDelta">—</div>
           </div>
-          <div class="kpi">
+          <div class="kpi kpi--interactive" data-kpi-target="fees" title="Open Fees">
             <div class="kpi__title" id="kpiFeesTitle">Fees Collected</div>
             <div class="kpi__value" id="kpiFees">₹ 8.7L</div>
-            <div class="kpi__delta positive">▲ 5.3%</div>
+            <div class="kpi__delta" id="kpiFeesDelta">—</div>
           </div>
-          <div class="kpi">
+          <div class="kpi kpi--interactive" data-kpi-target="issues" title="Open Payment Issues">
             <div class="kpi__title">Issues Open</div>
             <div class="kpi__value" id="kpiIssues">6</div>
-            <div class="kpi__delta negative">▼ +2</div>
+            <div class="kpi__delta neutral" id="kpiIssuesDelta">—</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h3>Open Issues (Payment)</h3>
+          </div>
+          <div class="p-12">
+            <div id="dashboardIssuesTabMeta" class="muted mb-12">Loading issues...</div>
+            <div class="table-wrap maxh-320 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Payment ID</th>
+                    <th>Date</th>
+                    <th>Roll No.</th>
+                    <th>Name</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboardIssuesTabBody">
+                  <tr><td colspan="8" class="muted">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -178,7 +212,7 @@
             <div class="card__header">
               <h3>Student Status Overview</h3>
             </div>
-            <div id="studentStatusContainer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; padding: 12px;">
+            <div id="studentStatusContainer" class="student-status-grid">
               <!-- Status cards will be injected here -->
             </div>
           </div>
@@ -208,6 +242,13 @@
             <button type="button" class="btn btn-primary" id="btnAddStudent">+ Add Student</button>
             <button type="button" class="btn" id="btnImportCSV">Import CSV</button>
           </div>
+        </div>
+
+        <div class="student-due-legend" aria-label="Fee due highlight legend">
+          <span class="student-due-legend__item student-due-legend__item--high">Red: Due &gt; ₹2000</span>
+          <span class="student-due-legend__item student-due-legend__item--mid-high">Orange: Due ₹1000–₹2000</span>
+          <span class="student-due-legend__item student-due-legend__item--mid">Yellow: Due ₹500–₹1000</span>
+          <span class="student-due-legend__item student-due-legend__item--low">Green: Due &lt; ₹500</span>
         </div>
 
         <div class="toolbar">
@@ -272,7 +313,11 @@
           <h1 id="fees-title">Fees</h1>
           <div class="page-actions">
             <button type="button" class="btn btn-primary" id="feesBtnCollect">+ Record Payment</button>
+            <input type="search" id="feesReceiptLookup" placeholder="Receipt No / Admission No" aria-label="Find receipt" />
+            <button type="button" class="btn btn-ghost" id="feesBtnFindReceipt">Find Receipt</button>
             <button class="btn" id="feesBtnExport">Export (CSV)</button>
+            <button class="btn" id="feesBtnPrintAllDue">Print All Due Receipts</button>
+            <button class="btn btn-ghost" id="feesBtnPrintAllDueCompact">Print All Due (Ultra-Compact)</button>
             <button class="btn btn-ghost" id="feesBtnHeads">Fee Heads</button>
             <button class="btn btn-ghost" id="feesBtnConcession">Concessions</button>
             <button class="btn btn-ghost" id="feesBtnImport">Import</button>
@@ -282,22 +327,22 @@
         <!-- KPI / Dashboard -->
         <div class="kpi-grid">
           <div class="kpi">
-            <div class="kpi__title">Collected (This Month)</div>
+            <div class="kpi__title" id="feesKpiCollectedTitle">Collected (This Month)</div>
             <div class="kpi__value" id="feesKpiCollected">₹ 0</div>
             <div class="kpi__delta" id="feesKpiCollectedDelta">—</div>
           </div>
-          <div class="kpi">
-            <div class="kpi__title">Outstanding (This Month)</div>
+          <div class="kpi" id="feesKpiDueCard">
+            <div class="kpi__title" id="feesKpiOutstandingTitle">Outstanding (This Month)</div>
             <div class="kpi__value" id="feesKpiOutstanding">₹ 0</div>
             <div class="kpi__delta negative" id="feesKpiOutstandingCount">0 dues</div>
           </div>
-          <div class="kpi">
-            <div class="kpi__title">Overdue (Aging > 30d)</div>
+          <div class="kpi" id="feesKpiOverdueCard">
+            <div class="kpi__title" id="feesKpiOverdueTitle">Overdue (Aging > 30d)</div>
             <div class="kpi__value" id="feesKpiOverdue">₹ 0</div>
             <div class="kpi__delta negative" id="feesKpiOverdueCount">0 students</div>
           </div>
           <div class="kpi">
-            <div class="kpi__title">Receipts (This Month)</div>
+            <div class="kpi__title" id="feesKpiReceiptsTitle">Receipts (This Month)</div>
             <div class="kpi__value" id="feesKpiReceipts">0</div>
             <div class="kpi__delta" id="feesKpiReceiptsDelta">—</div>
           </div>
@@ -407,7 +452,7 @@
               </div>
             </div>
             <div class="p-12">
-              <div id="rpUnpaidMonthsList" class="grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;">
+              <div id="rpUnpaidMonthsList" class="grid rp-unpaid-months-grid">
                 <!-- injected unpaid months list -->
               </div>
               <div id="rpMonthsError" class="note error-note d-none mt-6"></div>
@@ -471,6 +516,99 @@
               <button type="submit" class="btn" id="rpSaveNoPrint" value="submit">Save</button>
               <button type="submit" class="btn btn-primary" id="rpSaveAndPrint" value="submit">Save & Print</button>
             </div>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Reception Overdue Students -->
+      <dialog class="modal" id="modalOverdueStudents">
+        <form method="dialog" class="modal__content">
+          <header class="modal__header">
+            <h3>Overdue Students (More than 2 months)</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="overdueStudentsMeta" class="muted mb-12">—</div>
+            <div class="table-wrap maxh-400 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Admission No.</th>
+                    <th>Name</th>
+                    <th>Class</th>
+                    <th>Due Months</th>
+                    <th>Overdue Amount</th>
+                  </tr>
+                </thead>
+                <tbody id="overdueStudentsBody"><!-- injected --></tbody>
+              </table>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Close</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Dashboard Issues (Failed Payments) -->
+      <dialog class="modal" id="modalDashboardIssues">
+        <form method="dialog" class="modal__content">
+          <header class="modal__header">
+            <h3>Issues Open · Payment Issues</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="dashboardIssuesMeta" class="muted mb-12">Loading...</div>
+            <div class="table-wrap maxh-400 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Payment ID</th>
+                    <th>Date</th>
+                    <th>Roll No.</th>
+                    <th>Name</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboardIssuesBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Close</button>
+          </footer>
+        </form>
+      </dialog>
+
+      <!-- MODAL: Reception Due Students (Excluding Overdue) -->
+      <dialog class="modal" id="modalDueStudents">
+        <form method="dialog" class="modal__content">
+          <header class="modal__header">
+            <h3>Due Students (Excluding Overdue)</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="dueStudentsMeta" class="muted mb-12">—</div>
+            <div class="table-wrap maxh-400 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Admission No.</th>
+                    <th>Name</th>
+                    <th>Class</th>
+                    <th>Due Months</th>
+                    <th>Total Due</th>
+                  </tr>
+                </thead>
+                <tbody id="dueStudentsBody"><!-- injected --></tbody>
+              </table>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Close</button>
           </footer>
         </form>
       </dialog>
@@ -657,6 +795,29 @@
       
       <!-- PRINT RECEIPT (hidden, print-only) -->
       <section id="receiptPrintRoot" aria-hidden="true" class="d-none"></section>
+
+      <!-- MODAL: Receipt Preview -->
+      <dialog class="modal" id="modalReceiptPreview">
+        <form method="dialog" class="modal__content" id="formReceiptPreview">
+          <header class="modal__header">
+            <h3>Receipt Preview</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="receiptPreviewBody" class="receipt-preview-body"></div>
+          </div>
+          <footer class="modal__footer">
+            <div class="muted flex-1" id="receiptPreviewMeta"></div>
+            <div class="flex gap-8">
+              <button type="button" class="btn btn-ghost" id="receiptPreviewCopy">📋 Copy</button>
+              <button type="button" class="btn btn-ghost" id="receiptPreviewToggleView">🧩 Compact View</button>
+              <button type="button" class="btn btn-ghost" id="receiptPreviewPdf">📄 PDF</button>
+              <button type="button" class="btn" id="receiptPreviewThermal">🧾 Thermal</button>
+              <button type="button" class="btn btn-primary" id="receiptPreviewPrint">🖨️ Print</button>
+            </div>
+          </footer>
+        </form>
+      </dialog>
       <section class="view hidden" id="view-classes" aria-labelledby="classes-title">
         <div class="page-header">
           <h1 id="classes-title">Classes</h1>
@@ -945,9 +1106,10 @@
             </div>
             <div class="p-12">
               <div class="grid-2 mb-16">
-                <label>
+                <label class="attendance-date-box">
                   <span>Date</span>
-                  <input type="date" id="attDatePicker" />
+                  <input type="date" id="attDatePicker" class="attendance-date-input" />
+                  <small id="attDateDisplay" class="attendance-date-display">—</small>
                 </label>
                 <div class="flex align-end gap-8">
                   <button type="button" class="btn btn-primary" id="attBtnLoad">Load Date</button>
@@ -967,6 +1129,34 @@
                 </table>
               </div>
               <button class="btn btn-primary mt-12" id="attBtnSave">Save Attendance</button>
+
+              <div class="attendance-month-panel mt-12">
+                <div class="attendance-month-panel__header">
+                  <h4>Monthly Attendance View</h4>
+                </div>
+                <div class="attendance-month-controls">
+                  <button type="button" class="btn btn-ghost" id="attMonthPrev">← Prev Month</button>
+                  <small id="attMonthDisplay" class="attendance-month-display">—</small>
+                  <button type="button" class="btn btn-ghost" id="attMonthNext">Next Month →</button>
+                  <button type="button" class="btn btn-primary" id="attBtnMonthLoad">Load Month</button>
+                  <button type="button" class="btn" id="attBtnMonthPrint">Print A4</button>
+                </div>
+                <div class="table-wrap maxh-400 ovy-auto mt-12">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Teacher</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                        <th>Leave</th>
+                        <th>Marked Days</th>
+                        <th>Present %</th>
+                      </tr>
+                    </thead>
+                    <tbody id="attendanceMonthTableBody"><!-- monthly rows injected --></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1002,6 +1192,17 @@
                   <span>Month</span>
                   <input type="text" id="salaryMonth" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" />
                 </label>
+                <label class="mt-12 d-block">
+                  <span>Teacher</span>
+                  <select id="salaryTeacherSelect">
+                    <option value="">Select Teacher</option>
+                  </select>
+                </label>
+                <label class="mt-12 d-block">
+                  <span>Custom Amount (optional)</span>
+                  <input type="number" id="salaryCustomAmount" min="0" step="100" placeholder="Use teacher monthly salary if empty" />
+                </label>
+                <button class="btn w-100 mt-12" id="salaryBtnPaySingle">Pay Selected Teacher</button>
                 <p class="muted mt-12">This will mark all teachers' salaries for the selected month as paid.</p>
                 <button class="btn btn-primary w-100 mt-12" id="salaryBtnProcess">Process Monthly Salary</button>
               </div>
@@ -1057,6 +1258,45 @@
           </footer>
         </form>
       </dialog>
+
+      <!-- STAFF VIEW -->
+      <section class="view hidden" id="view-staff" aria-labelledby="staff-title">
+        <div class="page-header">
+          <h1 id="staff-title">Staff</h1>
+          <div class="page-actions">
+            <button type="button" class="btn btn-primary" id="staffBtnAdd">+ Add Staff</button>
+            <button class="btn btn-ghost" id="staffBtnExport">Export (CSV)</button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="toolbar__right">
+            <input type="search" id="staffSearch" placeholder="Search by name / role / phone…" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h3>Staff List</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Phone</th>
+                  <th>Join Date</th>
+                  <th>Monthly Salary</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="staffTableBody"><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
       
       <section class="view hidden" id="view-transport" aria-labelledby="transport-title">
   <div class="page-header">
@@ -1552,7 +1792,12 @@
               <span>Default Fees Month</span>
               <input type="text" id="setDefaultFeesMonth" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" />
             </label>
-      
+
+            <label>
+              <span>API URL Override (optional)</span>
+              <input type="url" id="setApiBaseUrl" placeholder="http://192.168.31.164:5000/api" />
+            </label>
+
             <label class="flex align-center gap-8">
               <input type="checkbox" id="setChartAnimation" />
               <span>Enable chart animations</span>
@@ -1581,7 +1826,7 @@
             </label>
             <label>
               <span>Tagline (optional)</span>
-              <input type="text" id="setSchoolTagline" placeholder="Admin Portal" />
+              <input type="text" id="setSchoolTagline" placeholder="Deoley Sheikhpura" />
             </label>
             <label>
               <span>Address</span>
@@ -1601,13 +1846,39 @@
             </label>
           </div>
         </div>
+
+        <div class="card mb-12" id="settingsCredentialCard">
+          <div class="card__header"><h3>Login Credentials (Main Admin Only)</h3></div>
+          <div class="grid-2 p-12 gap-12">
+            <label>
+              <span>Main Admin Username</span>
+              <input type="text" id="setMainAdminUsername" placeholder="main admin username" />
+            </label>
+            <label>
+              <span>Main Admin Password</span>
+              <input type="password" id="setMainAdminPassword" placeholder="main admin password" />
+            </label>
+            <label>
+              <span>Reception Username</span>
+              <input type="text" id="setReceptionUsername" placeholder="reception username" />
+            </label>
+            <label>
+              <span>Reception Password</span>
+              <input type="password" id="setReceptionPassword" placeholder="reception password" />
+            </label>
+          </div>
+          <div class="p-12 flex gap-8 align-center justify-between">
+            <div class="muted">Only Main Admin can update login usernames and passwords.</div>
+            <button class="btn" id="settingsSaveCredentialsBtn" type="button">Save Login Credentials</button>
+          </div>
+        </div>
       
         <div class="card border-danger">
           <div class="card__header"><h3 class="danger">Danger Zone</h3></div>
           <div class="p-12 flex gap-12 align-center justify-between">
             <div>
               <div><strong>Reset App Data</strong></div>
-              <div class="muted">Clears localStorage for this portal. You’ll lose all unsaved changes.</div>
+              <div class="muted">Clears localStorage for this app. You’ll lose all unsaved changes.</div>
             </div>
             <button class="btn btn-ghost border-err danger" id="settingsResetBtn">Reset Data</button>
           </div>
@@ -1838,7 +2109,7 @@
         <div class="card">
           <div class="card__header"><h2>Quick Links</h2></div>
           <div class="quick-links-grid">
-            <button type="button" class="btn btn-primary">Parent Portal</button>
+            <button type="button" class="btn btn-primary">Parent Login</button>
             <button type="button" class="btn btn-primary">Fee Payment</button>
             <button type="button" class="btn btn-primary">Admissions</button>
             <button type="button" class="btn btn-primary">Contact Us</button>
@@ -1906,8 +2177,8 @@
         </label>
       </div>
 
-      <div class="grid-1" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
-        <h4 style="margin: 0 0 12px 0; color: var(--text-primary);">Transport Assignment</h4>
+      <div class="grid-1 transport-assignment-wrap">
+        <h4 class="transport-assignment-title">Transport Assignment</h4>
         <label>
           <span>Assign Transport Route (Optional)</span>
           <select name="transport_route" id="addStudentTransportRoute">
@@ -1996,11 +2267,10 @@
   <!-- Optional backend API override for hosted frontend -->
   <script>
     // Example: window.__API_BASE_URL = 'https://your-backend-domain.onrender.com/api';
-    window.__API_BASE_URL = window.__API_BASE_URL || '';
   </script>
 
   <!-- App Script -->
-  <script src="script.js"></script>
+  <script src="script.js?v=20260301b"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
