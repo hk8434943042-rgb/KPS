@@ -1105,20 +1105,23 @@ def delete_student(student_id):
         student_info = dict(student)
         
         try:
+            # Remove dependent records first to satisfy foreign-key constraints.
+            conn.execute("DELETE FROM attendance WHERE student_id = ?", (student_id,))
+            conn.execute("DELETE FROM payments WHERE student_id = ?", (student_id,))
+
             # Delete student
             conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
             conn.commit()
-            conn.close()
-            
-            print(f"✅ Student deleted: {student_info['name']} (ID: {student_id}, Roll: {student_info['roll_no']})")
+            print(f"Student deleted: {student_info['name']} (ID: {student_id}, Roll: {student_info['roll_no']})")
             return jsonify({'success': True, 'message': f"Student {student_info['name']} deleted successfully"})
         except Exception as e:
             conn.rollback()
-            conn.close()
-            print(f"❌ Error deleting student: {str(e)}")
+            print(f"Error deleting student: {str(e)}")
             return jsonify({'error': f'Failed to delete student: {str(e)}'}), 500
+        finally:
+            conn.close()
     except Exception as e:
-        print(f"❌ Error in delete_student: {str(e)}")
+        print(f"Error in delete_student: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/students/by-roll/<roll_no>', methods=['DELETE','OPTIONS'])
