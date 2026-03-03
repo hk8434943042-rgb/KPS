@@ -85,6 +85,19 @@ def ensure_teacher_columns(conn):
         pass
 
 
+def ensure_payment_columns(conn):
+    try:
+        payment_info = conn.execute("PRAGMA table_info(payments)")
+        payment_existing = {row['name'] for row in payment_info.fetchall()}
+        if 'discount' not in payment_existing:
+            conn.execute("ALTER TABLE payments ADD COLUMN discount REAL DEFAULT 0")
+        if 'late_fee' not in payment_existing:
+            conn.execute("ALTER TABLE payments ADD COLUMN late_fee REAL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+
+
 @app.before_request
 def log_every_request():
     print(f"\n[HTTP] {request.method} {request.path} from {request.remote_addr}")
@@ -1415,6 +1428,7 @@ def create_payment():
     try:
         data = request.json
         conn = get_db()
+        ensure_payment_columns(conn)
         conn.execute(
             """INSERT INTO payments (student_id, amount, payment_date, payment_method, 
                transaction_id, purpose, status, remarks, discount, late_fee) 
