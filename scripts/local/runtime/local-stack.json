@@ -1,0 +1,8 @@
+﻿{
+    "startedAt":  "2026-03-03T14:58:59",
+    "backendPid":  14236,
+    "tunnelPid":  13920,
+    "tunnelUrl":  "https://headquarters-often-score-retirement.trycloudflare.com",
+    "apiUrl":  "https://headquarters-often-score-retirement.trycloudflare.com/api",
+    "backendHealth":  "http://localhost:5000/health"
+}

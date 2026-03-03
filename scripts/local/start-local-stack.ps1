@@ -125,6 +125,18 @@ $state | ConvertTo-Json | Set-Content -Path $runtimeFile -Encoding UTF8
 if ($tunnelUrl) {
   Write-Info "Tunnel URL: $tunnelUrl"
   Write-Info "API URL: $tunnelUrl/api"
+  
+  # Auto-update api-config.js with current tunnel URL
+  $apiConfigPath = Join-Path $repoRoot 'frontend\api-config.js'
+  $apiConfigContent = @"
+// Optional backend URL for hosted frontend (GitHub Pages)
+// Examples:
+// window.__API_BASE_URL = 'https://your-backend.up.railway.app/api';
+// window.__API_BASE_URL = 'https://your-backend.onrender.com/api';
+window.__API_BASE_URL = window.__API_BASE_URL || '$tunnelUrl/api';
+"@
+  $apiConfigContent | Set-Content -Path $apiConfigPath -Encoding UTF8 -Force
+  Write-Info "Updated frontend/api-config.js with current tunnel URL."
 } else {
   Write-Info 'Tunnel URL not detected yet. Check scripts/local/runtime/tunnel.log.'
 }
