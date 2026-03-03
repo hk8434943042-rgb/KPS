@@ -28,8 +28,11 @@ jobs:
               */api) ;;
               *) API_URL="$API_URL/api" ;;
             esac
+            echo "Using BACKEND_API_URL secret for frontend/api-config.js"
+            echo "window.__API_BASE_URL = '${API_URL}';" > frontend/api-config.js
+          else
+            echo "BACKEND_API_URL secret not set; keeping repository frontend/api-config.js as-is"
           fi
-          echo "window.__API_BASE_URL = '${API_URL}';" > frontend/api-config.js
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
