@@ -37,7 +37,7 @@ window.addEventListener('unhandledrejection', e => {
 // 3) localhost -> local Flask server
 // 4) production -> same origin /api
 const API_URL = (() => {
-  const configuredApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  const configuredApi = (localStorage.getItem('API_URL_OVERRIDE') || window.__API_BASE_URL || '').trim();
   if (configuredApi) {
     return configuredApi.replace(/\/+$/, '');
   }
@@ -333,7 +333,7 @@ async function checkServerConnection() {
 
     // Always resolve the latest runtime override (localStorage/window) so
     // server status doesn't stay stale after tunnel URL changes.
-    const runtimeApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || API_URL || '').trim()
+    const runtimeApi = (localStorage.getItem('API_URL_OVERRIDE') || window.__API_BASE_URL || API_URL || '').trim()
       .replace(/\/+$/, '');
 
     // Compute base address by stripping trailing "/api" so we can hit a simple
