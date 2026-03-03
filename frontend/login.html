@@ -880,7 +880,7 @@
     // window.__API_BASE_URL = 'https://your-backend-domain.onrender.com/api';
 
     function resolveApiUrl() {
-      const configuredApi = (localStorage.getItem('API_URL_OVERRIDE') || window.__API_BASE_URL || '').trim();
+      const configuredApi = (window.__API_BASE_URL || localStorage.getItem('API_URL_OVERRIDE') || '').trim();
       if (configuredApi) {
         return configuredApi.replace(/\/+$/, '');
       }
