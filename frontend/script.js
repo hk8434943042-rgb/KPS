@@ -122,6 +122,7 @@ const AppState = {
       tagline: 'Deoley Sheikhpura',
       address: 'Sheikhpura, Bihar',
       phone: '+91-XXXXXXXXXX',
+      adminPhone: '9661349008',
       email: 'himanshunsingh3596@gmail.com',
       logo: 'assets/logo.png'
     },
@@ -9001,6 +9002,7 @@ function renderSettings() {
   const setSchoolTagline = qs('#setSchoolTagline');
   const setSchoolAddress = qs('#setSchoolAddress');
   const setSchoolPhone   = qs('#setSchoolPhone');
+  const setAdminPhone    = qs('#setAdminPhone');
   const setSchoolEmail   = qs('#setSchoolEmail');
   const setSchoolLogo    = qs('#setSchoolLogo');
   const credentialCard = qs('#settingsCredentialCard');
@@ -9037,6 +9039,7 @@ function renderSettings() {
   if (setSchoolTagline) setSchoolTagline.value = sch.tagline || '';
   if (setSchoolAddress) setSchoolAddress.value = sch.address || '';
   if (setSchoolPhone) setSchoolPhone.value   = sch.phone   || '';
+  if (setAdminPhone) setAdminPhone.value = sch.adminPhone || '';
   if (setSchoolEmail) setSchoolEmail.value   = sch.email   || '';
   if (setSchoolLogo) setSchoolLogo.value    = sch.logo    || '';
 
@@ -9068,6 +9071,7 @@ function renderSettings() {
       tagline: (setSchoolTagline?.value || '').trim(),
       address: (setSchoolAddress?.value || '').trim(),
       phone:   (setSchoolPhone?.value || '').trim(),
+      adminPhone: (setAdminPhone?.value || '').trim(),
       email:   (setSchoolEmail?.value || '').trim(),
       logo:    (setSchoolLogo?.value || '').trim()
     };
