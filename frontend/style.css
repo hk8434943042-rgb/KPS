@@ -1821,6 +1821,271 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   font-weight: bold;
 }
 
+/* Delhi Public School Receipt Styles */
+.delhi-receipt-a4 {
+  font-family: Arial, sans-serif;
+  color: #000;
+  font-size: 12px;
+  border: 2px solid #000;
+  padding: 0;
+  margin: 0;
+  background: #fff;
+}
+
+.delhi-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid #000;
+  padding: 10px;
+  background: #fff;
+}
+
+.delhi-logo {
+  width: 70px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.delhi-logo img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.delhi-school-info {
+  flex: 1;
+  text-align: center;
+}
+
+.delhi-school-info h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: bold;
+  color: #000;
+}
+
+.delhi-school-info p {
+  margin: 2px 0;
+  font-size: 11px;
+  color: #000;
+}
+
+.delhi-title-bar {
+  text-align: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #000;
+  padding: 6px;
+  border-bottom: 2px solid #000;
+  background: #d3d3d3;
+}
+
+.delhi-receipt-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-bottom: 2px solid #000;
+  margin: 0;
+  padding: 0;
+}
+
+.delhi-receipt-details-table td {
+  padding: 6px;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  font-size: 12px;
+  color: #000;
+}
+
+.delhi-receipt-details-table td:last-child {
+  border-right: none;
+}
+
+.delhi-receipt-details-table tr:last-child td {
+  border-bottom: none;
+}
+
+.label-cell {
+  font-weight: bold;
+  width: 18%;
+  text-align: left;
+  background: #f5f5f5;
+}
+
+.value-cell {
+  width: 32%;
+  text-align: left;
+}
+
+.delhi-fee-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #000;
+  margin: 0;
+  background: #fff;
+}
+
+.delhi-fee-table thead {
+  background: #e5e5e5;
+  border-bottom: 2px solid #000;
+}
+
+.delhi-fee-table th {
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  padding: 6px 4px;
+  text-align: center;
+  font-weight: bold;
+  font-size: 12px;
+  color: #000;
+}
+
+.delhi-fee-table th:last-child {
+  border-right: none;
+}
+
+.delhi-fee-table td {
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.delhi-fee-table td:last-child {
+  border-right: none;
+}
+
+.th-slno, .td-slno {
+  width: 40px;
+  text-align: center;
+}
+
+.th-description, .td-description {
+  width: 45%;
+  text-align: left;
+  padding-left: 8px;
+}
+
+.th-amount, .td-amount {
+  width: 20%;
+  text-align: center;
+}
+
+.delhi-pay-mode {
+  border: 1px solid #000;
+  margin: 0;
+  padding: 0;
+}
+
+.delhi-pay-mode-title {
+  background: #d3d3d3;
+  padding: 6px;
+  text-align: center;
+  font-weight: bold;
+  border-bottom: 2px solid #000;
+  font-size: 12px;
+}
+
+.delhi-pay-mode-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.delhi-pay-mode-table td {
+  padding: 6px;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  font-size: 11px;
+}
+
+.delhi-pay-mode-table td:last-child {
+  border-right: none;
+}
+
+.delhi-pay-mode-table tr:last-child td {
+  border-bottom: none;
+}
+
+.pay-label {
+  font-weight: bold;
+  width: 18%;
+  background: #f5f5f5;
+}
+
+.pay-value {
+  width: 32%;
+}
+
+.delhi-total-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 2px solid #000;
+  font-weight: bold;
+  font-size: 13px;
+  background: #fff;
+}
+
+.total-label {
+  text-align: left;
+}
+
+.total-amount {
+  text-align: right;
+}
+
+.delhi-total-words {
+  padding: 8px;
+  border-bottom: 2px solid #000;
+  font-size: 11px;
+  background: #fff;
+}
+
+.delhi-footer {
+  padding: 12px;
+  border-bottom: 2px solid #000;
+}
+
+.qr-section {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.qr-placeholder {
+  width: 80px;
+  height: 80px;
+  border: 2px solid #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  flex-shrink: 0;
+  background: #f9f9f9;
+}
+
+.qr-note {
+  font-size: 10px;
+  color: #666;
+  margin: 0;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.delhi-copy-type {
+  text-align: center;
+  padding: 8px;
+  font-weight: bold;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #666;
+}
+
 /* Print media queries for A4 */
 @media print {
   .a4-receipt-container {

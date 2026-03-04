@@ -6788,7 +6788,7 @@ function printReceipt(no, options = {}){
   }
 }
 
-// Build professional A4 receipt HTML
+// Build professional A4 receipt HTML (Delhi Public School style)
 function buildReceiptA4HTML(r) {
   const receiptNo = getReceiptKey(r);
   const sch = AppState.settings.school || {};
@@ -6805,17 +6805,133 @@ function buildReceiptA4HTML(r) {
   const session = now.getFullYear() + '-' + (now.getFullYear() + 1);
   const amount = r.amount || 0;
   const amountWords = numberToWords(Math.floor(amount)) + ' Only';
+  const feeItems = getReceiptFeeItems(amount);
   
-  // Determine if this is a due receipt or regular receipt
-  const isDueReceipt = r._isDueReceipt === true;
-  const feeItems = isDueReceipt 
-    ? (r._dueDetails || []).map(detail => ({
-        name: formatMonthYear(detail.month),
-        due: detail.amount,
-        con: 0,
-        paid: 0
-      }))
-    : getReceiptFeeItems(amount);
+  // Get student class if available
+  const student = AppState.students.find(s => s.roll === r.roll) || {};
+  const studentClass = student.class && student.section ? `${student.class} - ${student.section}` : 'N/A';
+  const installmentMonth = r.months?.length > 0 ? r.months.map(formatMonthYear).join(', ') : 'FULL YEAR';
+
+  return `
+    <div class="delhi-receipt-a4">
+      <!-- Header with logo and school info -->
+      <div class="delhi-header">
+        <div class="delhi-logo">
+          <img src="${logo}" alt="Logo" onerror="this.style.display='none'" />
+        </div>
+        <div class="delhi-school-info">
+          <h1>${schoolName}</h1>
+          <p>${tagline}</p>
+          <p>${address}</p>
+        </div>
+      </div>
+
+      <!-- Title bar -->
+      <div class="delhi-title-bar">FEE RECEIPT</div>
+
+      <!-- Receipt details table -->
+      <table class="delhi-receipt-details-table">
+        <tbody>
+          <tr>
+            <td class="label-cell">Receipt No</td>
+            <td class="value-cell">: ${receiptNo}</td>
+            <td class="label-cell">Date</td>
+            <td class="value-cell">: ${dateStr}</td>
+          </tr>
+          <tr>
+            <td class="label-cell">Adm No</td>
+            <td class="value-cell">: ${r.roll}</td>
+            <td class="label-cell">Session</td>
+            <td class="value-cell">: ${session}</td>
+          </tr>
+          <tr>
+            <td class="label-cell">Name</td>
+            <td class="value-cell">: ${r.name}</td>
+            <td class="label-cell">Class</td>
+            <td class="value-cell">: ${studentClass}</td>
+          </tr>
+          <tr>
+            <td class="label-cell">Installment</td>
+            <td class="value-cell">: ${installmentMonth}</td>
+            <td class="label-cell">CounterNo</td>
+            <td class="value-cell">: ${counterName}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Fee items table -->
+      <table class="delhi-fee-table">
+        <thead>
+          <tr>
+            <th class="th-slno">Sl.No</th>
+            <th class="th-description">Description</th>
+            <th class="th-amount">Due</th>
+            <th class="th-amount">Con</th>
+            <th class="th-amount">Paid</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${feeItems.map((item, idx) => `
+            <tr>
+              <td class="td-slno">${idx + 1}</td>
+              <td class="td-description">${item.name}</td>
+              <td class="td-amount">${item.due}</td>
+              <td class="td-amount">${item.con}</td>
+              <td class="td-amount">${item.paid}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <!-- Pay mode information section -->
+      <div class="delhi-pay-mode">
+        <div class="delhi-pay-mode-title">PAY MODE INFORMATION</div>
+        <table class="delhi-pay-mode-table">
+          <tbody>
+            <tr>
+              <td class="pay-label">Pay Mode</td>
+              <td class="pay-value">${r.method || 'Cash'}</td>
+              <td class="pay-label">Date</td>
+              <td class="pay-value">${dateStr}</td>
+            </tr>
+            <tr>
+              <td class="pay-label">Bank</td>
+              <td class="pay-value">${r.ref || '-'}</td>
+              <td class="pay-label">Number</td>
+              <td class="pay-value">${r.ref || '-'}</td>
+            </tr>
+            <tr>
+              <td class="pay-label">Total</td>
+              <td class="pay-value" colspan="3">${amount}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Total row -->
+      <div class="delhi-total-row">
+        <span class="total-label">Total :</span>
+        <span class="total-amount">${amount}</span>
+      </div>
+
+      <!-- Total in words -->
+      <div class="delhi-total-words">
+        Total in Words : ${amountWords}
+      </div>
+
+      <!-- QR code and note -->
+      <div class="delhi-footer">
+        <div class="qr-section">
+          <div class="qr-placeholder">[QR CODE]</div>
+          <p class="qr-note">This is a computer generated Receipt. Does not required signature.</p>
+        </div>
+      </div>
+
+      <!-- Parent copy -->
+      <div class="delhi-copy-type">PARENT COPY</div>
+    </div>
+  `;
+}
 
   return `
     <div class="a4-receipt-container">
