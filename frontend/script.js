@@ -7946,6 +7946,13 @@ async function renderTransport() {
   bind('#trBtnAssign',      () => { if (openModal('#modalTrAssign'))  initTrAssignModal(); });
   bind('#trBtnAddRoute',    () => { if (openModal('#modalTrRoute'))   initTrRouteModal(); });
   bind('#trBtnAddVehicle',  () => { if (openModal('#modalTrVehicle')) initTrVehicleModal(); });
+  bind('#trBtnAddDriver',   () => {
+    if (openModal('#modalTrVehicle')) {
+      initTrVehicleModal();
+      const driverInput = qs('#trDriverName');
+      if (driverInput) driverInput.focus();
+    }
+  });
   bind('#trBtnImport',      () => { if (openModal('#modalTrImport'))  initTrImportModal(); });
   bind('#trBtnExport',      () => { if (openModal('#modalTrExport'))  initTrExportModal(); });
   bind('#trBtnRoutesCSV',   exportRoutesCSV);
@@ -8015,6 +8022,47 @@ function initTransportMap() {
       applyMap();
     }
   };
+}
+
+function normalizePhoneForMatch(phone = '') {
+  return String(phone || '').replace(/\D/g, '');
+}
+
+function syncDriverToStaff(driverName, driverPhone = '') {
+  const name = String(driverName || '').trim();
+  const phone = String(driverPhone || '').trim();
+  if (!name) return;
+
+  if (!Array.isArray(AppState.staff)) AppState.staff = [];
+
+  const normalizedName = name.toLowerCase();
+  const normalizedPhone = normalizePhoneForMatch(phone);
+
+  const existing = AppState.staff.find((staffMember) => {
+    const isDriverRole = String(staffMember.role || '').toLowerCase() === 'driver';
+    if (!isDriverRole) return false;
+
+    const sameName = String(staffMember.name || '').toLowerCase() === normalizedName;
+    const samePhone = normalizedPhone && normalizePhoneForMatch(staffMember.phone || '') === normalizedPhone;
+    return sameName || samePhone;
+  });
+
+  if (existing) {
+    if (!existing.phone && phone) existing.phone = phone;
+    if (!existing.role) existing.role = 'Driver';
+    if (!existing.status) existing.status = 'active';
+    return;
+  }
+
+  AppState.staff.push({
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    name,
+    role: 'Driver',
+    phone,
+    joinDate: todayYYYYMMDD(),
+    salary: 0,
+    status: 'active'
+  });
 }
 
 function renderTrRoutesTable() {
@@ -8359,6 +8407,7 @@ function initTrVehicleModal(editId) {
     const idx = AppState.transport.vehicles.findIndex(x => x.id === data.id);
     if (idx >= 0) AppState.transport.vehicles[idx] = data;
     else AppState.transport.vehicles.push(data);
+    syncDriverToStaff(data.driverName, data.driverPhone);
     saveState();
     form.parentElement.close();
     renderTransport();
@@ -8407,6 +8456,7 @@ function initTrImportModal() {
         const idx = AppState.transport.vehicles.findIndex(x => x.id === id);
         const obj = { id, label, reg, capacity, driverName, driverPhone, routeId, status };
         if (idx >= 0) AppState.transport.vehicles[idx] = obj; else AppState.transport.vehicles.push(obj);
+        syncDriverToStaff(driverName, driverPhone);
       });
     } else if (hmap['roll'] && hmap['routeid'] && hmap['stop']) {
       // Assignments
