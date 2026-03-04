@@ -1358,7 +1358,7 @@
           <!-- STAFF TYPE FILTER -->
           <div class="pref-section">
             <label class="pref-label">🔍 Filter by Type</label>
-            <select id="staffTypeFilter" class="form-control">
+            <select id="staffTypeFilter" class="form-control" title="Filter by staff type" aria-label="Filter by staff type">
               <option value="">All Staff Types</option>
               <option value="Admin">Admin</option>
               <option value="Receptionist">Receptionist</option>
@@ -1513,7 +1513,7 @@
               <div class="p-12">
                 <label>
                   <span>Month</span>
-                  <input type="month" id="staffSalaryMonth" class="form-control" />
+                  <input type="text" id="staffSalaryMonth" class="form-control" placeholder="YYYY-MM" pattern="\d{4}-\d{2}" inputmode="numeric" />
                 </label>
                 <label class="mt-12 d-block">
                   <span>Staff Member</span>
@@ -1530,8 +1530,8 @@
                 </div>
                 <button class="btn btn-ghost w-100 mt-8" id="staffSalaryBtnProcessAll">💰 Process All Active Staff</button>
                 
-                <div class="mt-12 p-12" style="background: var(--chip); border-radius: 8px;">
-                  <small style="display: block; line-height: 1.6;">
+                <div class="mt-12 p-12 salary-note-box">
+                  <small class="salary-note-text">
                     <strong>Note:</strong><br>
                     • Process All: Pays all active staff for selected month<br>
                     • Pay Selected: Pays specific staff (with optional custom amount)<br>
@@ -2535,12 +2535,17 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260304-delhi-receipt-new"></script>
+  <script src="script.js?v=20260304-fix-runtime-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
     // Ensure buttons are clickable even if script.js has issues
     document.addEventListener('DOMContentLoaded', function() {
+      if (typeof window.init === 'function') {
+        console.log('Emergency fallback skipped: main app script is loaded');
+        return;
+      }
+
       console.log('Emergency fallback: Making all buttons clickable');
       
       // Make sidebar items clickable

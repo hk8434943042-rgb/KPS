@@ -135,6 +135,16 @@
   margin: 0 0 12px 0;
   color: var(--text);
 }
+
+.salary-note-box {
+  background: var(--chip);
+  border-radius: 8px;
+}
+
+.salary-note-text {
+  display: block;
+  line-height: 1.6;
+}
 /* =======================================================
    School Admin Portal — style.css  (Corrected Full File)
    ======================================================= */
@@ -2179,7 +2189,7 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
     margin: 0;
     padding: 15mm;
     width: 100%;
-    min-height: auto;
+    min-height: 0;
     page-break-after: always;
   }
 
@@ -3033,6 +3043,7 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   gap: 8px;
   cursor: pointer;
   font-size: 14px;
+  -webkit-user-select: none;
   user-select: none;
 }
 
