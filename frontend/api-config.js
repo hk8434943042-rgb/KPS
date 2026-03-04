@@ -3,7 +3,7 @@
 
 // PRODUCTION DEPLOYMENT via Cloudflare Tunnel
 // Your PC is exposed to the internet via Cloudflare Tunnel
-window.__API_BASE_URL = 'https://june-effort-materials-wines.trycloudflare.com/api';
+window.__API_BASE_URL = 'https://proteins-comparing-xhtml-des.trycloudflare.com/api';
 
 // LOCAL DEVELOPMENT (Backend running on same machine)
 // Uncomment this for local testing without tunnel:
