@@ -1,10 +1,15 @@
 ﻿// Backend API Configuration
 // Set your backend URL here for local or remote deployment
 
-// LOCAL DEVELOPMENT (Backend running on same machine)
-window.__API_BASE_URL = 'http://localhost:5000/api';
+// PRODUCTION DEPLOYMENT via Cloudflare Tunnel
+// Your PC is exposed to the internet via Cloudflare Tunnel
+window.__API_BASE_URL = 'https://june-effort-materials-wines.trycloudflare.com/api';
 
-// PRODUCTION DEPLOYMENT (Uncomment the appropriate one)
+// LOCAL DEVELOPMENT (Backend running on same machine)
+// Uncomment this for local testing without tunnel:
+// window.__API_BASE_URL = 'http://localhost:5000/api';
+
+// ALTERNATIVE DEPLOYMENTS
 // For PythonAnywhere:
 // window.__API_BASE_URL = 'https://himanshu9008.pythonanywhere.com/api';
 
