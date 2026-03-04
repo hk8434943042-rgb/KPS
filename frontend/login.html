@@ -692,7 +692,7 @@
 
         <div class="remember-forgot">
           <label class="checkbox">
-            <input type="checkbox" name="remember" />
+            <input type="checkbox" id="loginRemember" name="remember" />
             <span>Remember me</span>
           </label>
           <a href="#" class="forgot-link">Forgot password?</a>
@@ -735,7 +735,7 @@
 
         <div class="remember-forgot">
           <label class="checkbox">
-            <input type="checkbox" name="remember" />
+            <input type="checkbox" id="receptionRemember" name="remember" />
             <span>Remember me</span>
           </label>
           <a href="#" class="forgot-link">Forgot password?</a>
@@ -1559,6 +1559,14 @@
         sessionStorage.setItem('khushi_portal_role', 'admin');
         sessionStorage.setItem('khushi_admin_panel_role', role);
 
+        // Save auto-login credentials if "Remember me" is checked
+        const rememberCheckbox = submitBtn.closest('form').querySelector('input[type="checkbox"][id$="Remember"]');
+        if (rememberCheckbox && rememberCheckbox.checked) {
+          saveAutoLoginCredentials(username, password, role, true);
+        } else {
+          clearAutoLoginCredentials();
+        }
+
         showSuccess(successEl, 'Login successful! Redirecting...');
         setTimeout(() => {
           window.location.href = 'index.html';
@@ -1594,7 +1602,7 @@
           return;
         }
 
-        // Save user info to localStorage
+        // Save user info to sessionStorage
         const adminUser = { ...(data.user || {}), panelRole: role };
         sessionStorage.setItem('user', JSON.stringify(adminUser));
         sessionStorage.setItem('isAuthenticated', 'true');
@@ -1602,6 +1610,14 @@
         sessionStorage.setItem('khushi_portal_auth', 'true');
         sessionStorage.setItem('khushi_portal_role', 'admin');
         sessionStorage.setItem('khushi_admin_panel_role', role);
+
+        // Save auto-login credentials if "Remember me" is checked
+        const rememberCheckbox = submitBtn.closest('form').querySelector('input[type="checkbox"][id$="Remember"]');
+        if (rememberCheckbox && rememberCheckbox.checked) {
+          saveAutoLoginCredentials(username, password, role, true);
+        } else {
+          clearAutoLoginCredentials();
+        }
 
         showSuccess(successEl, 'Login successful! Redirecting...');
         
@@ -1737,9 +1753,90 @@
       element.classList.add('show');
     }
 
+    // ===========================
+    // AUTO-LOGIN FUNCTIONALITY
+    // ===========================
+    const AUTO_LOGIN_KEY = 'khushi_autologin_creds';
+
+    function saveAutoLoginCredentials(username, password, panelRole, rememberChecked) {
+      if (rememberChecked) {
+        const creds = {
+          username,
+          password,
+          panelRole,
+          timestamp: Date.now()
+        };
+        localStorage.setItem(AUTO_LOGIN_KEY, JSON.stringify(creds));
+        console.log('✅ Auto-login credentials saved');
+      } else {
+        localStorage.removeItem(AUTO_LOGIN_KEY);
+        console.log('🗑️ Auto-login credentials cleared');
+      }
+    }
+
+    function getAutoLoginCredentials() {
+      try {
+        const stored = localStorage.getItem(AUTO_LOGIN_KEY);
+        if (!stored) return null;
+        const creds = JSON.parse(stored);
+        // Credentials valid for 30 days
+        const maxAge = 30 * 24 * 60 * 60 * 1000;
+        if (Date.now() - creds.timestamp > maxAge) {
+          localStorage.removeItem(AUTO_LOGIN_KEY);
+          return null;
+        }
+        return creds;
+      } catch (e) {
+        console.error('Error reading auto-login credentials:', e);
+        return null;
+      }
+    }
+
+    function clearAutoLoginCredentials() {
+      localStorage.removeItem(AUTO_LOGIN_KEY);
+      console.log('🗑️ Auto-login credentials cleared');
+    }
+
+    async function attemptAutoLogin() {
+      const creds = getAutoLoginCredentials();
+      if (!creds) return;
+
+      console.log('🔐 Attempting auto-login with saved credentials...');
+
+      const { username, password, panelRole } = creds;
+
+      // Switch to the appropriate tab
+      if (panelRole === 'reception') {
+        switchTab('reception');
+      } else {
+        switchTab('login');
+      }
+
+      // Fill in the form
+      if (panelRole === 'reception') {
+        document.getElementById('receptionUsername').value = username;
+        document.getElementById('receptionPassword').value = password;
+        document.getElementById('receptionRemember').checked = true;
+      } else {
+        document.getElementById('loginUsername').value = username;
+        document.getElementById('loginPassword').value = password;
+        document.getElementById('loginRemember').checked = true;
+      }
+
+      // Small delay for UX
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Perform login
+      if (panelRole === 'reception') {
+        await handleReceptionLogin({ preventDefault: () => {} });
+      } else {
+        await handleLogin({ preventDefault: () => {} });
+      }
+    }
+
     // If this same tab already has a valid session, skip login screen and redirect.
     // New tabs still start unauthenticated because sessionStorage is tab-scoped.
-    window.addEventListener('load', () => {
+    window.addEventListener('load', async () => {
       const isAuthed = sessionStorage.getItem('isAuthenticated') === 'true';
       const userType = (sessionStorage.getItem('userType') || '').trim();
       const userRaw = sessionStorage.getItem('user');
@@ -1772,6 +1869,9 @@
       sessionStorage.removeItem('khushi_portal_auth');
       sessionStorage.removeItem('khushi_portal_role');
       sessionStorage.removeItem('khushi_admin_panel_role');
+
+      // Attempt auto-login if credentials are saved
+      await attemptAutoLogin();
     });
   </script>
 </body>
