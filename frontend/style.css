@@ -1556,6 +1556,271 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   color: #9ca3af;
 }
 
+/* Due Receipt Styles (Delhi Public School Format) */
+.a4-due-receipt {
+  font-family: Arial, sans-serif;
+  color: #000;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.due-header-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 12px;
+  background: #fff;
+}
+
+.due-header-logo {
+  flex-shrink: 0;
+  width: 70px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.due-header-logo img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.due-header-info {
+  flex: 1;
+  text-align: center;
+}
+
+.due-school-name {
+  margin: 0;
+  font-size: 19px;
+  font-weight: bold;
+  color: #000;
+  letter-spacing: 1px;
+}
+
+.due-header-tagline {
+  margin: 2px 0;
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+}
+
+.due-header-address {
+  margin: 2px 0;
+  font-size: 10px;
+  color: #999;
+}
+
+.due-header-contact {
+  margin: 2px 0;
+  font-size: 10px;
+  color: #999;
+}
+
+.due-receipt-title-bar {
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 8px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: bold;
+  background: #d3d3d3;
+  color: #000;
+  letter-spacing: 2px;
+}
+
+.due-receipt-grid {
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 8px;
+  background: #fff;
+}
+
+.due-grid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.due-grid-row:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.due-grid-item {
+  display: flex;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.due-label {
+  font-weight: bold;
+  min-width: 80px;
+  color: #000;
+}
+
+.due-value {
+  flex: 1;
+  color: #000;
+}
+
+.due-receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 2px solid #000;
+  background: #fff;
+  margin: 0;
+}
+
+.due-receipt-table thead {
+  background: #e5e5e5;
+  border-bottom: 2px solid #000;
+}
+
+.due-receipt-table th {
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  padding: 6px 4px;
+  text-align: center;
+  font-weight: bold;
+  font-size: 12px;
+  color: #000;
+}
+
+.due-receipt-table th:last-child {
+  border-right: none;
+}
+
+.due-receipt-table td {
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  padding: 6px 4px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.due-receipt-table td:last-child {
+  border-right: none;
+}
+
+.th-slno, .td-slno {
+  width: 40px;
+  text-align: center;
+}
+
+.th-desc, .td-desc {
+  text-align: left;
+  width: 45%;
+}
+
+.th-due, .td-due,
+.th-con, .td-con,
+.th-paid, .td-paid {
+  width: 20%;
+  text-align: center;
+}
+
+.due-pay-mode-section {
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 8px;
+  background: #fff;
+}
+
+.due-pay-mode-title {
+  border-bottom: 2px solid #000;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  font-weight: bold;
+  font-size: 12px;
+  color: #000;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.due-pay-mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.due-pay-mode-row:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.due-pay-mode-item {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.due-pay-label {
+  font-weight: bold;
+  min-width: 100px;
+  color: #000;
+}
+
+.due-pay-value {
+  flex: 1;
+  color: #000;
+}
+
+.due-total-section {
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 0;
+}
+
+.due-total-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  font-weight: bold;
+  font-size: 14px;
+  border-bottom: 2px solid #000;
+  color: #000;
+}
+
+.due-total-label {
+  text-align: left;
+}
+
+.due-total-value {
+  text-align: right;
+}
+
+.due-total-words-section {
+  border: 2px solid #000;
+  border-bottom: none;
+  padding: 8px;
+  font-size: 12px;
+  color: #000;
+  background: #fff;
+}
+
+.due-footer-notice {
+  border: 2px solid #000;
+  padding: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: #d32f2f;
+  background: #fff;
+  font-weight: bold;
+}
+
 /* Print media queries for A4 */
 @media print {
   .a4-receipt-container {

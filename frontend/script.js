@@ -4767,7 +4767,7 @@ function printAllDueReceipts(options = {}){
   printFromRoot(root, 1200);
 }
 
-// Build professional A4 format for due receipt statements
+// Build professional A4 format for due receipt statements (matching Delhi Public School style)
 function buildDueReceiptA4HTML(r) {
   const receiptNo = r.no || 'DUE-00001';
   const sch = AppState.settings.school || {};
@@ -4783,127 +4783,139 @@ function buildDueReceiptA4HTML(r) {
   const session = now.getFullYear() + '-' + (now.getFullYear() + 1);
   const totalDue = r.amount || 0;
   const amountWords = totalDue > 0 ? numberToWords(Math.floor(totalDue)) + ' Only' : 'Zero';
-  const dueItems = (r._dueDetails || []).map(d => ({
+  const dueItems = (r._dueDetails || []).map((d, idx) => ({
+    no: idx + 1,
     name: formatMonthYear(d.month),
-    due: d.amount,
+    due: d.amount || 0,
     con: 0,
     paid: 0
   }));
 
   return `
-    <div class="a4-receipt-container">
-      <!-- Header with logo and school info -->
-      <div class="a4-receipt-header">
-        <div class="a4-receipt-logo">
+    <div class="a4-due-receipt">
+      <!-- Header section -->
+      <div class="due-header-section">
+        <div class="due-header-logo">
           <img src="${logo}" alt="Logo" onerror="this.style.display='none'" />
         </div>
-        <div class="a4-receipt-school-info">
-          <h1>${schoolName}</h1>
-          <p class="tagline">${tagline}</p>
-          <p class="address">${address}</p>
-          <p class="contact">${[phone, email].filter(Boolean).join(' · ')}</p>
+        <div class="due-header-info">
+          <h1 class="due-school-name">${schoolName}</h1>
+          <p class="due-header-tagline">${tagline}</p>
+          <p class="due-header-address">${address}</p>
+          <p class="due-header-contact">${[phone, email].filter(Boolean).join(' · ')}</p>
         </div>
       </div>
 
-      <!-- Title -->
-      <div class="a4-receipt-title">DUE FEE STATEMENT</div>
+      <!-- Title bar -->
+      <div class="due-receipt-title-bar">DUE FEE STATEMENT</div>
 
-      <!-- Receipt details grid -->
-      <div class="a4-receipt-details">
-        <div class="detail-row">
-          <div class="detail-item">
-            <span class="label">Receipt No</span>
-            <span class="value">${receiptNo}</span>
+      <!-- Receipt details in grid format -->
+      <div class="due-receipt-grid">
+        <div class="due-grid-row">
+          <div class="due-grid-item">
+            <span class="due-label">Receipt No</span>
+            <span class="due-value">: ${receiptNo}</span>
           </div>
-          <div class="detail-item">
-            <span class="label">Date</span>
-            <span class="value">${dateStr}</span>
-          </div>
-        </div>
-        <div class="detail-row">
-          <div class="detail-item">
-            <span class="label">Adm No</span>
-            <span class="value">${r.roll}</span>
-          </div>
-          <div class="detail-item">
-            <span class="label">Session</span>
-            <span class="value">${session}</span>
+          <div class="due-grid-item">
+            <span class="due-label">Date</span>
+            <span class="due-value">: ${dateStr}</span>
           </div>
         </div>
-        <div class="detail-row">
-          <div class="detail-item">
-            <span class="label">Name</span>
-            <span class="value">${r.name}</span>
+        <div class="due-grid-row">
+          <div class="due-grid-item">
+            <span class="due-label">Adm No</span>
+            <span class="due-value">: ${r.roll}</span>
           </div>
-          <div class="detail-item">
-            <span class="label">Counter No</span>
-            <span class="value">DPS-DUE</span>
+          <div class="due-grid-item">
+            <span class="due-label">Session</span>
+            <span class="due-value">: ${session}</span>
+          </div>
+        </div>
+        <div class="due-grid-row">
+          <div class="due-grid-item">
+            <span class="due-label">Name</span>
+            <span class="due-value">: ${r.name}</span>
+          </div>
+          <div class="due-grid-item">
+            <span class="due-label">Counter No</span>
+            <span class="due-value">: DPS-DUE</span>
           </div>
         </div>
       </div>
 
-      <!-- Outstanding months table -->
-      <table class="a4-receipt-table">
+      <!-- Fee table -->
+      <table class="due-receipt-table">
         <thead>
           <tr>
-            <th class="col-sl">Sl.No</th>
-            <th class="col-desc">Description</th>
-            <th class="col-amount">Due</th>
-            <th class="col-amount">Con</th>
-            <th class="col-amount">Paid</th>
+            <th class="th-slno">Sl.No</th>
+            <th class="th-desc">Description</th>
+            <th class="th-due">Due</th>
+            <th class="th-con">Con</th>
+            <th class="th-paid">Paid</th>
           </tr>
         </thead>
         <tbody>
-          ${dueItems.length > 0 ? dueItems.map((item, idx) => `
+          ${dueItems.length > 0 ? dueItems.map(item => `
             <tr>
-              <td class="col-sl">${idx + 1}</td>
-              <td class="col-desc">${item.name}</td>
-              <td class="col-amount">${item.due}</td>
-              <td class="col-amount">${item.con}</td>
-              <td class="col-amount">${item.paid}</td>
+              <td class="td-slno">${item.no}</td>
+              <td class="td-desc">${item.name}</td>
+              <td class="td-due">${item.due}</td>
+              <td class="td-con">${item.con}</td>
+              <td class="td-paid">${item.paid}</td>
             </tr>
           `).join('') : `
             <tr>
-              <td class="col-sl">1</td>
-              <td class="col-desc">Outstanding Balance</td>
-              <td class="col-amount">${totalDue}</td>
-              <td class="col-amount">0</td>
-              <td class="col-amount">0</td>
+              <td class="td-slno">1</td>
+              <td class="td-desc">Outstanding Balance</td>
+              <td class="td-due">${totalDue}</td>
+              <td class="td-con">0</td>
+              <td class="td-paid">0</td>
             </tr>
           `}
         </tbody>
       </table>
 
-      <!-- Payment information section -->
-      <div class="a4-payment-info">
-        <div class="payment-row">
-          <span class="label">Status</span>
-          <span class="value">Outstanding</span>
-          <span class="label">Date</span>
-          <span class="value">${dateStr}</span>
+      <!-- Pay mode information section -->
+      <div class="due-pay-mode-section">
+        <div class="due-pay-mode-title">PAYMENT INFORMATION</div>
+        <div class="due-pay-mode-row">
+          <div class="due-pay-mode-item">
+            <span class="due-pay-label">Status</span>
+            <span class="due-pay-value">Outstanding</span>
+          </div>
+          <div class="due-pay-mode-item">
+            <span class="due-pay-label">Date</span>
+            <span class="due-pay-value">${dateStr}</span>
+          </div>
         </div>
-        <div class="payment-row">
-          <span class="label">Action Required</span>
-          <span class="value">Pending Payment</span>
-          <span class="label">Priority</span>
-          <span class="value">Urgent</span>
+        <div class="due-pay-mode-row">
+          <div class="due-pay-mode-item">
+            <span class="due-pay-label">Action Required</span>
+            <span class="due-pay-value">Pending Payment</span>
+          </div>
+          <div class="due-pay-mode-item">
+            <span class="due-pay-label">Priority</span>
+            <span class="due-pay-value">Urgent</span>
+          </div>
         </div>
       </div>
 
       <!-- Total section -->
-      <div class="a4-total-section">
-        <div class="total-row">
-          <span>Total Due</span>
-          <span>${totalDue}</span>
-        </div>
-        <div class="a4-total-words">
-          <strong>Total in Words:</strong> ${amountWords}
+      <div class="due-total-section">
+        <div class="due-total-row">
+          <span class="due-total-label">Total Due</span>
+          <span class="due-total-value">${totalDue}</span>
         </div>
       </div>
 
-      <!-- Footer -->
-      <div class="a4-receipt-footer">
-        <p>⚠️ Outstanding Payment Notice - Please settle the dues at your earliest</p>
+      <!-- Total in words -->
+      <div class="due-total-words-section">
+        <strong>Total in Words:</strong> ${amountWords}
+      </div>
+
+      <!-- Footer notice -->
+      <div class="due-footer-notice">
+        ⚠️ Outstanding Payment Notice - Please settle the dues at your earliest
       </div>
     </div>
   `;
