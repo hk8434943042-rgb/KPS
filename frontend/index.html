@@ -1269,6 +1269,17 @@
           </div>
         </div>
 
+        <!-- Tabs -->
+        <div class="toolbar toolbar-bb">
+          <div class="flex gap-16">
+            <button class="tab-btn active" data-staff-tab="staff-list-tab">👥 Staff List</button>
+            <button class="tab-btn" data-staff-tab="staff-salary-tab">💰 Salary</button>
+          </div>
+        </div>
+
+        <!-- STAFF LIST TAB -->
+        <div id="staff-list-tab" class="tab-content">
+
         <!-- PREFERENCES BOX -->
         <div class="staff-preferences-box hidden" id="staffPreferencesBox">
           <div class="pref-header">
@@ -1435,6 +1446,70 @@
         <div class="staff-list-container hidden" id="staffListContainer">
           <div id="staffListContent"><!-- list content injected --></div>
         </div>
+        </div><!-- End of staff-list-tab -->
+
+        <!-- STAFF SALARY TAB -->
+        <div id="staff-salary-tab" class="tab-content d-none">
+          <div class="grid-2">
+            <!-- Salary Payments History -->
+            <div class="card">
+              <div class="card__header">
+                <h3>💰 Salary Payments</h3>
+              </div>
+              <div class="table-wrap maxh-400 ovy-auto">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Staff Name</th>
+                      <th>Month</th>
+                      <th>Amount</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="staffSalaryTableBody"><!-- rows injected --></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Process Salary -->
+            <div class="card">
+              <div class="card__header">
+                <h3>💵 Process Salaries</h3>
+              </div>
+              <div class="p-12">
+                <label>
+                  <span>Month</span>
+                  <input type="month" id="staffSalaryMonth" class="form-control" />
+                </label>
+                <label class="mt-12 d-block">
+                  <span>Staff Member</span>
+                  <select id="staffSalaryStaffSelect" class="form-control">
+                    <option value="">Select Staff</option>
+                  </select>
+                </label>
+                <label class="mt-12 d-block">
+                  <span>Custom Amount (optional)</span>
+                  <input type="number" id="staffSalaryCustomAmount" class="form-control" placeholder="Leave blank for base salary" min="0" />
+                </label>
+                <div class="flex gap-8 mt-12">
+                  <button class="btn btn-primary flex-1" id="staffSalaryBtnPaySingle">💳 Pay Selected Staff</button>
+                </div>
+                <button class="btn btn-ghost w-100 mt-8" id="staffSalaryBtnProcessAll">💰 Process All Active Staff</button>
+                
+                <div class="mt-12 p-12" style="background: var(--chip); border-radius: 8px;">
+                  <small style="display: block; line-height: 1.6;">
+                    <strong>Note:</strong><br>
+                    • Process All: Pays all active staff for selected month<br>
+                    • Pay Selected: Pays specific staff (with optional custom amount)<br>
+                    • Duplicate payments for same month are prevented
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div><!-- End of staff-salary-tab -->
+
       </section>
       
       <section class="view hidden" id="view-transport" aria-labelledby="transport-title">
@@ -2407,7 +2482,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260304-staff-modal"></script>
+  <script src="script.js?v=20260304-staff-salary"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>

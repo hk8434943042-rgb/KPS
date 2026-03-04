@@ -145,6 +145,7 @@ const AppState = {
 
   // Staff module (non-teaching)
   staff: [], // { id, name, role, phone, joinDate, salary, status }
+  staffSalaryPayments: [], // { id, staffId, month, amount, date, status }
 
   // Classes module
   classes: [], // { id, class, section, classTeacherId, subjects: {subjectName: teacherId}, capacity, status }
@@ -3800,7 +3801,179 @@ function renderStaff() {
   };
 
   searchInput.oninput = render;
+  
+  // Handle staff tab switching
+  qsa('button[data-staff-tab]').forEach(btn => {
+    btn.onclick = () => {
+      const targetTab = btn.getAttribute('data-staff-tab');
+      qsa('button[data-staff-tab]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      qs('#staff-list-tab')?.classList.toggle('d-none', targetTab !== 'staff-list-tab');
+      qs('#staff-salary-tab')?.classList.toggle('d-none', targetTab !== 'staff-salary-tab');
+      
+      if (targetTab === 'staff-salary-tab') {
+        renderStaffSalaryPayments();
+      }
+    };
+  });
+  
   render();
+}
+
+// ---------- Staff Salary Management ----------
+function renderStaffSalaryPayments() {
+  const tbody = qs('#staffSalaryTableBody');
+  if (!tbody) return;
+
+  if (!Array.isArray(AppState.staffSalaryPayments)) AppState.staffSalaryPayments = [];
+
+  const payments = AppState.staffSalaryPayments.sort((a, b) => new Date(b.date) - new Date(a.date));
+  tbody.innerHTML = payments.slice(0, 50).map(p => {
+    const staff = AppState.staff.find(s => String(s.id) === String(p.staffId));
+    return `
+      <tr>
+        <td>${staff?.name || 'Unknown'}</td>
+        <td>${p.month}</td>
+        <td>${fmtINR(p.amount)}</td>
+        <td>${p.date}</td>
+        <td><span class="badge success">${p.status}</span></td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="5" class="muted">No salary payments yet.</td></tr>';
+
+  const monthInput = qs('#staffSalaryMonth');
+  if (monthInput && !monthInput.value) {
+    const today = new Date();
+    monthInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  const staffSelect = qs('#staffSalaryStaffSelect');
+  if (staffSelect) {
+    const prevValue = staffSelect.value;
+    staffSelect.innerHTML = '<option value="">Select Staff</option>';
+    AppState.staff
+      .filter(s => s.status === 'active')
+      .forEach(s => {
+        const salary = Number(s.salary || 0);
+        staffSelect.innerHTML += `<option value="${s.id}">${s.name} - ${s.role} (${fmtINR(salary)})</option>`;
+      });
+    staffSelect.value = prevValue;
+  }
+
+  const btnProcessAll = qs('#staffSalaryBtnProcessAll');
+  const btnPaySingle = qs('#staffSalaryBtnPaySingle');
+  
+  if (btnProcessAll) {
+    btnProcessAll.onclick = () => {
+      const month = monthInput?.value;
+      if (!month) {
+        alert('Please select a month');
+        return;
+      }
+      processAllStaffSalary(month);
+    };
+  }
+
+  if (btnPaySingle) {
+    btnPaySingle.onclick = () => {
+      const month = monthInput?.value;
+      const staffId = staffSelect?.value;
+      const customAmount = Number(qs('#staffSalaryCustomAmount')?.value || 0);
+      
+      if (!month) {
+        alert('Please select a month');
+        return;
+      }
+      if (!staffId) {
+        alert('Please select a staff member');
+        return;
+      }
+      
+      processSingleStaffSalary(month, staffId, customAmount);
+    };
+  }
+}
+
+function processAllStaffSalary(month) {
+  if (!month) {
+    alert('Please select a month');
+    return;
+  }
+
+  let count = 0;
+  AppState.staff.forEach(s => {
+    if (s.status === 'active') {
+      const exists = AppState.staffSalaryPayments.some(p => String(p.staffId) === String(s.id) && p.month === month);
+      if (!exists) {
+        const amount = Number(s.salary || 0);
+        if (amount > 0) {
+          AppState.staffSalaryPayments.push({
+            id: 'staff_sal_' + Date.now() + '_' + count++,
+            staffId: s.id,
+            month: month,
+            amount: amount,
+            date: todayYYYYMMDD(),
+            status: 'paid'
+          });
+        }
+      }
+    }
+  });
+
+  saveState();
+  renderStaffSalaryPayments();
+  alert(`Salary processed for ${count} staff members in ${month}`);
+}
+
+function processSingleStaffSalary(month, staffId, customAmount) {
+  if (!month) {
+    alert('Please select a month');
+    return;
+  }
+  if (!staffId) {
+    alert('Please select a staff member');
+    return;
+  }
+
+  const staff = AppState.staff.find(s => String(s.id) === String(staffId));
+  if (!staff) {
+    alert('Staff member not found');
+    return;
+  }
+  if (staff.status !== 'active') {
+    alert('Salary can only be processed for active staff');
+    return;
+  }
+
+  const exists = AppState.staffSalaryPayments.some(p => String(p.staffId) === String(staff.id) && p.month === month);
+  if (exists) {
+    alert(`Salary already processed for ${staff.name} in ${month}`);
+    return;
+  }
+
+  const amount = customAmount > 0 ? customAmount : Number(staff.salary || 0);
+  if (amount <= 0) {
+    alert('No payable salary amount');
+    return;
+  }
+
+  AppState.staffSalaryPayments.push({
+    id: 'staff_sal_' + Date.now() + '_single',
+    staffId: staff.id,
+    month: month,
+    amount: amount,
+    date: todayYYYYMMDD(),
+    status: 'paid'
+  });
+
+  saveState();
+  renderStaffSalaryPayments();
+  
+  const customInput = qs('#staffSalaryCustomAmount');
+  if (customInput) customInput.value = '';
+  
+  alert(`Salary processed for ${staff.name} (${month}): ${fmtINR(amount)}`);
 }
 
 // ---------- Fees View ----------
