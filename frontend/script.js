@@ -1488,6 +1488,11 @@ function applySchoolBranding() {
 // ---------- Role-Based Access Control ----------
 function applyRoleBasedAccess() {
   const isReception = isReceptionUser();
+  const panelRole = getPanelRole();
+  
+  console.log('🔍 Applying role-based access...');
+  console.log('  - Panel Role:', panelRole);
+  console.log('  - Is Reception:', isReception);
   
   // Define which views Reception can access
   const receptionAllowedViews = [
@@ -1515,8 +1520,34 @@ function applyRoleBasedAccess() {
       const menuItem = document.querySelector(`.menu__item[data-view="${view}"]`);
       if (menuItem) {
         menuItem.style.display = 'none';
+        console.log('  ✗ Hidden:', view);
       }
     });
+    
+    // ===== RECEPTION RESTRICTIONS FOR TEACHERS SECTION =====
+    // Hide teacher management controls - only allow attendance marking
+    const addTeacherBtn = document.getElementById('teacherBtnAdd');
+    if (addTeacherBtn) addTeacherBtn.style.display = 'none';
+    
+    const exportTeacherBtn = document.getElementById('teacherBtnExport');
+    if (exportTeacherBtn) exportTeacherBtn.style.display = 'none';
+    
+    // Hide Teachers Tab and Salary Tab - only show Attendance Tab
+    const teachersTabBtn = document.querySelector('#view-teachers [data-tab="teachers-tab"]');
+    const salaryTabBtn = document.querySelector('#view-teachers [data-tab="salary-tab"]');
+    if (teachersTabBtn) teachersTabBtn.style.display = 'none';
+    if (salaryTabBtn) salaryTabBtn.style.display = 'none';
+    
+    // Auto-load Attendance tab when reception opens Teachers view
+    const attendanceTabBtn = document.querySelector('#view-teachers [data-tab="attendance-tab"]');
+    if (attendanceTabBtn) {
+      // If we're in teachers view, automatically switch to attendance tab
+      if (AppState.view === 'teachers') {
+        setTimeout(() => {
+          attendanceTabBtn.click();
+        }, 100);
+      }
+    }
     
     // Update user display to show role
     const userDisplayEl = document.getElementById('userDisplayName');
@@ -1535,12 +1566,16 @@ function applyRoleBasedAccess() {
     }
     
     console.log('✓ Reception role restrictions applied');
+    console.log('  ✗ Hidden: Teachers Tab (attendance only)');
+    console.log('  ✗ Hidden: Salary Tab');
+    console.log('  ✗ Hidden: Add Teacher button');
+    console.log('  ✗ Hidden: Export Teachers button');
   } else {
     // Main Admin - show all menu items
     document.querySelectorAll('.menu__item').forEach(item => {
       item.style.display = '';
     });
-    console.log('✓ Full admin access granted');
+    console.log('✓ Full admin access granted (Main Admin)');
   }
 }
 
@@ -1624,7 +1659,16 @@ function switchView(viewId) {
     else if (viewId === 'fees')      renderFees();
     else if (viewId === 'exams')     renderExams();
     else if (viewId === 'classes')   renderClasses();
-    else if (viewId === 'teachers')  renderTeachers();
+    else if (viewId === 'teachers') {
+      renderTeachers();
+      // If reception user opens teachers view, auto-switch to attendance tab
+      if (isReceptionUser()) {
+        setTimeout(() => {
+          const attendanceTabBtn = document.querySelector('#view-teachers [data-tab="attendance-tab"]');
+          if (attendanceTabBtn) attendanceTabBtn.click();
+        }, 50);
+      }
+    }
     else if (viewId === 'transport') renderTransport();
     else if (viewId === 'notices')   renderNotices();
     else if (viewId === 'settings')  renderSettings();
@@ -4458,6 +4502,13 @@ function init(){
       
       try {
         switchRole(role);
+        
+        // Add panel role logging for debugging
+        const panelRole = getPanelRole();
+        console.log('🔐 User Role:', role);
+        console.log('📋 Panel Role:', panelRole);
+        console.log('🎭 Is Reception?', isReceptionUser());
+        
       } catch (e) {
         console.error('⚠️ switchRole error:', e);
       }
