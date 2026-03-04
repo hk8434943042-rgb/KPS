@@ -4400,6 +4400,7 @@ function printFromRoot(root, cleanupDelay = 800){
     root.style.display = 'none';
     root.style.width = prevWidth;
     root.style.padding = prevPadding;
+    root.classList.remove('receipt-print-a4');
     root.classList.add('d-none');
     root.setAttribute('aria-hidden', 'true');
     root.innerHTML = '';
@@ -5374,16 +5375,18 @@ function openReceiptPreview(no) {
   const btnCopy = qs('#receiptPreviewCopy');
   const btnToggleView = qs('#receiptPreviewToggleView');
   const btnPdf = qs('#receiptPreviewPdf');
+  const btnA4 = qs('#receiptPreviewA4');
   const btnThermal = qs('#receiptPreviewThermal');
   const modal = qs('#modalReceiptPreview');
 
-  if (!body || !meta || !btnPrint || !btnCopy || !btnToggleView || !btnPdf || !btnThermal || !modal) return;
+  if (!body || !meta || !btnPrint || !btnCopy || !btnToggleView || !btnPdf || !btnA4 || !btnThermal || !modal) return;
 
   const state = { compact: false };
   const receiptKey = getReceiptKey(receipt);
 
   btnToggleView.disabled = false;
   btnPdf.disabled = false;
+  btnA4.disabled = false;
   btnThermal.disabled = false;
 
   const renderPreview = () => {
@@ -5410,6 +5413,7 @@ function openReceiptPreview(no) {
     renderPreview();
   };
   btnPdf.onclick = () => generateReceiptPDF(receiptKey);
+  btnA4.onclick = () => printReceiptA4(receiptKey);
   btnThermal.onclick = () => printThermalReceipt(receiptKey, receipt.name, receipt.roll, receipt.amount, receipt.method, 'School Fee');
 
   const keyHandler = (e) => {
@@ -6477,10 +6481,28 @@ function printReceipt(no, options = {}){
     );
   } else {
     // Regular browser print
-    const root=qs('#receiptPrintRoot');
-    root.innerHTML = buildReceiptHTML(r);
-    printFromRoot(root, 900);
+    printReceiptA4(receiptNo);
   }
+}
+
+function printReceiptA4(no){
+  const receipt = findReceiptByKey(no);
+  if (!receipt) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const root = qs('#receiptPrintRoot');
+  if (!root) return;
+
+  root.classList.add('receipt-print-a4');
+  root.innerHTML = `
+    <div class="receipt-a4-sheet">
+      ${buildReceiptHTML(receipt, { compact: false })}
+    </div>
+  `;
+
+  printFromRoot(root, 900);
 }
 
 // Generate Receipt PDF with Logo

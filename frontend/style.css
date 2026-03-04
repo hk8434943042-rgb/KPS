@@ -1309,6 +1309,24 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   max-width: 700px;
 }
 
+.receipt-a4-sheet {
+  width: 190mm;
+  min-height: 277mm;
+  margin: 0 auto;
+  padding: 10mm;
+  background: #ffffff;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.receipt-a4-sheet .receipt-paper {
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
 .due-title-row {
   display: flex;
   align-items: center;
@@ -1555,6 +1573,10 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
     padding: 24px;
     background: #fff;
     color: #000;
+  }
+
+  #receiptPrintRoot.receipt-print-a4 {
+    padding: 0;
   }
 
   #receiptPrintRoot .thermal-batch-root {
