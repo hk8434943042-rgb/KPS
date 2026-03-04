@@ -1715,6 +1715,37 @@ function renderDashboard(){
   if (btnPrint) btnPrint.onclick = ()=> window.print();
 }
 
+// Animate number counting up
+function animateNumber(element, targetValue, duration = 1500, isPercentage = false, isCurrency = false) {
+  if (!element) return;
+  
+  const startValue = 0;
+  const startTime = performance.now();
+  
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Easing function (easeOutExpo)
+    const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+    const currentValue = startValue + (targetValue - startValue) * easeProgress;
+    
+    if (isCurrency) {
+      element.textContent = fmtINR(Math.round(currentValue));
+    } else if (isPercentage) {
+      element.textContent = currentValue.toFixed(1) + '%';
+    } else {
+      element.textContent = Math.round(currentValue).toLocaleString('en-IN');
+    }
+    
+    if (progress < 1) {
+      requestAnimationFrame(update);
+    }
+  }
+  
+  requestAnimationFrame(update);
+}
+
 async function loadDashboardData() {
   // Fetch all data in parallel
   const [stats, todayAttendance, allStudents, allPayments] = await Promise.all([
@@ -1731,20 +1762,20 @@ async function loadDashboardData() {
   const kpiIssues = qs('#kpiIssues');
   
   if (stats) {
-    if (kpiStudents) kpiStudents.textContent = stats.total_students.toLocaleString('en-IN');
-    if (kpiFees) kpiFees.textContent = fmtINR(stats.total_revenue);
-    if (kpiIssues) kpiIssues.textContent = stats.pending_payments;
+    if (kpiStudents) animateNumber(kpiStudents, stats.total_students, 1500);
+    if (kpiFees) animateNumber(kpiFees, stats.total_revenue, 1500, false, true);
+    if (kpiIssues) animateNumber(kpiIssues, stats.pending_payments, 1500);
   } else {
-    if (kpiStudents) kpiStudents.textContent = AppState.kpi.totalStudents;
-    if (kpiFees) kpiFees.textContent = fmtINR(AppState.kpi.feesCollectedMonth);
-    if (kpiIssues) kpiIssues.textContent = AppState.kpi.issuesOpen;
+    if (kpiStudents) animateNumber(kpiStudents, AppState.kpi.totalStudents, 1500);
+    if (kpiFees) animateNumber(kpiFees, AppState.kpi.feesCollectedMonth, 1500, false, true);
+    if (kpiIssues) animateNumber(kpiIssues, AppState.kpi.issuesOpen, 1500);
   }
 
   // Calculate attendance percentage
   if (todayAttendance && todayAttendance.length > 0 && allStudents.length > 0) {
     const presentCount = todayAttendance.filter(a => a.status === 'Present').length;
     const attendancePercent = (presentCount / allStudents.length) * 100;
-    if (kpiAttendance) kpiAttendance.textContent = attendancePercent.toFixed(1) + '%';
+    if (kpiAttendance) animateNumber(kpiAttendance, attendancePercent, 1500, true);
   } else if (kpiAttendance) {
     kpiAttendance.textContent = '0%';
   }
