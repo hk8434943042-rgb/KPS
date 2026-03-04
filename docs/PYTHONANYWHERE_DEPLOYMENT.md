@@ -74,7 +74,7 @@ git push -u origin main
 # Clone your GitHub repository
 git clone https://github.com/YOUR_USERNAME/school-admin-portal.git
 cd school-admin-portal
-```
+```Double-click: scripts\mirror-to-d-drive.bat
 
 ### 3.3 Create Virtual Environment
 
