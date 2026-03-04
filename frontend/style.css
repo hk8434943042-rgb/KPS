@@ -2517,7 +2517,31 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   display: none !important;
 }
 
+.dashboard-map-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.dashboard-map-controls .form-control {
+  flex: 1;
+}
+
+.dashboard-google-map {
+  width: 100%;
+  min-height: 340px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
 @media (max-width: 768px) {
+  .dashboard-map-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .login-boxes-grid {
     grid-template-columns: 1fr;
     gap: 20px;

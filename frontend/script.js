@@ -2107,10 +2107,16 @@ function switchView(viewId) {
 let admissionsChart, attendanceChart;
 let chartRenderInProgress = false;
 let dashboardInteractionsBound = false;
+let dashboardMapBound = false;
 let issuesDeltaInitialized = false;
 const dashboardIssueRowMap = new Map();
 const kpiAnimationFrameByElement = new WeakMap();
 const RECEIPT_SCHOOL_HEADER = 'KHUSHI PUBLIC SCHOOL';
+
+function buildGoogleMapEmbedUrl(query = '') {
+  const normalized = String(query || '').trim() || 'Khushi Public School Deoley Shekhpura';
+  return `https://www.google.com/maps?q=${encodeURIComponent(normalized)}&output=embed`;
+}
 
 function extractNumericValue(text = '') {
   const cleaned = String(text).replace(/[^0-9.-]/g, '');
@@ -2228,6 +2234,36 @@ function initDashboardInteractions() {
         handleActivate();
       }
     });
+  });
+}
+
+function initDashboardGoogleMap() {
+  const mapInput = qs('#dashboardMapQuery');
+  const mapIframe = qs('#dashboardGoogleMap');
+  const updateBtn = qs('#dashboardMapBtnUpdate');
+  if (!mapInput || !mapIframe || !updateBtn) return;
+
+  const MAP_QUERY_KEY = 'kps_dashboard_map_query';
+  const savedQuery = localStorage.getItem(MAP_QUERY_KEY) || 'Khushi Public School Deoley Shekhpura';
+
+  mapInput.value = savedQuery;
+  mapIframe.src = buildGoogleMapEmbedUrl(savedQuery);
+
+  if (dashboardMapBound) return;
+  dashboardMapBound = true;
+
+  const applyMap = () => {
+    const query = String(mapInput.value || '').trim() || 'Khushi Public School Deoley Shekhpura';
+    mapIframe.src = buildGoogleMapEmbedUrl(query);
+    localStorage.setItem(MAP_QUERY_KEY, query);
+  };
+
+  updateBtn.onclick = applyMap;
+  mapInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyMap();
+    }
   });
 }
 
@@ -2644,6 +2680,7 @@ function renderDashboard(){
   if (btnPrint) btnPrint.onclick = ()=> window.print();
 
   initDashboardInteractions();
+  initDashboardGoogleMap();
 }
 
 function renderStudentStatusOverview(students = []) {
