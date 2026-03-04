@@ -535,6 +535,21 @@ function displayUserInfo() {
   }
 }
 
+// Display today's date in header (day month year format)
+function displayTodayDate() {
+  const headerDateEl = document.getElementById('headerDate');
+  if (!headerDateEl) return;
+  
+  const today = new Date();
+  const day = today.getDate();
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                  'July', 'August', 'September', 'October', 'November', 'December'];
+  const month = months[today.getMonth()];
+  const year = today.getFullYear();
+  
+  headerDateEl.textContent = `${day} ${month} ${year}`;
+}
+
 // ---------- Login helpers ----------
 function initLoginHandlers() {
   // attach submit listeners to forms; rely on data-role attribute
@@ -4452,6 +4467,10 @@ function init(){
     // Load state (including data fetch)
     console.log('[init] loadState');
     loadState();
+    
+    // Display today's date in header
+    console.log('[init] displayTodayDate');
+    displayTodayDate();
     
     // Theme setup
     console.log('[init] applyThemeFromSettings');
