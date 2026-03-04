@@ -1584,8 +1584,8 @@ function initSidebarNavigation(){
     });
   });
 
-  // initial view
-  switchView(AppState.view || 'dashboard');
+  // Note: initial view is set by switchRole() function
+  // Don't call switchView here to avoid double-triggering
 }
 
 // ---------- Performance Optimization ----------
@@ -4440,6 +4440,15 @@ function init(){
         switchRole(role);
       } catch (e) {
         console.error('⚠️ switchRole error:', e);
+      }
+      
+      // Ensure dashboard loads on initial page load
+      if (role === 'admin') {
+        setTimeout(() => {
+          if (AppState.view === 'dashboard') {
+            renderDashboard();
+          }
+        }, 100);
       }
       
       console.log('✅ Portal ready!');
