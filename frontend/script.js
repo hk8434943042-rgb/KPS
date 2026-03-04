@@ -191,8 +191,8 @@ async function checkServerConnection() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
     
-    // Check root endpoint - always available if server is running
-    const response = await fetch('http://localhost:5000/', {
+    // Check health endpoint - has proper CORS headers
+    const response = await fetch('http://localhost:5000/health', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal
