@@ -3616,3 +3616,212 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   transform: translateY(-4px);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
+
+/* ========== DASHBOARD ANIMATIONS ========== */
+
+/* Dashboard Page Header & Actions */
+#view-dashboard .page-header h1 {
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  animation-delay: 0s;
+}
+
+#view-dashboard .page-actions {
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  animation-delay: 0.05s;
+}
+
+#view-dashboard .page-actions .btn {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dashboard KPI Grid - Enhanced Stagger */
+#view-dashboard .kpi-grid {
+  display: grid;
+  gap: 12px;
+}
+
+#view-dashboard .kpi-grid .kpi {
+  animation: scaleIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+#view-dashboard .kpi-grid .kpi:nth-child(1) { animation-delay: 0.1s; }
+#view-dashboard .kpi-grid .kpi:nth-child(2) { animation-delay: 0.2s; }
+#view-dashboard .kpi-grid .kpi:nth-child(3) { animation-delay: 0.3s; }
+#view-dashboard .kpi-grid .kpi:nth-child(4) { animation-delay: 0.4s; }
+
+/* KPI Interactive Hover Enhancement */
+#view-dashboard .kpi--interactive {
+  position: relative;
+}
+
+#view-dashboard .kpi--interactive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: linear-gradient(135deg, 
+    rgba(59, 130, 246, 0.1) 0%, 
+    rgba(139, 92, 246, 0.1) 100%);
+}
+
+#view-dashboard .kpi--interactive:hover::before {
+  opacity: 1;
+}
+
+#view-dashboard .kpi--interactive:hover {
+  transform: translateY(-6px) scale(1.02);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Dashboard Cards - Staggered Animation */
+#view-dashboard .card {
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+#view-dashboard > .card:nth-of-type(1) { animation-delay: 0.5s; }
+#view-dashboard > .card:nth-of-type(2) { animation-delay: 0.6s; }
+#view-dashboard > .card:nth-of-type(3) { animation-delay: 0.7s; }
+
+#view-dashboard .grid-2 .card:nth-child(1) { animation-delay: 0.55s; }
+#view-dashboard .grid-2 .card:nth-child(2) { animation-delay: 0.6s; }
+
+#view-dashboard .grid-2:nth-of-type(2) .card:nth-child(1) { animation-delay: 0.65s; }
+#view-dashboard .grid-2:nth-of-type(2) .card:nth-child(2) { animation-delay: 0.7s; }
+
+#view-dashboard .card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Chart Canvas Fade In */
+#view-dashboard canvas {
+  animation: fadeIn 0.8s ease-out backwards;
+}
+
+#chartAdmissions { animation-delay: 0.65s; }
+#chartAttendance { animation-delay: 0.7s; }
+
+/* Dashboard Table Rows - Slide In */
+#view-dashboard .table tbody tr {
+  animation: slideInFromLeft 0.5s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+#view-dashboard .table tbody tr:nth-child(1) { animation-delay: 0.55s; }
+#view-dashboard .table tbody tr:nth-child(2) { animation-delay: 0.6s; }
+#view-dashboard .table tbody tr:nth-child(3) { animation-delay: 0.65s; }
+#view-dashboard .table tbody tr:nth-child(4) { animation-delay: 0.7s; }
+#view-dashboard .table tbody tr:nth-child(5) { animation-delay: 0.75s; }
+#view-dashboard .table tbody tr:nth-child(n+6) { animation-delay: 0.8s; }
+
+/* Status Cards Grid Animation */
+#view-dashboard .student-status-grid {
+  display: grid;
+  gap: 12px;
+}
+
+#view-dashboard .status-card {
+  animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+#view-dashboard .status-card:nth-child(1) { animation-delay: 0.65s; }
+#view-dashboard .status-card:nth-child(2) { animation-delay: 0.7s; }
+#view-dashboard .status-card:nth-child(3) { animation-delay: 0.75s; }
+#view-dashboard .status-card:nth-child(4) { animation-delay: 0.8s; }
+#view-dashboard .status-card:nth-child(5) { animation-delay: 0.85s; }
+
+#view-dashboard .status-card:hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* List Items Slide In */
+#view-dashboard .list li {
+  animation: slideInFromRight 0.5s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  transition: all 0.3s ease;
+}
+
+#view-dashboard .list li:nth-child(1) { animation-delay: 0.7s; }
+#view-dashboard .list li:nth-child(2) { animation-delay: 0.75s; }
+#view-dashboard .list li:nth-child(3) { animation-delay: 0.8s; }
+#view-dashboard .list li:nth-child(4) { animation-delay: 0.85s; }
+#view-dashboard .list li:nth-child(n+5) { animation-delay: 0.9s; }
+
+#view-dashboard .list li:hover {
+  transform: translateX(8px);
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 8px;
+  padding-left: 8px;
+}
+
+/* Map Container Animation */
+#view-dashboard .dashboard-map-controls {
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+  animation-delay: 0.75s;
+}
+
+#view-dashboard .dashboard-google-map {
+  animation: fadeIn 0.8s ease-out backwards;
+  animation-delay: 0.85s;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+#view-dashboard .dashboard-google-map:hover {
+  transform: scale(1.01);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Tag Animation */
+#view-dashboard .tag {
+  display: inline-block;
+  animation: fadeIn 0.4s ease-out backwards;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+#view-dashboard .tag:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Additional Keyframe Animations */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Smooth Scroll Behavior */
+#view-dashboard {
+  animation: fadeIn 0.4s ease-out;
+}
