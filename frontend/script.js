@@ -4748,6 +4748,76 @@ function printAllDueReceipts(options = {}){
   printFromRoot(root, 1200);
 }
 
+function getReceiptsForA4Batch(rawInput = '') {
+  const allReceipts = Array.isArray(AppState.receipts) ? [...AppState.receipts] : [];
+  const sortedReceipts = allReceipts.sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')));
+
+  const tokens = String(rawInput || '')
+    .split(/[\n,]+/)
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  if (!tokens.length) {
+    return sortedReceipts.slice(0, 4);
+  }
+
+  const selected = [];
+  const seenKeys = new Set();
+
+  tokens.forEach(token => {
+    if (selected.length >= 4) return;
+
+    let receipt = findReceiptByKey(token);
+    if (!receipt) {
+      const latestForStudent = getLatestReceiptKeyForStudent(token);
+      if (latestForStudent) receipt = findReceiptByKey(latestForStudent);
+    }
+    if (!receipt) return;
+
+    const receiptKey = getReceiptKey(receipt);
+    if (!receiptKey || seenKeys.has(receiptKey)) return;
+    seenKeys.add(receiptKey);
+    selected.push(receipt);
+  });
+
+  return selected;
+}
+
+function printFourReceiptsA4(rawInput = null) {
+  const lookupInput = qs('#feesReceiptLookup');
+  const query = String(rawInput ?? lookupInput?.value ?? '').trim();
+  const selectedReceipts = getReceiptsForA4Batch(query);
+
+  if (!selectedReceipts.length) {
+    alert('No matching receipts found. Enter up to 4 Receipt No or Admission No separated by comma.');
+    return;
+  }
+
+  const pages = [];
+  for (let index = 0; index < selectedReceipts.length; index += 4) {
+    pages.push(selectedReceipts.slice(index, index + 4));
+  }
+
+  const root = qs('#receiptPrintRoot');
+  if (!root) return;
+
+  root.classList.add('receipt-print-a4');
+  root.innerHTML = pages.map((page, pageIndex) => `
+    <div class="bulk-receipt-page" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
+      <div class="bulk-receipt-grid">
+        ${page.map(receipt => `
+          <div class="bulk-receipt-card">
+            ${buildReceiptHTML(receipt, { compact: true })}
+          </div>
+        `).join('')}
+        ${Array.from({ length: Math.max(0, 4 - page.length) }).map(() => '<div></div>').join('')}
+      </div>
+    </div>
+  `).join('');
+
+  printFromRoot(root, 1200);
+}
+
 function exportFeesDuesCSV(){
   const rows = AppState.pagination?.fees?.filtered || [];
   const header = ['Admission No', 'Name', 'Class', 'Phone', 'Month', 'Due', 'Paid', 'Balance', 'Status'];
@@ -5213,6 +5283,8 @@ async function renderRecentReceipts(){
   });
   const feesBtnReceiptsExport = qs('#feesBtnReceiptsExport');
   if (feesBtnReceiptsExport) feesBtnReceiptsExport.onclick = exportReceiptsCSV;
+  const feesBtnPrint4ReceiptsA4 = qs('#feesBtnPrint4ReceiptsA4');
+  if (feesBtnPrint4ReceiptsA4) feesBtnPrint4ReceiptsA4.onclick = () => printFourReceiptsA4();
 }
 
 function getReceiptKey(receipt) {

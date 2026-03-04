@@ -1447,6 +1447,39 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   gap: 6px;
 }
 
+.bulk-receipt-page {
+  width: 210mm;
+  min-height: 297mm;
+  box-sizing: border-box;
+  padding: 8mm;
+  background: #fff;
+}
+
+.bulk-receipt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 8mm;
+  min-height: 281mm;
+}
+
+.bulk-receipt-card {
+  border: 1px dashed #9ca3af;
+  border-radius: 8px;
+  padding: 6mm;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #fff;
+}
+
+.bulk-receipt-card .receipt-paper {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+}
+
 .due-compact-card {
   border: 1px dashed #777;
   border-radius: 6px;
@@ -1582,6 +1615,14 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   #receiptPrintRoot .thermal-batch-root {
     width: 58mm;
     margin: 0;
+  }
+
+  #receiptPrintRoot .bulk-receipt-page {
+    page-break-after: always;
+  }
+
+  #receiptPrintRoot .bulk-receipt-page:last-child {
+    page-break-after: auto;
   }
 }
 
