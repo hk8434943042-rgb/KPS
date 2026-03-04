@@ -4723,7 +4723,6 @@ function printAllDueReceiptsThermal2Inch(){
 }
 
 function printAllDueReceipts(options = {}){
-  const { ultraCompact = false } = options;
   const printedAt = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
   const dueStudents = getFilteredDueStudentsFromFeesFilters();
 
@@ -4735,40 +4734,179 @@ function printAllDueReceipts(options = {}){
   const root = qs('#receiptPrintRoot');
   if (!root) return;
 
-  // Convert due students to receipt-like objects for professional A4 printing
+  // Convert due students to professional A4 receipt format
   const dueReceipts = dueStudents.map((item, idx) => {
     const totalDue = item.dueRows.reduce((sum, row) => sum + row.amount, 0);
     return {
       id: 'due-' + idx + '-' + Date.now(),
-      no: 'DUE-' + (idx + 1),
+      no: 'DUE-' + String(idx + 1).padStart(5, '0'),
       date: new Date().toLocaleDateString(AppState.settings.locale || 'en-IN'),
       roll: item.student.roll,
       name: item.student.name,
       amount: totalDue,
       method: 'Outstanding',
-      ref: item.summary.due,
+      ref: '',
       months: [],
       _isDueReceipt: true,
-      _dueDetails: item.dueRows
+      _dueDetails: item.dueRows.map(d => ({
+        month: d.month,
+        amount: d.amount || 0
+      }))
     };
   });
 
-  // Create pages with 1 receipt per page in A4 format
-  const pages = [];
-  for (let i = 0; i < dueReceipts.length; i++) {
-    pages.push(dueReceipts[i]);
-  }
-
   root.classList.add('receipt-print-a4');
   root.innerHTML = `
-    ${pages.map((receipt, pageIndex) => `
-      <div class="receipt-a4-sheet" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
-        ${buildReceiptA4HTML(receipt)}
+    ${dueReceipts.map((receipt, pageIndex) => `
+      <div class="receipt-a4-sheet" style="page-break-after:${pageIndex < dueReceipts.length - 1 ? 'always' : 'auto'};">
+        ${buildDueReceiptA4HTML(receipt)}
       </div>
     `).join('')}
   `;
 
   printFromRoot(root, 1200);
+}
+
+// Build professional A4 format for due receipt statements
+function buildDueReceiptA4HTML(r) {
+  const receiptNo = r.no || 'DUE-00001';
+  const sch = AppState.settings.school || {};
+  const schoolName = sch.name || RECEIPT_SCHOOL_HEADER;
+  const tagline = sch.tagline || '';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logo = sch.logo || 'assets/logo.png';
+
+  const now = new Date();
+  const dateStr = r.date || now.toLocaleDateString(AppState.settings.locale || 'en-IN');
+  const session = now.getFullYear() + '-' + (now.getFullYear() + 1);
+  const totalDue = r.amount || 0;
+  const amountWords = totalDue > 0 ? numberToWords(Math.floor(totalDue)) + ' Only' : 'Zero';
+  const dueItems = (r._dueDetails || []).map(d => ({
+    name: formatMonthYear(d.month),
+    due: d.amount,
+    con: 0,
+    paid: 0
+  }));
+
+  return `
+    <div class="a4-receipt-container">
+      <!-- Header with logo and school info -->
+      <div class="a4-receipt-header">
+        <div class="a4-receipt-logo">
+          <img src="${logo}" alt="Logo" onerror="this.style.display='none'" />
+        </div>
+        <div class="a4-receipt-school-info">
+          <h1>${schoolName}</h1>
+          <p class="tagline">${tagline}</p>
+          <p class="address">${address}</p>
+          <p class="contact">${[phone, email].filter(Boolean).join(' · ')}</p>
+        </div>
+      </div>
+
+      <!-- Title -->
+      <div class="a4-receipt-title">DUE FEE STATEMENT</div>
+
+      <!-- Receipt details grid -->
+      <div class="a4-receipt-details">
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Receipt No</span>
+            <span class="value">${receiptNo}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Date</span>
+            <span class="value">${dateStr}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Adm No</span>
+            <span class="value">${r.roll}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Session</span>
+            <span class="value">${session}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Name</span>
+            <span class="value">${r.name}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Counter No</span>
+            <span class="value">DPS-DUE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Outstanding months table -->
+      <table class="a4-receipt-table">
+        <thead>
+          <tr>
+            <th class="col-sl">Sl.No</th>
+            <th class="col-desc">Description</th>
+            <th class="col-amount">Due</th>
+            <th class="col-amount">Con</th>
+            <th class="col-amount">Paid</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dueItems.length > 0 ? dueItems.map((item, idx) => `
+            <tr>
+              <td class="col-sl">${idx + 1}</td>
+              <td class="col-desc">${item.name}</td>
+              <td class="col-amount">${item.due}</td>
+              <td class="col-amount">${item.con}</td>
+              <td class="col-amount">${item.paid}</td>
+            </tr>
+          `).join('') : `
+            <tr>
+              <td class="col-sl">1</td>
+              <td class="col-desc">Outstanding Balance</td>
+              <td class="col-amount">${totalDue}</td>
+              <td class="col-amount">0</td>
+              <td class="col-amount">0</td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+
+      <!-- Payment information section -->
+      <div class="a4-payment-info">
+        <div class="payment-row">
+          <span class="label">Status</span>
+          <span class="value">Outstanding</span>
+          <span class="label">Date</span>
+          <span class="value">${dateStr}</span>
+        </div>
+        <div class="payment-row">
+          <span class="label">Action Required</span>
+          <span class="value">Pending Payment</span>
+          <span class="label">Priority</span>
+          <span class="value">Urgent</span>
+        </div>
+      </div>
+
+      <!-- Total section -->
+      <div class="a4-total-section">
+        <div class="total-row">
+          <span>Total Due</span>
+          <span>${totalDue}</span>
+        </div>
+        <div class="a4-total-words">
+          <strong>Total in Words:</strong> ${amountWords}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="a4-receipt-footer">
+        <p>⚠️ Outstanding Payment Notice - Please settle the dues at your earliest</p>
+      </div>
+    </div>
+  `;
 }
 
 function getReceiptsForA4Batch(rawInput = '') {
