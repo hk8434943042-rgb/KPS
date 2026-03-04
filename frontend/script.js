@@ -124,7 +124,8 @@ const AppState = {
       phone: '+91-XXXXXXXXXX',
       adminPhone: '9661349008',
       email: 'himanshunsingh3596@gmail.com',
-      logo: 'assets/logo.png'
+      logo: 'assets/logo.png',
+      counterNumber: 'KPS-01'
     },
     // Receipt fee items breakdown
     feeItems: [
@@ -4778,6 +4779,7 @@ function buildDueReceiptA4HTML(r) {
   const phone = sch.phone || '';
   const email = sch.email || '';
   const logo = sch.logo || 'assets/logo.png';
+  const counterName = sch.counterNumber || 'KPS-01';
 
   const now = new Date();
   const dateStr = r.date || now.toLocaleDateString(AppState.settings.locale || 'en-IN');
@@ -4839,7 +4841,7 @@ function buildDueReceiptA4HTML(r) {
           </div>
           <div class="due-grid-item">
             <span class="due-label">Counter No</span>
-            <span class="due-value">: DPS-DUE</span>
+            <span class="due-value">: ${counterName}-DUE</span>
           </div>
         </div>
       </div>
@@ -6796,6 +6798,7 @@ function buildReceiptA4HTML(r) {
   const phone = sch.phone || '';
   const email = sch.email || '';
   const logo = sch.logo || 'assets/logo.png';
+  const counterName = sch.counterNumber || 'KPS-01';
 
   const now = new Date();
   const dateStr = r.date || now.toLocaleDateString(AppState.settings.locale || 'en-IN');
@@ -6861,7 +6864,7 @@ function buildReceiptA4HTML(r) {
           </div>
           <div class="detail-item">
             <span class="label">Counter No</span>
-            <span class="value">${isDueReceipt ? 'DPS-DUE' : 'DPS-RECEIPT'}</span>
+            <span class="value">${isDueReceipt ? counterName + '-DUE' : counterName}</span>
           </div>
         </div>
       </div>
@@ -9005,6 +9008,7 @@ function renderSettings() {
   const setAdminPhone    = qs('#setAdminPhone');
   const setSchoolEmail   = qs('#setSchoolEmail');
   const setSchoolLogo    = qs('#setSchoolLogo');
+  const setCounterNumber = qs('#setCounterNumber');
   const credentialCard = qs('#settingsCredentialCard');
   const saveCredentialsBtn = qs('#settingsSaveCredentialsBtn');
   const setMainAdminUsername = qs('#setMainAdminUsername');
@@ -9042,6 +9046,7 @@ function renderSettings() {
   if (setAdminPhone) setAdminPhone.value = sch.adminPhone || '';
   if (setSchoolEmail) setSchoolEmail.value   = sch.email   || '';
   if (setSchoolLogo) setSchoolLogo.value    = sch.logo    || '';
+  if (setCounterNumber) setCounterNumber.value = sch.counterNumber || 'KPS-01';
 
   const isMainAdmin = getUserRole() === 'admin' && getAdminPanelRole() === 'main_admin';
   if (credentialCard) credentialCard.style.display = isMainAdmin ? '' : 'none';
@@ -9073,7 +9078,8 @@ function renderSettings() {
       phone:   (setSchoolPhone?.value || '').trim(),
       adminPhone: (setAdminPhone?.value || '').trim(),
       email:   (setSchoolEmail?.value || '').trim(),
-      logo:    (setSchoolLogo?.value || '').trim()
+      logo:    (setSchoolLogo?.value || '').trim(),
+      counterNumber: (setCounterNumber?.value || 'KPS-01').trim()
     };
 
     // Apply immediately
