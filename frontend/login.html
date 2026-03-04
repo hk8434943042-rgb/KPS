@@ -911,6 +911,28 @@
     const MANAGED_CREDENTIALS_KEY = 'khushi_managed_credentials';
     const DEFAULT_RECOVERY_EMAIL = 'himanshunsingh3596@gmail.com';
 
+    // Initialize default credentials if not set
+    function initializeDefaultCredentials() {
+      const existing = getManagedCredentials();
+      
+      // Set defaults only if not already configured
+      if (!existing.main_admin) {
+        existing.main_admin = {
+          username: 'admin',
+          password: 'admin123'
+        };
+      }
+      
+      if (!existing.reception) {
+        existing.reception = {
+          username: 'reception',
+          password: 'reception123'
+        };
+      }
+      
+      setManagedCredentials(existing);
+    }
+
     function getManagedCredentials() {
       try {
         return JSON.parse(localStorage.getItem(MANAGED_CREDENTIALS_KEY) || '{}') || {};
@@ -1837,6 +1859,9 @@
     // If this same tab already has a valid session, skip login screen and redirect.
     // New tabs still start unauthenticated because sessionStorage is tab-scoped.
     window.addEventListener('load', async () => {
+      // Initialize default credentials for reception and admin
+      initializeDefaultCredentials();
+      
       const isAuthed = sessionStorage.getItem('isAuthenticated') === 'true';
       const userType = (sessionStorage.getItem('userType') || '').trim();
       const userRaw = sessionStorage.getItem('user');
