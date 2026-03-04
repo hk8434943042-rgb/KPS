@@ -4735,22 +4735,39 @@ function printAllDueReceipts(options = {}){
   const root = qs('#receiptPrintRoot');
   if (!root) return;
 
+  // Convert due students to receipt-like objects for professional A4 printing
+  const dueReceipts = dueStudents.map((item, idx) => {
+    const totalDue = item.dueRows.reduce((sum, row) => sum + row.amount, 0);
+    return {
+      id: 'due-' + idx + '-' + Date.now(),
+      no: 'DUE-' + (idx + 1),
+      date: new Date().toLocaleDateString(AppState.settings.locale || 'en-IN'),
+      roll: item.student.roll,
+      name: item.student.name,
+      amount: totalDue,
+      method: 'Outstanding',
+      ref: item.summary.due,
+      months: [],
+      _isDueReceipt: true,
+      _dueDetails: item.dueRows
+    };
+  });
+
+  // Create pages with 1 receipt per page in A4 format
   const pages = [];
-  for (let i = 0; i < dueStudents.length; i += 4) {
-    pages.push(dueStudents.slice(i, i + 4));
+  for (let i = 0; i < dueReceipts.length; i++) {
+    pages.push(dueReceipts[i]);
   }
 
+  root.classList.add('receipt-print-a4');
   root.innerHTML = `
-    ${pages.map((page, pageIndex) => `
-      <div class="bulk-due-page" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
-        <div class="bulk-due-generated">Generated: ${printedAt}</div>
-        <div class="bulk-due-grid ${ultraCompact ? 'bulk-due-grid--ultra' : ''}">
-          ${page.map(item => createCompactDueReceiptCard(item.student, item.summary, item.dueRows, { ultraCompact })).join('')}
-          ${Array.from({ length: Math.max(0, 4 - page.length) }).map(() => '<div></div>').join('')}
-        </div>
+    ${pages.map((receipt, pageIndex) => `
+      <div class="receipt-a4-sheet" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
+        ${buildReceiptA4HTML(receipt)}
       </div>
     `).join('')}
   `;
+
   printFromRoot(root, 1200);
 }
 
@@ -6634,7 +6651,17 @@ function buildReceiptA4HTML(r) {
   const session = now.getFullYear() + '-' + (now.getFullYear() + 1);
   const amount = r.amount || 0;
   const amountWords = numberToWords(Math.floor(amount)) + ' Only';
-  const feeItems = getReceiptFeeItems(amount);
+  
+  // Determine if this is a due receipt or regular receipt
+  const isDueReceipt = r._isDueReceipt === true;
+  const feeItems = isDueReceipt 
+    ? (r._dueDetails || []).map(detail => ({
+        name: formatMonthYear(detail.month),
+        due: detail.amount,
+        con: 0,
+        paid: 0
+      }))
+    : getReceiptFeeItems(amount);
 
   return `
     <div class="a4-receipt-container">
@@ -6652,7 +6679,7 @@ function buildReceiptA4HTML(r) {
       </div>
 
       <!-- Title -->
-      <div class="a4-receipt-title">FEE RECEIPT</div>
+      <div class="a4-receipt-title">${isDueReceipt ? 'DUE FEE STATEMENT' : 'FEE RECEIPT'}</div>
 
       <!-- Receipt details grid -->
       <div class="a4-receipt-details">
@@ -6683,7 +6710,7 @@ function buildReceiptA4HTML(r) {
           </div>
           <div class="detail-item">
             <span class="label">Counter No</span>
-            <span class="value">DPS-RECEIPT</span>
+            <span class="value">${isDueReceipt ? 'DPS-DUE' : 'DPS-RECEIPT'}</span>
           </div>
         </div>
       </div>
@@ -6715,15 +6742,15 @@ function buildReceiptA4HTML(r) {
       <!-- Payment information section -->
       <div class="a4-payment-info">
         <div class="payment-row">
-          <span class="label">Pay Mode</span>
-          <span class="value">${r.method || 'Cash'}</span>
+          <span class="label">Status</span>
+          <span class="value">${r.method || 'Outstanding'}</span>
           <span class="label">Date</span>
           <span class="value">${dateStr}</span>
         </div>
         <div class="payment-row">
-          <span class="label">Bank</span>
-          <span class="value">${r.ref || '-'}</span>
-          <span class="label">Number</span>
+          <span class="label">Reason</span>
+          <span class="value">${isDueReceipt ? 'Pending Payment' : (r.ref || '-')}</span>
+          <span class="label">Reference</span>
           <span class="value">${r.ref || '-'}</span>
         </div>
       </div>
@@ -6731,7 +6758,7 @@ function buildReceiptA4HTML(r) {
       <!-- Total section -->
       <div class="a4-total-section">
         <div class="total-row">
-          <span>Total</span>
+          <span>${isDueReceipt ? 'Total Due' : 'Total'}</span>
           <span>${amount}</span>
         </div>
         <div class="a4-total-words">
@@ -6741,7 +6768,7 @@ function buildReceiptA4HTML(r) {
 
       <!-- Footer -->
       <div class="a4-receipt-footer">
-        <p>Note: 356</p>
+        <p>${isDueReceipt ? '⚠️ Outstanding Payment Notice' : 'Note: 356'}</p>
       </div>
     </div>
   `;
