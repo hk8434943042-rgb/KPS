@@ -368,6 +368,15 @@ function getUserRole() {
   return getAuthStorage(ROLE_KEY) || getAuthStorage('userType') || 'admin';
 }
 
+function getPanelRole() {
+  // Returns 'main_admin' or 'reception' for distinguishing admin types
+  return getAuthStorage('khushi_admin_panel_role') || 'main_admin';
+}
+
+function isReceptionUser() {
+  return getPanelRole() === 'reception';
+}
+
 function getCurrentUser() {
   return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
   return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
@@ -512,7 +521,14 @@ function displayUserInfo() {
     try {
       const user = JSON.parse(userStr);
       const displayName = user.full_name || user.username || 'Admin';
-      userDisplayEl.textContent = displayName;
+      const panelRole = getPanelRole();
+      
+      // Add role indicator for reception users
+      if (panelRole === 'reception') {
+        userDisplayEl.textContent = `${displayName} (Reception)`;
+      } else {
+        userDisplayEl.textContent = displayName;
+      }
     } catch (e) {
       userDisplayEl.textContent = 'Admin';
     }
@@ -571,6 +587,10 @@ function switchRole(role) {
     // Show admin interface
     if (sidebar) sidebar.classList.remove('hidden');
     if (app) app.classList.remove('hidden');
+    
+    // Apply role-based restrictions for reception
+    applyRoleBasedAccess();
+    
     // Start server status monitoring for admin
     startServerStatusCheck();
     switchView('dashboard');
@@ -1465,6 +1485,65 @@ function applySchoolBranding() {
   if (brandTextSmall)  brandTextSmall.textContent  = sch.tagline || 'Admin Portal';
 }
 
+// ---------- Role-Based Access Control ----------
+function applyRoleBasedAccess() {
+  const isReception = isReceptionUser();
+  
+  // Define which views Reception can access
+  const receptionAllowedViews = [
+    'dashboard',
+    'students',
+    'fees',
+    'classes',
+    'teachers',
+    'staff',
+    'transport',
+    'notices'
+  ];
+  
+  // Define which views are Admin-only
+  const adminOnlyViews = [
+    'exams',
+    'settings',
+    'audit',
+    'parents'
+  ];
+  
+  if (isReception) {
+    // Hide admin-only menu items
+    adminOnlyViews.forEach(view => {
+      const menuItem = document.querySelector(`.menu__item[data-view="${view}"]`);
+      if (menuItem) {
+        menuItem.style.display = 'none';
+      }
+    });
+    
+    // Update user display to show role
+    const userDisplayEl = document.getElementById('userDisplayName');
+    if (userDisplayEl) {
+      const currentText = userDisplayEl.textContent;
+      if (!currentText.includes('Reception')) {
+        userDisplayEl.textContent = currentText + ' (Reception)';
+      }
+    }
+    
+    // Restrict access if someone tries to navigate to admin-only view directly
+    const currentView = AppState.view;
+    if (adminOnlyViews.includes(currentView)) {
+      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      switchView('dashboard');
+    }
+    
+    console.log('✓ Reception role restrictions applied');
+  } else {
+    // Main Admin - show all menu items
+    document.querySelectorAll('.menu__item').forEach(item => {
+      item.style.display = '';
+    });
+    console.log('✓ Full admin access granted');
+  }
+}
+
 // ---------- Sidebar & Routing ----------
 function initSidebarNavigation(){
   const sidebar = qs('#sidebar');
@@ -1514,6 +1593,15 @@ let viewSwitchInProgress = false;
 let switchViewTimeout;
 
 function switchView(viewId) {
+  // Check if reception user is trying to access admin-only view
+  if (isReceptionUser()) {
+    const adminOnlyViews = ['exams', 'settings', 'audit', 'parents'];
+    if (adminOnlyViews.includes(viewId)) {
+      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      return; // Don't switch to restricted view
+    }
+  }
+  
   // Debounce rapid view switches
   if (viewSwitchInProgress) return;
   viewSwitchInProgress = true;
