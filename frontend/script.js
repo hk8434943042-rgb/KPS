@@ -2185,7 +2185,27 @@ function openModal(sel){
 
   if(sel==='#modalAddStudent')     initAddStudentModal();
   if(sel==='#modalImportCSV')      initImportCSVModal();
-  if(sel==='#modalRecordPayment')  initRecordPaymentModal();
+  if(sel==='#modalRecordPayment')  { 
+    if (!dlg.dataset.initialized) { 
+      initRecordPaymentModal(); 
+      dlg.dataset.initialized = 'true'; 
+    }
+    // Reset form when opening
+    const form = qs('#formRecordPayment');
+    if (form) form.reset();
+    const rpStatus = qs('#rpStatus');
+    if (rpStatus) rpStatus.textContent = '';
+    const rpError = qs('#rpError');
+    if (rpError) rpError.style.display = 'none';
+    const rpHeadsWrap = qs('#rpHeads');
+    if (rpHeadsWrap) rpHeadsWrap.innerHTML = '';
+    const rpMonth = qs('#rpMonth');
+    if (rpMonth) rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+    const rpStudentSearch = qs('#rpStudentSearch');
+    if (rpStudentSearch) rpStudentSearch.value = '';
+    const rpStudentList = qs('#rpStudentList');
+    if (rpStudentList) rpStudentList.style.display = 'none';
+  }
   if(sel==='#modalFeeHeads')       initFeeHeadsModal();
   if(sel==='#modalLateRules')      initLateRulesModal();
   if(sel==='#modalConcession')     initConcessionModal();
@@ -4426,7 +4446,7 @@ function init(){
         try {
           initAddStudentModal();
           initImportCSVModal();
-          initRecordPaymentModal();
+          // Note: initRecordPaymentModal is called by openModal when needed
           initFeeHeadsModal();
           initLateRulesModal();
           initConcessionModal();
