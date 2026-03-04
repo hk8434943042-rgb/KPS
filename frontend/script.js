@@ -1763,7 +1763,7 @@ async function loadDashboardData() {
   
   if (stats) {
     if (kpiStudents) animateNumber(kpiStudents, stats.total_students, 1500);
-    if (kpiFees) animateNumber(kpiFees, stats.total_revenue, 1500, false, true);
+    if (kpiFees) animateNumber(kpiFees, stats.month_revenue, 1500, false, true);
     if (kpiIssues) animateNumber(kpiIssues, stats.pending_payments, 1500);
   } else {
     if (kpiStudents) animateNumber(kpiStudents, AppState.kpi.totalStudents, 1500);
