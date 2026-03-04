@@ -7951,7 +7951,6 @@ async function renderTransport() {
   bind('#trBtnRoutesCSV',   exportRoutesCSV);
   bind('#trBtnVehiclesCSV', exportVehiclesCSV);
   bind('#trBtnAssignmentsCSV', exportAssignmentsCSV);
-  bind('#trBtnOpenMap',     () => alert('Route visualization feature is coming soon. For now, please refer to the stops listed in the Assignments table.'));
 
   // Filters/search triggers
   const rerenderAll = () => { renderTrRoutesTable(); renderTrVehiclesTable(); renderTrAssignTable(); };
@@ -7966,6 +7965,56 @@ async function renderTransport() {
   renderTrRoutesTable();
   renderTrVehiclesTable();
   renderTrAssignTable();
+  initTransportMap();
+}
+
+function buildTransportMapEmbedUrl(query = '') {
+  const normalized = String(query || '').trim() || 'Deoley Shekhpura';
+  return `https://www.google.com/maps?q=${encodeURIComponent(normalized)}&output=embed`;
+}
+
+function initTransportMap() {
+  const mapInput = qs('#trMapQuery');
+  const mapFrame = qs('#trMapPreview');
+  const btnUpdate = qs('#trBtnUpdateMap');
+  const btnOpen = qs('#trBtnOpenMap');
+  const routeFilter = qs('#trFilterRoute');
+  if (!mapInput || !mapFrame || !btnUpdate || !btnOpen) return;
+
+  const storageKey = 'kps_transport_map_query';
+  const selectedRouteId = routeFilter?.value || '';
+  const selectedRoute = AppState.transport.routes.find(r => String(r.id) === String(selectedRouteId));
+  const fallbackFromRoute = selectedRoute
+    ? `${selectedRoute.name || selectedRoute.route_name || ''} ${selectedRoute.destination || ''}`.trim()
+    : '';
+
+  const currentQuery = String(mapInput.value || '').trim();
+  const savedQuery = localStorage.getItem(storageKey) || fallbackFromRoute || 'Deoley Shekhpura';
+  const activeQuery = currentQuery || savedQuery;
+
+  mapInput.value = activeQuery;
+  mapFrame.src = buildTransportMapEmbedUrl(activeQuery);
+
+  const applyMap = () => {
+    const query = String(mapInput.value || '').trim() || fallbackFromRoute || 'Deoley Shekhpura';
+    mapInput.value = query;
+    mapFrame.src = buildTransportMapEmbedUrl(query);
+    localStorage.setItem(storageKey, query);
+  };
+
+  btnUpdate.onclick = applyMap;
+  btnOpen.onclick = () => {
+    const query = String(mapInput.value || '').trim() || fallbackFromRoute || 'Deoley Shekhpura';
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    window.open(url, '_blank', 'noopener');
+  };
+
+  mapInput.onkeydown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyMap();
+    }
+  };
 }
 
 function renderTrRoutesTable() {

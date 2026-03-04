@@ -247,7 +247,6 @@
               class="dashboard-google-map"
               title="School Location Google Map"
               loading="lazy"
-              referrerpolicy="no-referrer-when-downgrade"
               src="https://www.google.com/maps?q=Khushi%20Public%20School%20Deoley%20Shekhpura&output=embed">
             </iframe>
           </div>
@@ -1797,10 +1796,22 @@
     <div class="card__header">
       <h3>Route Map (Preview)</h3>
       <div class="card__actions">
+        <button class="btn btn-ghost small" id="trBtnUpdateMap">Update Map</button>
         <button class="btn btn-ghost small" id="trBtnOpenMap">Open in Map Provider</button>
       </div>
     </div>
-    <div id="trMapPlaceholder" class="placeholder">🗺️ Map integration (Leaflet/Google Maps) can be connected here</div>
+    <div class="p-12">
+      <div class="dashboard-map-controls">
+        <input type="text" id="trMapQuery" class="form-control" placeholder="Enter route, stop, or area" />
+      </div>
+      <iframe
+        id="trMapPreview"
+        class="dashboard-google-map"
+        title="Transport Route Map"
+        loading="lazy"
+        src="https://www.google.com/maps?q=Deoley%20Shekhpura&output=embed">
+      </iframe>
+    </div>
   </div>
 </section>
 
@@ -2502,7 +2513,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260304-google-map"></script>
+  <script src="script.js?v=20260304-transport-map"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
