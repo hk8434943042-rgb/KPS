@@ -1961,6 +1961,562 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   background: linear-gradient(90deg, #10b981, #047857);
 }
 
+/* ═════════════════════════════════════════════════════════════
+   STAFF PREFERENCES BOX - Classic Design
+   ═════════════════════════════════════════════════════════════ */
+
+.staff-preferences-box {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin: 20px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.staff-preferences-box:not(.hidden) {
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pref-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+}
+
+.pref-header h3 {
+  margin: 0;
+  color: var(--primary);
+  font-size: 18px;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+  background: var(--chip);
+  color: var(--text);
+}
+
+.pref-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 8px;
+  border-left: 4px solid var(--primary);
+}
+
+.pref-section:last-child {
+  margin-bottom: 0;
+}
+
+.pref-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* View Mode Toggles */
+.view-mode-toggles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.view-toggle {
+  padding: 8px 16px;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.view-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.view-toggle.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Column Checkboxes */
+.column-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+}
+
+.checkbox-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.checkbox-item:hover {
+  color: var(--primary);
+}
+
+/* Form Control */
+.form-control {
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.form-control:hover {
+  border-color: var(--primary);
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Export Buttons */
+.export-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.btn-small:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ═════════════════════════════════════════════════════════════
+   CARD VIEW - Classic Box Design
+   ═════════════════════════════════════════════════════════════ */
+
+.staff-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.staff-card {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.staff-card:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  transform: translateY(-4px);
+  border-color: var(--primary);
+}
+
+.staff-card-header {
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.staff-card-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0 0 4px 0;
+}
+
+.staff-card-role {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.staff-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.staff-card-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.staff-card-label {
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 90px;
+}
+
+.staff-card-value {
+  color: var(--text);
+  text-align: right;
+  flex: 1;
+}
+
+.staff-card-status {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.staff-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 2px solid var(--border);
+}
+
+.staff-card-actions button {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   LIST VIEW - Classic Box Design
+   ═════════════════════════════════════════════════════════════ */
+
+.staff-list-container {
+  margin-top: 20px;
+}
+
+.staff-list-item {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.staff-list-item:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.staff-list-info {
+  flex: 1;
+}
+
+.staff-list-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0 0 4px 0;
+}
+
+.staff-list-details {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.staff-list-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.staff-list-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   MODAL BOX - Add Staff Form
+   ═════════════════════════════════════════════════════════════ */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-box {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--primary);
+  font-size: 22px;
+}
+
+/* Staff Form Styles */
+.staff-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.form-group input,
+.form-group select {
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.form-group input:hover,
+.form-group select:hover {
+  border-color: var(--primary);
+}
+
+.form-group input::placeholder {
+  color: var(--muted);
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 2px solid var(--border);
+}
+
+.form-actions button {
+  flex: 1;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.form-actions .btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.form-actions .btn-primary:hover {
+  opacity: 0.9;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.form-actions .btn-ghost {
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+}
+
+.form-actions .btn-ghost:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Hidden/Show utilities */
+.hidden {
+  display: none !important;
+}
+
+/* Column visibility in table */
+.table th.col-name,
+.table td.col-name {
+  display: table-cell;
+}
+
+.table th.col-role,
+.table td.col-role {
+  display: table-cell;
+}
+
+.table th.col-phone,
+.table td.col-phone {
+  display: table-cell;
+}
+
+.table th.col-joinDate,
+.table td.col-joinDate {
+  display: table-cell;
+}
+
+.table th.col-salary,
+.table td.col-salary {
+  display: table-cell;
+}
+
+.table th.col-status,
+.table td.col-status {
+  display: table-cell;
+}
+
+.table th.col-name.hidden,
+.table td.col-name.hidden {
+  display: none !important;
+}
+
+.table th.col-role.hidden,
+.table td.col-role.hidden {
+  display: none !important;
+}
+
+.table th.col-phone.hidden,
+.table td.col-phone.hidden {
+  display: none !important;
+}
+
+.table th.col-joinDate.hidden,
+.table td.col-joinDate.hidden {
+  display: none !important;
+}
+
+.table th.col-salary.hidden,
+.table td.col-salary.hidden {
+  display: none !important;
+}
+
+.table th.col-status.hidden,
+.table td.col-status.hidden {
+  display: none !important;
+}
+
 @media (max-width: 768px) {
   .login-boxes-grid {
     grid-template-columns: 1fr;

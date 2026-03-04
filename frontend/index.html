@@ -1262,20 +1262,149 @@
       <!-- STAFF VIEW -->
       <section class="view hidden" id="view-staff" aria-labelledby="staff-title">
         <div class="page-header">
-          <h1 id="staff-title">Staff</h1>
+          <h1 id="staff-title">Staff Management</h1>
           <div class="page-actions">
             <button type="button" class="btn btn-primary" id="staffBtnAdd">+ Add Staff</button>
-            <button class="btn btn-ghost" id="staffBtnExport">Export (CSV)</button>
+            <button class="btn btn-ghost" id="staffBtnPreferences">⚙️ Preferences</button>
           </div>
         </div>
 
+        <!-- PREFERENCES BOX -->
+        <div class="staff-preferences-box hidden" id="staffPreferencesBox">
+          <div class="pref-header">
+            <h3>📊 Display Settings</h3>
+            <button class="btn-close" id="closePrefBtn">✕</button>
+          </div>
+
+          <!-- VIEW MODE TOGGLE -->
+          <div class="pref-section">
+            <label class="pref-label">📋 View Mode</label>
+            <div class="view-mode-toggles">
+              <button class="view-toggle active" data-view-mode="table">📊 Table</button>
+              <button class="view-toggle" data-view-mode="card">🗂️ Card</button>
+              <button class="view-toggle" data-view-mode="list">📝 List</button>
+            </div>
+          </div>
+
+          <!-- COLUMN CUSTOMIZATION -->
+          <div class="pref-section">
+            <label class="pref-label">🎯 Show Columns</label>
+            <div class="column-checkboxes">
+              <label class="checkbox-item">
+                <input type="checkbox" id="colName" checked /> Name
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="colRole" checked /> Role
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="colPhone" checked /> Phone
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="colJoinDate" checked /> Join Date
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="colSalary" checked /> Salary
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" id="colStatus" checked /> Status
+              </label>
+            </div>
+          </div>
+
+          <!-- STAFF TYPE FILTER -->
+          <div class="pref-section">
+            <label class="pref-label">🔍 Filter by Type</label>
+            <select id="staffTypeFilter" class="form-control">
+              <option value="">All Staff Types</option>
+              <option value="Admin">Admin</option>
+              <option value="Receptionist">Receptionist</option>
+              <option value="Accountant">Accountant</option>
+              <option value="Clerk">Clerk</option>
+              <option value="Security">Security</option>
+              <option value="Driver">Driver</option>
+              <option value="Cook">Cook</option>
+              <option value="Cleaner">Cleaner</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <!-- EXPORT OPTIONS -->
+          <div class="pref-section">
+            <label class="pref-label">💾 Export Format</label>
+            <div class="export-buttons">
+              <button class="btn btn-small" id="exportCSV">📄 CSV</button>
+              <button class="btn btn-small" id="exportJSON">📦 JSON</button>
+              <button class="btn btn-small" id="exportPDF">📕 PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ADD STAFF MODAL BOX -->
+        <div class="modal-overlay hidden" id="addStaffModal">
+          <div class="modal-box">
+            <div class="modal-header">
+              <h2>➕ Add New Staff Member</h2>
+              <button class="btn-close" id="closeAddStaffBtn">✕</button>
+            </div>
+            
+            <form id="addStaffForm" class="staff-form">
+              <div class="form-group">
+                <label for="staffName">👤 Full Name *</label>
+                <input type="text" id="staffName" placeholder="Enter staff name" required />
+              </div>
+
+              <div class="form-group">
+                <label for="staffRole">💼 Role *</label>
+                <select id="staffRole" required>
+                  <option value="">-- Select Role --</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Receptionist">Receptionist</option>
+                  <option value="Accountant">Accountant</option>
+                  <option value="Clerk">Clerk</option>
+                  <option value="Security">Security</option>
+                  <option value="Driver">Driver</option>
+                  <option value="Cook">Cook</option>
+                  <option value="Cleaner">Cleaner</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="staffPhone">📞 Phone Number *</label>
+                <input type="tel" id="staffPhone" placeholder="Enter phone number" required />
+              </div>
+
+              <div class="form-group" id="salaryGroup">
+                <label for="staffSalary">💰 Monthly Salary (₹)</label>
+                <input type="number" id="staffSalary" placeholder="Enter monthly salary" min="0" value="0" />
+              </div>
+
+              <div class="form-group">
+                <label for="staffStatus">✅ Status</label>
+                <select id="staffStatus">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="on_leave">On Leave</option>
+                </select>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">✅ Add Staff</button>
+                <button type="button" class="btn btn-ghost" id="cancelAddStaffBtn">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- TOOLBAR -->
         <div class="toolbar">
           <div class="toolbar__right">
             <input type="search" id="staffSearch" placeholder="Search by name / role / phone…" />
           </div>
         </div>
 
-        <div class="card">
+        <!-- TABLE VIEW -->
+        <div class="card staff-view-container" id="staffTableContainer">
           <div class="card__header">
             <h3>Staff List</h3>
           </div>
@@ -1283,18 +1412,28 @@
             <table class="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Phone</th>
-                  <th>Join Date</th>
-                  <th>Monthly Salary</th>
-                  <th>Status</th>
+                  <th class="col-name">Name</th>
+                  <th class="col-role">Role</th>
+                  <th class="col-phone">Phone</th>
+                  <th class="col-joinDate">Join Date</th>
+                  <th class="col-salary">Monthly Salary</th>
+                  <th class="col-status">Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="staffTableBody"><!-- rows injected --></tbody>
             </table>
           </div>
+        </div>
+
+        <!-- CARD VIEW -->
+        <div class="staff-cards-container hidden" id="staffCardsContainer">
+          <div id="staffCardsContent"><!-- card content injected --></div>
+        </div>
+
+        <!-- LIST VIEW -->
+        <div class="staff-list-container hidden" id="staffListContainer">
+          <div id="staffListContent"><!-- list content injected --></div>
         </div>
       </section>
       
@@ -2268,7 +2407,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260301b"></script>
+  <script src="script.js?v=20260304-staff-modal"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>

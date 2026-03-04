@@ -3459,92 +3459,114 @@ function exportStaffCSV() {
   downloadFile('staff_export.csv', csv);
 }
 
+function exportStaffJSON() {
+  const json = JSON.stringify(AppState.staff || [], null, 2);
+  downloadFile('staff_export.json', json);
+}
+
+function exportStaffPDF() {
+  const data = AppState.staff || [];
+  let html = '<h2>Staff Report</h2><p>Generated: ' + new Date().toDateString() + '</p><table border="1" cellpadding="5" cellspacing="0">';
+  html += '<tr><th>Name</th><th>Role</th><th>Phone</th><th>Join Date</th><th>Salary</th><th>Status</th></tr>';
+  data.forEach(s => {
+    html += '<tr><td>' + (s.name || '') + '</td><td>' + (s.role || '') + '</td><td>' + (s.phone || '') + '</td><td>' + (s.joinDate || '') + '</td><td>' + fmtINR(Number(s.salary || 0)) + '</td><td>' + (s.status || 'active') + '</td></tr>';
+  });
+  html += '</table>';
+  alert('PDF preview:\n\n' + html.replace(/<[^>]*>/g, '\n'));
+}
+
 function renderStaff() {
   const tableBody = qs('#staffTableBody');
   const searchInput = qs('#staffSearch');
   const btnAdd = qs('#staffBtnAdd');
-  const btnExport = qs('#staffBtnExport');
-  if (!tableBody || !searchInput || !btnAdd || !btnExport) return;
+  const prefBtn = qs('#staffBtnPreferences');
+  const prefBox = qs('#staffPreferencesBox');
+  const closePrefBtn = qs('#closePrefBtn');
+  const tableContainer = qs('#staffTableContainer');
+  const cardsContainer = qs('#staffCardsContainer');
+  const listContainer = qs('#staffListContainer');
+  const addStaffModal = qs('#addStaffModal');
+  const closeAddStaffBtn = qs('#closeAddStaffBtn');
+  const cancelAddStaffBtn = qs('#cancelAddStaffBtn');
+  const addStaffForm = qs('#addStaffForm');
+  const salaryGroup = qs('#salaryGroup');
+  
+  if (!tableBody || !searchInput || !btnAdd || !prefBtn || !prefBox) return;
 
   if (!Array.isArray(AppState.staff)) AppState.staff = [];
   const isMainAdmin = getUserRole() === 'admin' && getAdminPanelRole() === 'main_admin';
 
-  const renderTable = () => {
-    const query = (searchInput.value || '').trim().toLowerCase();
-    const rows = AppState.staff.filter(s => {
-      const hay = `${s.name || ''} ${s.role || ''} ${s.phone || ''}`.toLowerCase();
-      return !query || hay.includes(query);
-    });
+  // Show/hide salary field based on admin role
+  if (salaryGroup) {
+    salaryGroup.style.display = isMainAdmin ? 'flex' : 'none';
+  }
 
-    tableBody.innerHTML = rows.map(s => `
-      <tr>
-        <td>${s.name || ''}</td>
-        <td>${s.role || ''}</td>
-        <td>${s.phone || ''}</td>
-        <td>${s.joinDate || ''}</td>
-        <td>${isMainAdmin ? fmtINR(Number(s.salary || 0)) : '—'}</td>
-        <td><span class="badge ${String(s.status || 'active').toLowerCase() === 'active' ? 'success' : 'warn'}">${s.status || 'active'}</span></td>
-        <td style="text-align:right;">
-          ${isMainAdmin ? `<button class="btn btn-ghost small" data-staff-salary="${s.id}">Salary</button>` : ''}
-          <button class="btn btn-ghost small" data-staff-del="${s.id}">Delete</button>
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="7" class="muted">No staff records yet.</td></tr>';
-
-    qsa('button[data-staff-salary]').forEach(btn => {
-      btn.onclick = () => {
-        const id = Number(btn.getAttribute('data-staff-salary'));
-        const item = AppState.staff.find(s => Number(s.id) === id);
-        if (!item) return;
-
-        const nextSalaryRaw = prompt(`Enter monthly salary for ${item.name}:`, String(Number(item.salary || 0)));
-        if (nextSalaryRaw == null) return;
-
-        const nextSalary = Number(nextSalaryRaw);
-        if (!Number.isFinite(nextSalary) || nextSalary < 0) {
-          alert('Please enter a valid non-negative salary amount.');
-          return;
-        }
-
-        item.salary = nextSalary;
-        saveState();
-        renderTable();
-      };
-    });
-
-    qsa('button[data-staff-del]').forEach(btn => {
-      btn.onclick = () => {
-        const id = Number(btn.getAttribute('data-staff-del'));
-        const item = AppState.staff.find(s => Number(s.id) === id);
-        if (!item) return;
-        if (!confirm(`Delete staff ${item.name}?`)) return;
-        AppState.staff = AppState.staff.filter(s => Number(s.id) !== id);
-        saveState();
-        renderTable();
-      };
-    });
+  // Initialize preferences from localStorage
+  const prefKey = 'staffPreferences';
+  let prefs = JSON.parse(localStorage.getItem(prefKey)) || {
+    viewMode: 'table',
+    columns: {
+      name: true,
+      role: true,
+      phone: true,
+      joinDate: true,
+      salary: true,
+      status: true
+    },
+    staffTypeFilter: ''
   };
 
-  searchInput.oninput = renderTable;
+  // Save preferences
+  const savePrefs = () => localStorage.setItem(prefKey, JSON.stringify(prefs));
 
-  btnAdd.onclick = () => {
-    const name = (prompt('Enter staff name:') || '').trim();
-    if (!name) return;
-    const role = (prompt('Enter staff role (e.g., Receptionist, Accountant, Clerk):') || '').trim();
-    if (!role) return;
-    const phone = (prompt('Enter phone number:') || '').trim();
+  // Toggle preferences box
+  prefBtn.onclick = () => prefBox.classList.toggle('hidden');
+  closePrefBtn.onclick = () => prefBox.classList.add('hidden');
+
+  // Modal handlers
+  const openAddStaffModal = () => {
+    addStaffModal.classList.remove('hidden');
+    qs('#staffName').focus();
+  };
+
+  const closeModal = () => {
+    addStaffModal.classList.add('hidden');
+    addStaffForm.reset();
+  };
+
+  btnAdd.onclick = openAddStaffModal;
+  closeAddStaffBtn.onclick = closeModal;
+  cancelAddStaffBtn.onclick = closeModal;
+
+  // Close modal when clicking outside
+  addStaffModal.onclick = (e) => {
+    if (e.target === addStaffModal) closeModal();
+  };
+
+  // Handle form submission
+  addStaffForm.onsubmit = (e) => {
+    e.preventDefault();
+
+    const name = (qs('#staffName').value || '').trim();
+    const role = (qs('#staffRole').value || '').trim();
+    const phone = (qs('#staffPhone').value || '').trim();
     let salary = 0;
 
+    if (!name || !role || !phone) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+
     if (isMainAdmin) {
-      const salaryInput = prompt('Enter monthly salary (₹):', '0');
-      if (salaryInput == null) return;
-      const parsedSalary = Number(salaryInput);
-      if (!Number.isFinite(parsedSalary) || parsedSalary < 0) {
+      const salaryInput = qs('#staffSalary').value || '0';
+      salary = Number(salaryInput);
+      if (!Number.isFinite(salary) || salary < 0) {
         alert('Please enter a valid non-negative salary amount.');
         return;
       }
-      salary = parsedSalary;
     }
+
+    const status = (qs('#staffStatus').value || 'active').trim();
 
     AppState.staff.push({
       id: Date.now(),
@@ -3553,15 +3575,232 @@ function renderStaff() {
       phone,
       joinDate: todayYYYYMMDD(),
       salary,
-      status: 'active'
+      status
     });
 
     saveState();
-    renderTable();
+    closeModal();
+    render();
   };
 
-  btnExport.onclick = exportStaffCSV;
-  renderTable();
+  // View mode toggles
+  qsa('.view-toggle').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-view-mode') === prefs.viewMode);
+    btn.onclick = () => {
+      qsa('.view-toggle').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      prefs.viewMode = btn.getAttribute('data-view-mode');
+      savePrefs();
+      render();
+    };
+  });
+
+  // Column checkboxes
+  ['Name', 'Role', 'Phone', 'JoinDate', 'Salary', 'Status'].forEach(col => {
+    const key = col.charAt(0).toLowerCase() + col.slice(1);
+    const checkbox = qs('#col' + col);
+    if (checkbox) {
+      checkbox.checked = prefs.columns[key] !== false;
+      checkbox.onchange = () => {
+        prefs.columns[key] = checkbox.checked;
+        savePrefs();
+        render();
+      };
+    }
+  });
+
+  // Staff type filter
+  const staffTypeSelect = qs('#staffTypeFilter');
+  if (staffTypeSelect) {
+    staffTypeSelect.value = prefs.staffTypeFilter || '';
+    staffTypeSelect.onchange = () => {
+      prefs.staffTypeFilter = staffTypeSelect.value;
+      savePrefs();
+      render();
+    };
+  }
+
+  // Export buttons
+  const exportCSVBtn = qs('#exportCSV');
+  const exportJSONBtn = qs('#exportJSON');
+  const exportPDFBtn = qs('#exportPDF');
+  
+  if (exportCSVBtn) exportCSVBtn.onclick = exportStaffCSV;
+  if (exportJSONBtn) exportJSONBtn.onclick = exportStaffJSON;
+  if (exportPDFBtn) exportPDFBtn.onclick = exportStaffPDF;
+
+  // Get filtered staff
+  const getFilteredStaff = () => {
+    const query = (searchInput.value || '').trim().toLowerCase();
+    let filtered = AppState.staff.filter(s => {
+      const hay = `${s.name || ''} ${s.role || ''} ${s.phone || ''}`.toLowerCase();
+      const matchesSearch = !query || hay.includes(query);
+      const matchesType = !prefs.staffTypeFilter || (s.role || '').toLowerCase() === prefs.staffTypeFilter.toLowerCase();
+      return matchesSearch && matchesType;
+    });
+    return filtered;
+  };
+
+  // Table view
+  const renderTableView = () => {
+    const rows = getFilteredStaff();
+    const cells = [];
+    
+    if (prefs.columns.name) cells.push('name');
+    if (prefs.columns.role) cells.push('role');
+    if (prefs.columns.phone) cells.push('phone');
+    if (prefs.columns.joinDate) cells.push('joinDate');
+    if (prefs.columns.salary) cells.push('salary');
+    if (prefs.columns.status) cells.push('status');
+
+    // Update table headers
+    const thead = qs('#staffTableContainer thead tr');
+    if (thead) {
+      qsa('#staffTableContainer th').forEach((th, idx) => {
+        if (idx < qsa('#staffTableContainer th').length - 1) {
+          const classList = th.className;
+          const colClass = classList.split('col-')[1]?.split(' ')[0];
+          if (colClass && !cells.includes(colClass === 'joinDate' ? 'joinDate' : colClass.replace(/Date/, 'Date'))) {
+            th.classList.add('hidden');
+          } else {
+            th.classList.remove('hidden');
+          }
+        }
+      });
+    }
+
+    tableBody.innerHTML = rows.map(s => `
+      <tr>
+        ${prefs.columns.name ? `<td class="col-name">${s.name || ''}</td>` : ''}
+        ${prefs.columns.role ? `<td class="col-role">${s.role || ''}</td>` : ''}
+        ${prefs.columns.phone ? `<td class="col-phone">${s.phone || ''}</td>` : ''}
+        ${prefs.columns.joinDate ? `<td class="col-joinDate">${s.joinDate || ''}</td>` : ''}
+        ${prefs.columns.salary ? `<td class="col-salary">${isMainAdmin ? fmtINR(Number(s.salary || 0)) : '—'}</td>` : ''}
+        ${prefs.columns.status ? `<td class="col-status"><span class="badge ${String(s.status || 'active').toLowerCase() === 'active' ? 'success' : 'warn'}">${s.status || 'active'}</span></td>` : ''}
+        <td style="text-align:right;">
+          ${isMainAdmin ? `<button class="btn btn-ghost small" data-staff-salary="${s.id}">💰</button>` : ''}
+          <button class="btn btn-ghost small" data-staff-del="${s.id}">🗑️</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="muted">No staff records found.</td></tr>';
+
+    attachTableListeners();
+  };
+
+  // Card view
+  const renderCardView = () => {
+    const rows = getFilteredStaff();
+    const html = rows.map(s => `
+      <div class="staff-card">
+        <div class="staff-card-header">
+          <p class="staff-card-name">${s.name || ''}</p>
+          <p class="staff-card-role">${s.role || ''}</p>
+        </div>
+        <div class="staff-card-body">
+          ${prefs.columns.phone ? `<div class="staff-card-field"><span class="staff-card-label">📞 Phone:</span><span class="staff-card-value">${s.phone || ''}</span></div>` : ''}
+          ${prefs.columns.joinDate ? `<div class="staff-card-field"><span class="staff-card-label">📅 Join Date:</span><span class="staff-card-value">${s.joinDate || ''}</span></div>` : ''}
+          ${prefs.columns.salary && isMainAdmin ? `<div class="staff-card-field"><span class="staff-card-label">💰 Salary:</span><span class="staff-card-value">${fmtINR(Number(s.salary || 0))}</span></div>` : ''}
+          ${prefs.columns.status ? `<div class="staff-card-status"><span class="badge ${String(s.status || 'active').toLowerCase() === 'active' ? 'success' : 'warn'}">${s.status || 'active'}</span></div>` : ''}
+        </div>
+        <div class="staff-card-actions">
+          ${isMainAdmin ? `<button class="btn btn-ghost small" data-staff-salary="${s.id}">💰 Salary</button>` : ''}
+          <button class="btn btn-ghost small" data-staff-del="${s.id}">🗑️ Delete</button>
+        </div>
+      </div>
+    `).join('') || '<p class="muted" style="text-align:center;padding:20px;">No staff records found.</p>';
+
+    qs('#staffCardsContent').innerHTML = html;
+    attachCardListeners();
+  };
+
+  // List view
+  const renderListView = () => {
+    const rows = getFilteredStaff();
+    const html = rows.map(s => `
+      <div class="staff-list-item">
+        <div class="staff-list-info">
+          <p class="staff-list-name">${s.name || ''}</p>
+          <p class="staff-list-details">
+            <span>📍 ${s.role || ''}</span>
+            ${prefs.columns.phone ? `<span>📞 ${s.phone || ''}</span>` : ''}
+            ${prefs.columns.joinDate ? `<span>📅 ${s.joinDate || ''}</span>` : ''}
+          </p>
+        </div>
+        <div class="staff-list-actions">
+          ${isMainAdmin && prefs.columns.salary ? `<button class="btn btn-ghost small" data-staff-salary="${s.id}">💰</button>` : ''}
+          <button class="btn btn-ghost small" data-staff-del="${s.id}">🗑️</button>
+        </div>
+      </div>
+    `).join('') || '<p class="muted" style="text-align:center;padding:20px;">No staff records found.</p>';
+
+    qs('#staffListContent').innerHTML = html;
+    attachListListeners();
+  };
+
+  // Attach event listeners
+  const attachTableListeners = () => {
+    qsa('button[data-staff-salary]').forEach(btn => {
+      btn.onclick = () => editSalary(Number(btn.getAttribute('data-staff-salary')));
+    });
+    qsa('button[data-staff-del]').forEach(btn => {
+      btn.onclick = () => deleteStaff(Number(btn.getAttribute('data-staff-del')));
+    });
+  };
+
+  const attachCardListeners = () => {
+    qsa('#staffCardsContent button[data-staff-salary]').forEach(btn => {
+      btn.onclick = () => editSalary(Number(btn.getAttribute('data-staff-salary')));
+    });
+    qsa('#staffCardsContent button[data-staff-del]').forEach(btn => {
+      btn.onclick = () => deleteStaff(Number(btn.getAttribute('data-staff-del')));
+    });
+  };
+
+  const attachListListeners = () => {
+    qsa('#staffListContent button[data-staff-salary]').forEach(btn => {
+      btn.onclick = () => editSalary(Number(btn.getAttribute('data-staff-salary')));
+    });
+    qsa('#staffListContent button[data-staff-del]').forEach(btn => {
+      btn.onclick = () => deleteStaff(Number(btn.getAttribute('data-staff-del')));
+    });
+  };
+
+  const editSalary = (id) => {
+    const item = AppState.staff.find(s => Number(s.id) === id);
+    if (!item) return;
+    const nextSalaryRaw = prompt(`Enter monthly salary for ${item.name}:`, String(Number(item.salary || 0)));
+    if (nextSalaryRaw == null) return;
+    const nextSalary = Number(nextSalaryRaw);
+    if (!Number.isFinite(nextSalary) || nextSalary < 0) {
+      alert('Please enter a valid non-negative salary amount.');
+      return;
+    }
+    item.salary = nextSalary;
+    saveState();
+    render();
+  };
+
+  const deleteStaff = (id) => {
+    const item = AppState.staff.find(s => Number(s.id) === id);
+    if (!item) return;
+    if (!confirm(`Delete staff ${item.name}?`)) return;
+    AppState.staff = AppState.staff.filter(s => Number(s.id) !== id);
+    saveState();
+    render();
+  };
+
+  const render = () => {
+    tableContainer?.classList.toggle('hidden', prefs.viewMode !== 'table');
+    cardsContainer?.classList.toggle('hidden', prefs.viewMode !== 'card');
+    listContainer?.classList.toggle('hidden', prefs.viewMode !== 'list');
+
+    if (prefs.viewMode === 'table') renderTableView();
+    else if (prefs.viewMode === 'card') renderCardView();
+    else if (prefs.viewMode === 'list') renderListView();
+  };
+
+  searchInput.oninput = render;
+  render();
 }
 
 // ---------- Fees View ----------
