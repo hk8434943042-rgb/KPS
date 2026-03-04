@@ -3580,20 +3580,18 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
 }
 
 /* Fee Section Button Animations - Staggered Entry */
-#view-fees .page-actions .btn,
-#view-fees .page-actions input {
+#view-fees .page-actions .btn {
   animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) backwards;
 }
 
 #feesBtnCollect { animation-delay: 0.05s; }
-#feesReceiptLookup { animation-delay: 0.1s; }
-#feesBtnFindReceipt { animation-delay: 0.15s; }
-#feesBtnExport { animation-delay: 0.2s; }
-#feesBtnPrintAllDue { animation-delay: 0.25s; }
-#feesBtnPrintAllDueCompact { animation-delay: 0.3s; }
-#feesBtnHeads { animation-delay: 0.35s; }
-#feesBtnConcession { animation-delay: 0.4s; }
-#feesBtnImport { animation-delay: 0.45s; }
+#feesBtnFindReceipt { animation-delay: 0.1s; }
+#feesBtnExport { animation-delay: 0.15s; }
+#feesBtnPrintAllDue { animation-delay: 0.2s; }
+#feesBtnPrintAllDueCompact { animation-delay: 0.25s; }
+#feesBtnHeads { animation-delay: 0.3s; }
+#feesBtnConcession { animation-delay: 0.35s; }
+#feesBtnImport { animation-delay: 0.4s; }
 
 /* Primary button extra glow effect */
 .btn-primary {
