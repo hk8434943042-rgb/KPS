@@ -191,8 +191,8 @@ async function checkServerConnection() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
     
-    // Check health endpoint - has proper CORS headers
-    const response = await fetch('http://localhost:5000/health', {
+    // Check root endpoint - always available if server is running
+    const response = await fetch('http://localhost:5000/', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal
@@ -214,7 +214,6 @@ function updateServerStatus(isConnected) {
   const statusTopbar = document.getElementById('serverStatusTopbar');
   const statusDot = document.getElementById('serverStatusDot');
   const statusLabel = document.getElementById('serverStatusLabel');
-  const offlineBanner = document.getElementById('offlineBanner');
   
   // also update login page indicator if present
   const loginStatusTopbar = document.getElementById('loginServerStatusTopbar');
@@ -234,14 +233,6 @@ function updateServerStatus(isConnected) {
       statusLabel.textContent = 'Offline';
       statusTopbar.classList.remove('connected');
       statusTopbar.classList.add('disconnected');
-    }
-  }
-  
-  if (offlineBanner) {
-    if (isConnected) {
-      offlineBanner.classList.add('offline-banner--hidden');
-    } else {
-      offlineBanner.classList.remove('offline-banner--hidden');
     }
   }
   
@@ -463,13 +454,6 @@ function initializeAuth() {
   if (serverStatusTopbar) {
     serverStatusTopbar.addEventListener('click', checkServerConnection);
     console.log('✓ Server status topbar handler attached');
-  }
-  
-  // Setup offline banner retry button
-  const offlineBannerRetry = document.getElementById('offlineBannerRetry');
-  if (offlineBannerRetry) {
-    offlineBannerRetry.addEventListener('click', checkServerConnection);
-    console.log('✓ Offline banner retry button handler attached');
   }
   
   // Auto-check server connection on initialization
@@ -4140,3 +4124,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
+
+}
+
+}
