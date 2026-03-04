@@ -2040,6 +2040,19 @@ function renderFees(){
 
   const feesBtnCollect = qs('#feesBtnCollect');
   if (feesBtnCollect) feesBtnCollect.onclick = ()=> openModal('#modalRecordPayment');
+  
+  const feesBtnFindReceipt = qs('#feesBtnFindReceipt');
+  if (feesBtnFindReceipt) feesBtnFindReceipt.onclick = findReceiptByNumber;
+  
+  const feesBtnExport = qs('#feesBtnExport');
+  if (feesBtnExport) feesBtnExport.onclick = exportReceiptsCSV;
+  
+  const feesBtnPrintAllDue = qs('#feesBtnPrintAllDue');
+  if (feesBtnPrintAllDue) feesBtnPrintAllDue.onclick = ()=> printAllDueReceipts(false);
+  
+  const feesBtnPrintAllDueCompact = qs('#feesBtnPrintAllDueCompact');
+  if (feesBtnPrintAllDueCompact) feesBtnPrintAllDueCompact.onclick = ()=> printAllDueReceipts(true);
+  
   const feesBtnHeads = qs('#feesBtnHeads');
   if (feesBtnHeads) feesBtnHeads.onclick = ()=> openModal('#modalFeeHeads');
   const feesBtnConcession = qs('#feesBtnConcession');
@@ -2601,6 +2614,170 @@ function printReceipt(no){
     window.print();
     setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
   }
+}
+
+// Find Receipt by Number
+function findReceiptByNumber() {
+  const input = prompt('Enter Receipt Number or Student Roll/Admission Number:');
+  if (!input) return;
+  
+  const searchTerm = input.trim();
+  // Try to find by receipt number first
+  let receipt = AppState.receipts.find(r => r.no === searchTerm);
+  
+  // If not found, search by roll or admission number (get latest receipt)
+  if (!receipt) {
+    const matchingReceipts = AppState.receipts.filter(r => 
+      r.roll === searchTerm || r.admission === searchTerm
+    ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    
+    if (matchingReceipts.length > 0) {
+      receipt = matchingReceipts[0];
+    }
+  }
+  
+  if (receipt) {
+    printReceipt(receipt.no);
+  } else {
+    alert('No receipt found for: ' + searchTerm);
+  }
+}
+
+// Print All Due Receipts
+function printAllDueReceipts(compact = false) {
+  const m = monthOfToday();
+  const dueStudents = [];
+  
+  // Calculate outstanding balance for each student
+  AppState.students.forEach(s => {
+    let totalDue = 0;
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return;
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      totalDue += balance;
+    });
+    
+    if (totalDue > 0) {
+      dueStudents.push({
+        roll: s.roll,
+        name: s.name,
+        class: s.class,
+        section: s.section,
+        phone: s.phone,
+        due: totalDue
+      });
+    }
+  });
+  
+  if (dueStudents.length === 0) {
+    alert('No students with outstanding dues found.');
+    return;
+  }
+  
+  // Sort by due amount descending
+  dueStudents.sort((a, b) => b.due - a.due);
+  
+  const root = qs('#receiptPrintRoot');
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || '';
+  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  
+  if (compact) {
+    // Compact format - table only
+    root.innerHTML = `
+      <div class="receipt" style="width: 100%; max-width: none;">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <h3>Outstanding Dues Report (Compact)</h3>
+        <p>Date: ${new Date().toLocaleDateString()}</p>
+        <table style="width:100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #000;">
+              <th style="text-align:left; padding:4px;">Roll</th>
+              <th style="text-align:left; padding:4px;">Name</th>
+              <th style="text-align:left; padding:4px;">Class</th>
+              <th style="text-align:left; padding:4px;">Phone</th>
+              <th style="text-align:right; padding:4px;">Due Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dueStudents.map(s => `
+              <tr style="border-bottom: 1px solid #ddd;">
+                <td style="padding:4px;">${s.roll}</td>
+                <td style="padding:4px;">${s.name}</td>
+                <td style="padding:4px;">${s.class}-${s.section}</td>
+                <td style="padding:4px;">${s.phone}</td>
+                <td style="text-align:right; padding:4px;">${fmtINR(s.due)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top: 2px solid #000; font-weight: bold;">
+              <td colspan="4" style="text-align:right; padding:8px;">Total Outstanding:</td>
+              <td style="text-align:right; padding:8px;">${fmtINR(dueStudents.reduce((sum, s) => sum + s.due, 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="muted" style="margin-top:10px;">Total Students: ${dueStudents.length}</div>
+      </div>
+    `;
+  } else {
+    // Detailed format with more spacing
+    root.innerHTML = `
+      <div class="receipt" style="width: 100%; max-width: none;">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <hr />
+        <h3>Outstanding Dues Report (Detailed)</h3>
+        <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Total Students with Dues:</strong> ${dueStudents.length}</p>
+        <hr />
+        <table style="width:100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 2px solid #000; background: #f0f0f0;">
+              <th style="text-align:left; padding:8px;">Roll No</th>
+              <th style="text-align:left; padding:8px;">Student Name</th>
+              <th style="text-align:left; padding:8px;">Class</th>
+              <th style="text-align:left; padding:8px;">Contact Phone</th>
+              <th style="text-align:right; padding:8px;">Due Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dueStudents.map((s, idx) => `
+              <tr style="border-bottom: 1px solid #ddd; ${idx % 2 === 0 ? 'background: #f9f9f9;' : ''}">
+                <td style="padding:8px;">${s.roll}</td>
+                <td style="padding:8px;">${s.name}</td>
+                <td style="padding:8px;">${s.class}-${s.section}</td>
+                <td style="padding:8px;">${s.phone}</td>
+                <td style="text-align:right; padding:8px; font-weight:bold;">${fmtINR(s.due)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top: 3px solid #000; background: #f0f0f0; font-weight: bold; font-size: 14px;">
+              <td colspan="4" style="text-align:right; padding:12px;">TOTAL OUTSTANDING:</td>
+              <td style="text-align:right; padding:12px;">${fmtINR(dueStudents.reduce((sum, s) => sum + s.due, 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <hr />
+        <div class="muted">This is a system-generated report.</div>
+      </div>
+    `;
+  }
+  
+  root.style.display = 'block';
+  window.print();
+  setTimeout(() => {
+    root.style.display = 'none';
+    root.innerHTML = '';
+  }, 500);
 }
 
 // Generate Receipt PDF with Logo
