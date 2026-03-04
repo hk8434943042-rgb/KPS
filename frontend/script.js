@@ -124,7 +124,15 @@ const AppState = {
       phone: '+91-XXXXXXXXXX',
       email: 'himanshunsingh3596@gmail.com',
       logo: 'assets/logo.png'
-    }
+    },
+    // Receipt fee items breakdown
+    feeItems: [
+      { name: 'Admission Fee', percentage: 20, minAmount: 500 },
+      { name: 'Tuition Fee', percentage: 35, minAmount: 1000 },
+      { name: 'Caution Money', percentage: 15, minAmount: 300 },
+      { name: 'Annual Charges', percentage: 15, minAmount: 300 },
+      { name: 'Bus Fee', percentage: 15, minAmount: 200 }
+    ]
   },
 
   // Transport module
@@ -5383,6 +5391,61 @@ function getDueMonthsByRoll(roll) {
   });
 }
 
+// Helper: Convert number to words (Indian format)
+function numberToWords(num) {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const scales = ['', 'Thousand', 'Lakh', 'Crore'];
+
+  function convertBelowThousand(n) {
+    if (n === 0) return '';
+    else if (n < 10) return ones[n];
+    else if (n < 20) return teens[n - 10];
+    else if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
+    else return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 !== 0 ? ' ' + convertBelowThousand(n % 100) : '');
+  }
+
+  if (num === 0) return 'Zero';
+  let result = '';
+  let scaleIndex = 0;
+  while (num > 0) {
+    const remainder = num % 100;
+    if (remainder !== 0) result = convertBelowThousand(remainder) + (scales[scaleIndex] ? ' ' + scales[scaleIndex] : '') + (result ? ' ' + result : '');
+    num = Math.floor(num / 100);
+    scaleIndex++;
+  }
+  return result.trim();
+}
+
+// Helper: Get fee items breakdown for a receipt
+function getReceiptFeeItems(amount) {
+  const feeItems = (AppState.settings?.feeItems || []);
+  if (feeItems.length === 0) {
+    return [{ name: 'Fee', due: amount, con: 0, paid: amount }];
+  }
+
+  const breakdown = feeItems.map((item, idx) => {
+    const itemAmount = Math.round((amount * item.percentage) / 100);
+    return {
+      name: item.name,
+      due: itemAmount,
+      con: 0,
+      paid: itemAmount
+    };
+  });
+
+  // Adjust last item to match total exactly (due to rounding)
+  if (breakdown.length > 0) {
+    const sum = breakdown.reduce((acc, item) => acc + item.paid, 0);
+    const diff = amount - sum;
+    breakdown[breakdown.length - 1].paid += diff;
+    breakdown[breakdown.length - 1].due += diff;
+  }
+
+  return breakdown;
+}
+
 function buildReceiptHTML(r, opts = {}) {
   const compact = !!opts.compact;
   const receiptNo = getReceiptKey(r);
@@ -6555,6 +6618,135 @@ function printReceipt(no, options = {}){
   }
 }
 
+// Build professional A4 receipt HTML
+function buildReceiptA4HTML(r) {
+  const receiptNo = getReceiptKey(r);
+  const sch = AppState.settings.school || {};
+  const schoolName = sch.name || RECEIPT_SCHOOL_HEADER;
+  const tagline = sch.tagline || '';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logo = sch.logo || 'assets/logo.png';
+
+  const now = new Date();
+  const dateStr = r.date || now.toLocaleDateString(AppState.settings.locale || 'en-IN');
+  const session = now.getFullYear() + '-' + (now.getFullYear() + 1);
+  const amount = r.amount || 0;
+  const amountWords = numberToWords(Math.floor(amount)) + ' Only';
+  const feeItems = getReceiptFeeItems(amount);
+
+  return `
+    <div class="a4-receipt-container">
+      <!-- Header with logo and school info -->
+      <div class="a4-receipt-header">
+        <div class="a4-receipt-logo">
+          <img src="${logo}" alt="Logo" onerror="this.style.display='none'" />
+        </div>
+        <div class="a4-receipt-school-info">
+          <h1>${schoolName}</h1>
+          <p class="tagline">${tagline}</p>
+          <p class="address">${address}</p>
+          <p class="contact">${[phone, email].filter(Boolean).join(' · ')}</p>
+        </div>
+      </div>
+
+      <!-- Title -->
+      <div class="a4-receipt-title">FEE RECEIPT</div>
+
+      <!-- Receipt details grid -->
+      <div class="a4-receipt-details">
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Receipt No</span>
+            <span class="value">${receiptNo}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Date</span>
+            <span class="value">${dateStr}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Adm No</span>
+            <span class="value">${r.roll}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Session</span>
+            <span class="value">${session}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-item">
+            <span class="label">Name</span>
+            <span class="value">${r.name}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">Counter No</span>
+            <span class="value">DPS-RECEIPT</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fee table -->
+      <table class="a4-receipt-table">
+        <thead>
+          <tr>
+            <th class="col-sl">Sl.No</th>
+            <th class="col-desc">Description</th>
+            <th class="col-amount">Due</th>
+            <th class="col-amount">Con</th>
+            <th class="col-amount">Paid</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${feeItems.map((item, idx) => `
+            <tr>
+              <td class="col-sl">${idx + 1}</td>
+              <td class="col-desc">${item.name}</td>
+              <td class="col-amount">${item.due}</td>
+              <td class="col-amount">${item.con}</td>
+              <td class="col-amount">${item.paid}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <!-- Payment information section -->
+      <div class="a4-payment-info">
+        <div class="payment-row">
+          <span class="label">Pay Mode</span>
+          <span class="value">${r.method || 'Cash'}</span>
+          <span class="label">Date</span>
+          <span class="value">${dateStr}</span>
+        </div>
+        <div class="payment-row">
+          <span class="label">Bank</span>
+          <span class="value">${r.ref || '-'}</span>
+          <span class="label">Number</span>
+          <span class="value">${r.ref || '-'}</span>
+        </div>
+      </div>
+
+      <!-- Total section -->
+      <div class="a4-total-section">
+        <div class="total-row">
+          <span>Total</span>
+          <span>${amount}</span>
+        </div>
+        <div class="a4-total-words">
+          <strong>Total in Words:</strong> ${amountWords}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="a4-receipt-footer">
+        <p>Note: 356</p>
+      </div>
+    </div>
+  `;
+}
+
 function printReceiptA4(no){
   const receipt = findReceiptByKey(no);
   if (!receipt) {
@@ -6568,7 +6760,7 @@ function printReceiptA4(no){
   root.classList.add('receipt-print-a4');
   root.innerHTML = `
     <div class="receipt-a4-sheet">
-      ${buildReceiptHTML(receipt, { compact: false })}
+      ${buildReceiptA4HTML(receipt)}
     </div>
   `;
 
