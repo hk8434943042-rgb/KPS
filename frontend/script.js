@@ -4735,8 +4735,6 @@ function printAllDueReceipts(options = {}){
   root.innerHTML = `
     ${pages.map((page, pageIndex) => `
       <div class="bulk-due-page" style="page-break-after:${pageIndex < pages.length - 1 ? 'always' : 'auto'};">
-        <div class="bulk-due-headline">${RECEIPT_SCHOOL_HEADER}</div>
-        ${ultraCompact ? '<div class="bulk-due-mode">Ultra-Compact Layout</div>' : ''}
         <div class="bulk-due-generated">Generated: ${printedAt}</div>
         <div class="bulk-due-grid ${ultraCompact ? 'bulk-due-grid--ultra' : ''}">
           ${page.map(item => createCompactDueReceiptCard(item.student, item.summary, item.dueRows, { ultraCompact })).join('')}
