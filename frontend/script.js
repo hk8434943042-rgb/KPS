@@ -29,8 +29,14 @@ window.addEventListener('unhandledrejection', e => {
 // AUTHENTICATION CHECK
 // ===========================
 window.addEventListener('load', () => {
-  // Check if user is authenticated
-  const isAuthenticated = localStorage.getItem('isAuthenticated');
+  // Don't redirect if already on login page
+  const currentPage = window.location.pathname.split('/').pop();
+  if (currentPage === 'login.html' || currentPage === '' || currentPage.includes('set-api')) {
+    return; // Allow login.html and set-api.html to load
+  }
+  
+  // Check if user is authenticated - check sessionStorage (set by login.html)
+  const isAuthenticated = sessionStorage.getItem('isAuthenticated');
   if (isAuthenticated !== 'true') {
     // Redirect to login page
     window.location.href = 'login.html';
@@ -197,7 +203,8 @@ async function checkServerConnection() {
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
     
     // Check root endpoint - always available if server is running
-    const response = await fetch('http://localhost:5000/', {
+    const baseUrl = API_URL.replace('/api', '');
+    const response = await fetch(baseUrl + '/', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal
@@ -341,14 +348,16 @@ function getUserRole() {
 }
 
 function getCurrentUser() {
-  return localStorage.getItem(USER_KEY) || '';
+  return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
 }
 
 function accessPublicPortal() {
   // Allow direct access to public portal without authentication
-  localStorage.setItem(AUTH_KEY, 'true');
-  localStorage.setItem(ROLE_KEY, 'public');
-  localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+  setAuthStorage(AUTH_KEY, 'true');
+  setAuthStorage(ROLE_KEY, 'public');
+  setAuthStorage(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+  setAuthStorage('isAuthenticated', 'true');
+  setAuthStorage('userType', 'public');
   const loginPage = document.getElementById('loginPage');
   if (loginPage) loginPage.classList.add('hidden');
   document.body.style.overflow = 'auto';
@@ -393,9 +402,11 @@ function handleLogin(event, role) {
   const user = users.find(u => u.username === username && u.password === password);
   
   if (user) {
-    localStorage.setItem(AUTH_KEY, 'true');
-    localStorage.setItem(ROLE_KEY, role);
-    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, role }));
+    setAuthStorage(AUTH_KEY, 'true');
+    setAuthStorage(ROLE_KEY, role);
+    setAuthStorage(USER_KEY, JSON.stringify({ ...user, role }));
+    setAuthStorage('isAuthenticated', 'true');
+    setAuthStorage('userType', role);
     errorDiv.classList.remove('show');
     const loginPage = document.getElementById('loginPage');
     if (loginPage) loginPage.classList.add('hidden');
@@ -411,11 +422,12 @@ function handleLogin(event, role) {
 function handleLogout() {
   if (confirm('Are you sure you want to logout?')) {
     stopServerStatusCheck();
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(ROLE_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('user');
+    removeAuthStorage(AUTH_KEY);
+    removeAuthStorage(ROLE_KEY);
+    removeAuthStorage(USER_KEY);
+    removeAuthStorage('isAuthenticated');
+    removeAuthStorage('user');
+    removeAuthStorage('userType');
     
     // Call backend logout endpoint
     fetch(`${API_URL}/auth/logout`, {
@@ -429,9 +441,14 @@ function handleLogout() {
 }
 
 function initializeAuth() {
-  // always treat the user as admin-authenticated; remove login page if it exists
-  localStorage.setItem(AUTH_KEY, 'true');
-  localStorage.setItem(ROLE_KEY, 'admin');
+  // Check if user is already authenticated from login page
+  if (!isAuthenticated()) {
+    // If not authenticated, set default admin auth for backward compatibility
+    setAuthStorage(AUTH_KEY, 'true');
+    setAuthStorage(ROLE_KEY, 'admin');
+    setAuthStorage('isAuthenticated', 'true');
+    setAuthStorage('userType', 'admin');
+  }
 
   const loginPage = document.getElementById('loginPage');
   if (loginPage) {
@@ -468,7 +485,7 @@ function initializeAuth() {
 
 function displayUserInfo() {
   const userDisplayEl = document.getElementById('userDisplayName');
-  const userStr = localStorage.getItem('user');
+  const userStr = getAuthStorage('user');
   if (userDisplayEl && userStr) {
     try {
       const user = JSON.parse(userStr);
@@ -935,7 +952,7 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
       payment_date: todayYYYYMMDD()
     };
     
-    const response = await fetch('http://localhost:5000/api/receipt/thermal', {
+    const response = await fetch(API_URL + '/receipt/thermal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(receiptData)
@@ -966,7 +983,7 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
  */
 async function printHTMLReceipt(receiptData) {
   try {
-    const response = await fetch('http://localhost:5000/api/receipt/html', {
+    const response = await fetch(API_URL + '/receipt/html', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(receiptData)
@@ -1511,7 +1528,7 @@ let chartRenderInProgress = false;
 // Fetch dashboard statistics from database
 async function fetchDashboardStats() {
   try {
-    const response = await fetch('http://localhost:5000/api/stats/dashboard');
+    const response = await fetch(API_URL + '/stats/dashboard');
     if (!response.ok) throw new Error('Failed to fetch dashboard stats');
     const stats = await response.json();
     return stats;
@@ -1525,7 +1542,7 @@ async function fetchDashboardStats() {
 async function fetchTodayAttendance() {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const response = await fetch(`http://localhost:5000/api/attendance?date=${today}`);
+    const response = await fetch(`${API_URL}/attendance?date=${today}`);
     if (!response.ok) throw new Error('Failed to fetch attendance');
     const attendance = await response.json();
     return attendance;
@@ -1538,7 +1555,7 @@ async function fetchTodayAttendance() {
 // Fetch all students
 async function fetchAllStudents() {
   try {
-    const response = await fetchWithTimeout('http://localhost:5000/api/students');
+    const response = await fetchWithTimeout(API_URL + '/students');
     if (!response || !response.ok) throw new Error('Failed to fetch students');
     const students = await response.json();
     return students;
@@ -1551,7 +1568,7 @@ async function fetchAllStudents() {
 // Fetch all payments
 async function fetchAllPayments() {
   try {
-    const response = await fetchWithTimeout('http://localhost:5000/api/payments');
+    const response = await fetchWithTimeout(API_URL + '/payments');
     if (!response || !response.ok) throw new Error('Failed to fetch payments');
     const payments = await response.json();
     return payments;
@@ -1751,6 +1768,8 @@ function initAttendanceChart(students = [], attendanceData = []){
     });
   } catch (e) {
     console.error('Error rendering attendance chart:', e);
+  }
+}
 
 // ---------- Students View ----------
 function renderStudents(){
@@ -4129,7 +4148,3 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-
-}
-
-}

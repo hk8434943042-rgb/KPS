@@ -5,10 +5,18 @@
 (function configureApiBaseUrl() {
 	const LOCAL_BACKEND_API = 'http://localhost:5000/api';
 
-	// Set your public backend URL here for GitHub Pages access.
-	// Example: 'https://your-backend.onrender.com/api'
-	// Keep empty '' if you want only localhost mode.
+	// ⚠️ FOR GITHUB PAGES DEPLOYMENT:
+	// Option 1: Set your public backend URL directly here
+	// Example: 'https://your-backend.up.railway.app/api'
 	const PUBLIC_BACKEND_API = '';
+
+	// Option 2: Use set-api.html page to set URL dynamically:
+	// https://hk8434943042-rgb.github.io/KPS/set-api.html?api=https://your-backend.up.railway.app
+
+	// Option 3: Set GitHub repo secret BACKEND_API_URL and redeploy
+	// Go to GitHub → Settings → Secrets → New repository secret
+	// Name: BACKEND_API_URL
+	// Value: https://your-backend.up.railway.app
 
 	const host = window.location.hostname;
 	const isLocalHost = host === 'localhost' || host === '127.0.0.1';
@@ -21,6 +29,13 @@
 
 	if (isGitHubPages && PUBLIC_BACKEND_API) {
 		window.__API_BASE_URL = PUBLIC_BACKEND_API.replace(/\/+$/, '');
+		return;
+	}
+
+	// Check localStorage override (set via set-api.html)
+	const override = localStorage.getItem('API_URL_OVERRIDE');
+	if (override) {
+		window.__API_BASE_URL = override;
 		return;
 	}
 

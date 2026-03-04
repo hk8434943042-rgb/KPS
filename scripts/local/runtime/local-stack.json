@@ -1,8 +1,8 @@
 ﻿{
-    "startedAt":  "2026-03-04T16:27:02",
-    "backendPid":  13980,
-    "tunnelPid":  13492,
-    "tunnelUrl":  "https://pendant-dsc-draws-ownership.trycloudflare.com",
-    "apiUrl":  "https://pendant-dsc-draws-ownership.trycloudflare.com/api",
+    "startedAt":  "2026-03-04T18:38:19",
+    "backendPid":  14296,
+    "tunnelPid":  14448,
+    "tunnelUrl":  "https://break-interactive-tariff-elizabeth.trycloudflare.com",
+    "apiUrl":  "https://break-interactive-tariff-elizabeth.trycloudflare.com/api",
     "backendHealth":  "http://localhost:5000/health"
 }

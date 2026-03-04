@@ -1873,6 +1873,19 @@ def index():
         'docs': 'See DATABASE_API.md for API documentation'
     })
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for deployment monitoring"""
+    try:
+        # Quick database connectivity check
+        conn = get_db()
+        conn.execute("SELECT 1")
+        conn.close()
+        return jsonify({'status': 'healthy', 'message': 'Server is running'}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({'status': 'unhealthy', 'message': str(e)}), 503
+
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
