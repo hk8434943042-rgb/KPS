@@ -40,7 +40,12 @@ window.addEventListener('load', () => {
 // ===========================
 // GLOBAL API CONFIGURATION
 // ===========================
-const API_URL = 'http://localhost:5000/api';
+// Use API URL from api-config.js, which can be overridden by API_URL_OVERRIDE in localStorage
+let API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const API_URL_OVERRIDE = localStorage.getItem('API_URL_OVERRIDE');
+if (API_URL_OVERRIDE) {
+  API_URL = API_URL_OVERRIDE.replace(/\/+$/, '');
+}
 
 // ---------- Global State ----------
 const AppState = {
