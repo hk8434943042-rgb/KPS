@@ -4129,7 +4129,3 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-
-}
-
-}
