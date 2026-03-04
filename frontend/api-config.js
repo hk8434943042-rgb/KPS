@@ -1,23 +1,29 @@
-﻿// Backend API Configuration
-// Set your backend URL here for local or remote deployment
+﻿// Backend API Configuration (Dual mode: Localhost + GitHub Pages)
+// Local browser usage  -> http://localhost:5000/api
+// GitHub Pages usage   -> PUBLIC_BACKEND_API (set below)
 
-// LOCAL DEVELOPMENT (Backend running on same machine)
-// Use this for testing on localhost before deploying
-window.__API_BASE_URL = 'http://localhost:5000/api';
+(function configureApiBaseUrl() {
+	const LOCAL_BACKEND_API = 'http://localhost:5000/api';
 
-// PRODUCTION DEPLOYMENT via Cloudflare Tunnel
-// Your PC is exposed to the internet via Cloudflare Tunnel
-// window.__API_BASE_URL = 'https://proteins-comparing-xhtml-des.trycloudflare.com/api';
+	// Set your public backend URL here for GitHub Pages access.
+	// Example: 'https://your-backend.onrender.com/api'
+	// Keep empty '' if you want only localhost mode.
+	const PUBLIC_BACKEND_API = '';
 
-// ALTERNATIVE DEPLOYMENTS
-// For PythonAnywhere:
-// window.__API_BASE_URL = 'https://himanshu9008.pythonanywhere.com/api';
+	const host = window.location.hostname;
+	const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+	const isGitHubPages = host.endsWith('github.io');
 
-// For Render:
-// window.__API_BASE_URL = 'https://your-app-name.onrender.com/api';
+	if (isLocalHost) {
+		window.__API_BASE_URL = LOCAL_BACKEND_API;
+		return;
+	}
 
-// For Railway:
-// window.__API_BASE_URL = 'https://your-app-name.up.railway.app/api';
+	if (isGitHubPages && PUBLIC_BACKEND_API) {
+		window.__API_BASE_URL = PUBLIC_BACKEND_API.replace(/\/+$/, '');
+		return;
+	}
 
-// For custom domain:
-// window.__API_BASE_URL = 'https://your-domain.com/api';
+	// Fallback for custom hosting / same-origin reverse proxy
+	window.__API_BASE_URL = `${window.location.protocol}//${host}/api`;
+})();
