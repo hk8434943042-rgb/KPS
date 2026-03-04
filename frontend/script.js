@@ -309,6 +309,27 @@ const AUTH_KEY = 'khushi_portal_auth';
 const ROLE_KEY = 'khushi_portal_role';
 const USER_KEY = 'khushi_portal_user';
 
+const SETTINGS_KEY = 'khushi_school_settings';
+const LATE_FEE_RULES_KEY = 'khushi_late_fee_rules';
+const FEE_HEADS_BY_CLASS_KEY = 'khushi_fee_heads_by_class';
+const NOTES_KEY = 'khushi_portal_notes';
+const SCHOOL_CALENDAR_KEY = 'khushi_school_calendar';
+
+// Helper functions to check both session and local storage for backward compatibility
+function getAuthStorage(key) {
+  return sessionStorage.getItem(key) || localStorage.getItem(key);
+}
+
+function setAuthStorage(key, value) {
+  sessionStorage.setItem(key, value);
+  localStorage.setItem(key, value); // Keep both for compatibility
+}
+
+function removeAuthStorage(key) {
+  sessionStorage.removeItem(key);
+  localStorage.removeItem(key);
+}
+
 // Multi-role user credentials
 const VALID_USERS = {
   admin: [
@@ -340,14 +361,15 @@ const RazorpayState = {
 };
 
 function isAuthenticated() {
-  return localStorage.getItem(AUTH_KEY) === 'true';
+  return getAuthStorage(AUTH_KEY) === 'true' || getAuthStorage('isAuthenticated') === 'true';
 }
 
 function getUserRole() {
-  return localStorage.getItem(ROLE_KEY) || 'public';
+  return getAuthStorage(ROLE_KEY) || getAuthStorage('userType') || 'admin';
 }
 
 function getCurrentUser() {
+  return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
   return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
 }
 
