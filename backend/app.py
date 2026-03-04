@@ -69,8 +69,8 @@ app = Flask(__name__)
 # Allow CORS from all origins in development (more permissive than production)
 CORS(app,
     resources={r"/api/*": {"origins": "*"}, r"/health": {"origins": "*"}},
-    supports_credentials=True,
-    allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Access-Control-Allow-Origin'],
+    supports_credentials=False,
+    allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 app.secret_key = os.environ.get('SECRET_KEY', 'school-admin-portal-secret-key-change-in-production')
 
