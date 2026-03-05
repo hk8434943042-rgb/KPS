@@ -547,7 +547,10 @@ function displayTodayDate() {
   const month = months[today.getMonth()];
   const year = today.getFullYear();
   
-  headerDateEl.textContent = `${day} ${month} ${year}`;
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayOfWeek = dayNames[today.getDay()];
+  
+  headerDateEl.textContent = `${dayOfWeek}, ${day} ${month} ${year}`;
 }
 
 // ---------- Login helpers ----------
