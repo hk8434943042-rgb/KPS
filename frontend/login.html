@@ -909,9 +909,14 @@
       <div class="form-group">
         <label for="forgotChannel">OTP Channel</label>
         <select id="forgotChannel">
-          <option value="sms">SMS (Mobile)</option>
-          <option value="email">Email</option>
+          <option value="email" selected>Email (Recommended)</option>
+          <option value="sms">SMS (Mobile) - Requires Twilio</option>
         </select>
+      </div>
+
+      <div class="form-group" id="forgotEmailGroup">
+        <label for="forgotEmail">Email Address</label>
+        <input type="email" id="forgotEmail" placeholder="Enter your email address" />
       </div>
 
       <div class="form-group" id="forgotPhoneGroup">
@@ -1074,6 +1079,8 @@
       const roleInput = document.getElementById('forgotRole');
       const usernameInput = document.getElementById('forgotUsername');
       const channelInput = document.getElementById('forgotChannel');
+      const emailInput = document.getElementById('forgotEmail');
+      const emailGroup = document.getElementById('forgotEmailGroup');
       const phoneInput = document.getElementById('forgotPhone');
       const phoneGroup = document.getElementById('forgotPhoneGroup');
       const otpInput = document.getElementById('forgotOtp');
@@ -1088,7 +1095,7 @@
       const resetBtn = document.getElementById('forgotResetBtn');
       const err = document.getElementById('forgotError');
       const ok = document.getElementById('forgotSuccess');
-      if (!modal || !roleInput || !usernameInput || !channelInput || !phoneInput || !phoneGroup || !otpInput || !sendOtpBtn || !verifyOtpBtn || !verifyStatus || !checkOtpSetupBtn || !otpHint || !newPasswordInput || !confirmPasswordInput || !cancelBtn || !resetBtn || !err || !ok) return;
+      if (!modal || !roleInput || !usernameInput || !channelInput || !emailInput || !emailGroup || !phoneInput || !phoneGroup || !otpInput || !sendOtpBtn || !verifyOtpBtn || !verifyStatus || !checkOtpSetupBtn || !otpHint || !newPasswordInput || !confirmPasswordInput || !cancelBtn || !resetBtn || !err || !ok) return;
 
       let otpRequestId = '';
       let otpVerified = false;
@@ -1198,7 +1205,9 @@
 
       const updateChannelUI = () => {
         const isSms = channelInput.value === 'sms';
+        const isEmail = channelInput.value === 'email';
         phoneGroup.style.display = isSms ? '' : 'none';
+        emailGroup.style.display = isEmail ? '' : 'none';
       };
 
       const enforcePhonePrefix = () => {
@@ -1261,6 +1270,7 @@
         const channel = channelInput.value;
         const username = usernameInput.value.trim();
         const phone = phoneInput.value.trim();
+        const email = emailInput.value.trim();
 
         if (role === 'parent') {
           showError(err, 'Parent password reset is managed by admin. Please contact school office.');
@@ -1272,13 +1282,12 @@
           return;
         }
 
-        const recoveryEmail = getRecoveryEmail();
         if (channel === 'sms' && !phone) {
           showError(err, 'Please enter mobile number for SMS OTP.');
           return;
         }
-        if (channel === 'email' && !recoveryEmail) {
-          showError(err, 'Recovery email is not configured. Set School Email in Settings first.');
+        if (channel === 'email' && !email) {
+          showError(err, 'Please enter your email address for Email OTP.');
           return;
         }
 
@@ -1291,14 +1300,14 @@
             body: JSON.stringify({
               role,
               channel,
-              email: recoveryEmail,
+              email: email,
               phone
             })
           });
           let data = await parseApiResponse(response);
 
           if (response.status === 405) {
-            const params = new URLSearchParams({ role, channel, email: recoveryEmail, phone });
+            const params = new URLSearchParams({ role, channel, email: email, phone });
             response = await fetch(`${API_URL}/auth/otp/send?${params.toString()}`, {
               method: 'GET',
               headers: { 'Content-Type': 'application/json' }
@@ -1328,7 +1337,7 @@
           }
 
           otpRequestId = data.request_id || '';
-          const destination = data.destination || (channel === 'sms' ? phone : recoveryEmail);
+          const destination = data.destination || (channel === 'sms' ? phone : email);
           const masked = channel === 'sms' ? maskPhone(destination) : maskEmail(destination);
           showSuccess(ok, `OTP sent to ${masked}.`);
           const providerStatus = data?.provider?.status;
