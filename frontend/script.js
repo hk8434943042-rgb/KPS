@@ -3390,41 +3390,286 @@ function initAddStudentModal(){
 }
 
 function initImportCSVModal(){
-  const form=qs('#formImportCSV');
-  const fileInput=form.querySelector('input[type="file"]');
-  form.onsubmit=async (e)=>{
+  const modal = qs('#modalImportCSV');
+  const form = qs('#formImportCSV');
+  const fileInput = qs('#csvFileInput');
+  const fileBox = qs('.import-file-box');
+  
+  // Scroll through import steps
+  const step1 = qs('#importStep1Upload');
+  const step2 = qs('#importStep2Preview');
+  const step3 = qs('#importStep3Progress');
+  const step4 = qs('#importStep4Summary');
+  
+  let parsedData = [];
+  let validationResults = [];
+  
+  // File input and drag-drop
+  fileBox.onclick = () => fileInput.click();
+  fileInput.onchange = () => updateFileName();
+  
+  fileBox.ondragover = (e) => { e.preventDefault(); fileBox.style.borderColor = 'var(--primary)'; };
+  fileBox.ondragleave = () => { fileBox.style.borderColor = 'var(--border)'; };
+  fileBox.ondrop = (e) => {
     e.preventDefault();
-    const file=fileInput.files?.[0];
-    if(!file){ alert('Please select a CSV file.'); return; }
-    const text=await file.text();
-    const rows=text.trim().split(/\r?\n/).map(line=>
-      line.split(',').map(cell=> cell.replace(/^"|"$/g,'').replace(/""/g,'"'))
-    );
-    const [header,...dataRows]=rows;
-    const idx=Object.fromEntries(header.map((h,i)=> [h.trim().toLowerCase(), i]));
-    const required=['roll','name','class','section','phone','status'];
-    if(!required.every(r=> idx[r]!==undefined)){
-      alert('Invalid CSV header. Expected: '+required.join(', ')); return;
+    fileBox.style.borderColor = 'var(--border)';
+    if (e.dataTransfer.files?.[0]) {
+      fileInput.files = e.dataTransfer.files;
+      updateFileName();
     }
-    const newStudents=dataRows.map(r=> ({
-      roll:r[idx['roll']].trim(),
-      admission_date:r[idx['admission_date']]?.trim() || null,
-      name:r[idx['name']].trim(),
-      dob:r[idx['dob']]?.trim() || null,
-      aadhar:r[idx['aadhar']]?.trim() || null,
-      father_name:r[idx['father_name']]?.trim() || null,
-      mother_name:r[idx['mother_name']]?.trim() || null,
-      class:r[idx['class']].trim(),
-      section:r[idx['section']].trim(),
-      phone:r[idx['phone']].trim(),
-      status:r[idx['status']].trim()
-    }));
-    const rolls=new Set(AppState.students.map(s=> s.roll));
-    newStudents.forEach(s=>{ if(!rolls.has(s.roll)) AppState.students.push(s); });
-    AppState.kpi.totalStudents=AppState.students.length;
-    saveState(); form.parentElement.close();
-    if(AppState.view==='students') renderStudents();
   };
+  
+  function updateFileName() {
+    const name = fileInput.files?.[0]?.name || 'Click to select or drag CSV file';
+    qs('#csvFileName').textContent = name;
+  }
+  
+  // Preview button
+  qs('#csvBtnPreview').onclick = async () => {
+    const file = fileInput.files?.[0];
+    if (!file) { alert('Please select a CSV file.'); return; }
+    
+    try {
+      const text = await file.text();
+      const rows = text.trim().split(/\r?\n/).map(line =>
+        line.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"').trim())
+      );
+      
+      if (rows.length < 2) { alert('CSV must have header and at least 1 data row.'); return; }
+      
+      const [header, ...dataRows] = rows;
+      const idx = Object.fromEntries(header.map((h, i) => [h.toLowerCase(), i]));
+      
+      // Validate required columns
+      const required = ['roll', 'name', 'class', 'section', 'phone', 'status'];
+      const missing = required.filter(r => idx[r] === undefined);
+      if (missing.length > 0) {
+        alert(`Missing required columns: ${missing.join(', ')}`);
+        return;
+      }
+      
+      // Parse and validate rows
+      parsedData = [];
+      validationResults = [];
+      const existingRolls = new Set(AppState.students.map(s => s.roll));
+      
+      dataRows.forEach((r, rowIdx) => {
+        const errors = [];
+        
+        // Validate required fields
+        const roll = r[idx['roll']]?.trim() || '';
+        const name = r[idx['name']]?.trim() || '';
+        const klass = r[idx['class']]?.trim() || '';
+        const section = r[idx['section']]?.trim() || '';
+        const phone = r[idx['phone']]?.trim() || '';
+        const status = r[idx['status']]?.trim() || '';
+        
+        if (!roll) errors.push('Roll is empty');
+        if (!name) errors.push('Name is empty');
+        if (!klass) errors.push('Class is empty');
+        if (!section) errors.push('Section is empty');
+        if (!phone) errors.push('Phone is empty');
+        if (!status) errors.push('Status is empty');
+        
+        // Validate phone format (basic)
+        if (phone && !/^\d{10}$/.test(phone.replace(/\D/g, ''))) {
+          errors.push('Phone must be 10 digits');
+        }
+        
+        // Check valid status
+        if (status && !['Active', 'Inactive', 'Pending', 'Alumni'].includes(status)) {
+          errors.push('Invalid status (Active/Inactive/Pending/Alumni)');
+        }
+        
+        // Check duplicate
+        let duplicate = false;
+        if (roll && existingRolls.has(roll)) {
+          duplicate = true;
+        }
+        
+        parsedData.push({
+          rowIdx: rowIdx + 2, // +2 because of header and 0-based index
+          roll, name, klass, section, phone, status,
+          dob: r[idx['dob']]?.trim() || null,
+          aadhar: r[idx['aadhar']]?.trim() || null,
+          father_name: r[idx['father_name']]?.trim() || null,
+          mother_name: r[idx['mother_name']]?.trim() || null,
+          admission_date: r[idx['admission_date']]?.trim() || null,
+          errors,
+          duplicate,
+          valid: errors.length === 0 && !duplicate
+        });
+        
+        if (!duplicate) existingRolls.add(roll);
+      });
+      
+      showPreview();
+    } catch (err) {
+      alert(`Error reading CSV: ${err.message}`);
+    }
+  };
+  
+  function showPreview() {
+    step1.classList.add('d-none');
+    step2.classList.remove('d-none');
+    
+    const validCount = parsedData.filter(d => d.valid).length;
+    const errorCount = parsedData.filter(d => d.errors.length > 0).length;
+    const dupCount = parsedData.filter(d => d.duplicate).length;
+    
+    qs('#csvValidationMeta').innerHTML = `
+      <strong>Total rows:</strong> ${parsedData.length} | 
+      <strong style="color: #22c55e;">Valid:</strong> ${validCount} | 
+      <strong style="color: #f97316;">Issues:</strong> ${errorCount} | 
+      <strong style="color: #ef4444;">Duplicates:</strong> ${dupCount}
+    `;
+    
+    // Show preview header
+    const headerRow = qs('#csvPreviewHeader');
+    headerRow.innerHTML = `
+      <th>Row</th>
+      <th>Roll</th>
+      <th>Name</th>
+      <th>Class</th>
+      <th>Phone</th>
+      <th>Status</th>
+      <th>Validation</th>
+    `;
+    
+    // Show preview data
+    const previewBody = qs('#csvPreviewBody');
+    previewBody.innerHTML = parsedData.map(d => {
+      let statusBadge = '';
+      if (d.valid) {
+        statusBadge = '<span class="badge" style="background: #dcfce7; color: #166534;">✓ OK</span>';
+      } else if (d.duplicate) {
+        statusBadge = '<span class="badge" style="background: #fee2e2; color: #dc2626;">⚠ Duplicate</span>';
+      } else {
+        statusBadge = '<span class="badge" style="background: #fed7aa; color: #c2410c;">✗ Invalid</span>';
+      }
+      
+      const errorText = d.errors.length > 0 ? `<br/><small>${d.errors.join('; ')}</small>` : '';
+      
+      return `
+        <tr style="opacity: ${d.valid ? '1' : '0.6'};">
+          <td>${d.rowIdx}</td>
+          <td>${d.roll}</td>
+          <td>${d.name}</td>
+          <td>${d.klass}</td>
+          <td>${d.phone}</td>
+          <td>${d.status}</td>
+          <td>${statusBadge}${errorText}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    // Show error summary if any errors
+    const errorSummary = qs('#csvErrorsSummary');
+    if (errorCount > 0 || dupCount > 0) {
+      let msg = '';
+      if (dupCount > 0) msg += `${dupCount} student(s) already in database (will be skipped). `;
+      if (errorCount > 0) msg += `${errorCount} row(s) have validation errors (will be skipped). `;
+      errorSummary.innerHTML = msg;
+      errorSummary.classList.remove('d-none');
+    } else {
+      errorSummary.classList.add('d-none');
+    }
+  }
+  
+  // Back button
+  qs('#csvBtnBack').onclick = () => {
+    step2.classList.add('d-none');
+    step1.classList.remove('d-none');
+  };
+  
+  // Import button
+  qs('#csvBtnImport').onclick = async () => {
+    step2.classList.add('d-none');
+    step3.classList.remove('d-none');
+    
+    const validRows = parsedData.filter(d => d.valid);
+    if (validRows.length === 0) {
+      qs('#csvProgressMeta').textContent = 'No valid rows to import.';
+      return;
+    }
+    
+    const progressLog = qs('#csvProgressLog');
+    let importedCount = 0;
+    let errCount = 0;
+    
+    for (let i = 0; i < validRows.length; i++) {
+      const d = validRows[i];
+      const progress = Math.round((i / validRows.length) * 100);
+      qs('#csvProgressFill').style.width = progress + '%';
+      
+      try {
+        AppState.students.push({
+          id: Math.random().toString(36).substr(2, 9),
+          roll: d.roll,
+          admission_date: d.admission_date,
+          name: d.name,
+          dob: d.dob,
+          aadhar: d.aadhar,
+          father_name: d.father_name,
+          mother_name: d.mother_name,
+          class: d.klass,
+          section: d.section,
+          phone: d.phone,
+          status: d.status
+        });
+        importedCount++;
+        progressLog.innerHTML += `<div>✓ Row ${d.rowIdx}: ${d.name} (${d.roll})</div>`;
+      } catch (err) {
+        errCount++;
+        progressLog.innerHTML += `<div style="color: #ef4444;">✗ Row ${d.rowIdx}: ${err.message}</div>`;
+      }
+      
+      // Allow UI to update
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    qs('#csvProgressFill').style.width = '100%';
+    
+    // Update global state
+    AppState.kpi.totalStudents = AppState.students.length;
+    saveState();
+    
+    // Show summary
+    showSummary(importedCount, parsedData.filter(d => d.duplicate).length, errCount);
+  };
+  
+  function showSummary(imported, skipped, errors) {
+    step3.classList.add('d-none');
+    step4.classList.remove('d-none');
+    
+    qs('#csvImportCount').textContent = imported;
+    
+    if (skipped > 0) {
+      qs('#csvImportSkipped').classList.remove('d-none');
+      qs('#csvSkipCount').textContent = skipped;
+    }
+    
+    if (errors > 0) {
+      qs('#csvImportErrors').classList.remove('d-none');
+      qs('#csvErrorCount').textContent = errors;
+    }
+    
+    // Refresh students view if open
+    if (AppState.view === 'students') {
+      renderStudents();
+    }
+  }
+  
+  // Reset modal on close
+  modal.addEventListener('close', () => {
+    step1.classList.remove('d-none');
+    step2.classList.add('d-none');
+    step3.classList.add('d-none');
+    step4.classList.add('d-none');
+    fileInput.value = '';
+    updateFileName();
+    parsedData = [];
+  });
 }
 
 // === Record Payment with Auto Late Fee ===
