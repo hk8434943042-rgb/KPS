@@ -193,6 +193,68 @@ async function fetchStudentsFromBackend() {
   }
 }
 
+// Fetch payments from backend API and map them to frontend receipt format
+async function fetchPaymentsFromBackend() {
+  try {
+    console.log('[API] Fetching payments from:', API_URL + '/payments');
+    const response = await fetchWithTimeout(API_URL + '/payments', {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch payments: ${response?.status || 'no response'}`);
+    const payments = await response.json();
+
+    AppState.receipts = (payments || []).map(p => ({
+      no: p.transaction_id || `P-${p.id}`,
+      date: String(p.payment_date || '').slice(0, 10),
+      roll: p.roll_no || '',
+      name: p.name || '',
+      method: p.payment_method || 'Cash',
+      amount: Number(p.amount || 0),
+      ref: p.transaction_id || ''
+    }));
+
+    AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+    saveState();
+    console.log('Loaded payments from backend:', AppState.receipts.length);
+    return AppState.receipts;
+  } catch (e) {
+    console.warn('Could not load payments from backend:', e);
+    return [];
+  }
+}
+
+async function syncPaymentToBackend({ studentId, amount, paymentDate, method, ref, purpose, discount, lateFee }) {
+  if (!studentId) return { ok: false, reason: 'missing-student-id' };
+
+  const payload = {
+    student_id: studentId,
+    amount: Number(amount || 0),
+    payment_date: paymentDate,
+    payment_method: method || 'Cash',
+    transaction_id: ref || null,
+    purpose: purpose || 'School Fee',
+    status: 'Completed',
+    remarks: '',
+    discount: Number(discount || 0),
+    late_fee: Number(lateFee || 0)
+  };
+
+  try {
+    const response = await fetchWithTimeout(API_URL + '/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 8000);
+
+    if (!response || !response.ok) {
+      throw new Error(`Payment sync failed: ${response?.status || 'no response'}`);
+    }
+
+    return { ok: true };
+  } catch (e) {
+    console.warn('[SYNC] Payment save to backend failed:', e);
+    return { ok: false, reason: 'request-failed' };
+  }
+}
+
 // ---------- Server Connection Check ----------
 let serverStatusCheckInterval = null;
 let isServerConnected = false;
@@ -300,8 +362,15 @@ function loadState() {
     seedDemoData();
     saveState();
   }
-  // Always try to fetch students from backend (async, don't block)
-  fetchStudentsFromBackend().catch(e => console.warn('[WARN] Background data fetch failed:', e));
+  // Always try to fetch students + payments from backend (async, don't block)
+  Promise.all([
+    fetchStudentsFromBackend(),
+    fetchPaymentsFromBackend()
+  ]).then(() => {
+    if (AppState.view === 'students') renderStudents();
+    if (AppState.view === 'fees') renderFees();
+    if (AppState.view === 'dashboard') renderDashboard();
+  }).catch(e => console.warn('[WARN] Background data fetch failed:', e));
 }
 
 // ---------- Authentication ----------
@@ -2965,6 +3034,23 @@ function initRecordPaymentModal(){
         no:recNo, date:todayYYYYMMDD(), roll, name:s.name, method:rpMethod.value,
         amount:payNow, ref:(rpRef.value||'').trim()
       });
+
+      // Persist payment to backend DB in parallel (non-blocking for UI)
+      syncPaymentToBackend({
+        studentId: s.id,
+        amount: payNow,
+        paymentDate: todayYYYYMMDD(),
+        method: rpMethod.value,
+        ref: (rpRef.value || '').trim(),
+        purpose: `School Fee (${month})`,
+        discount,
+        lateFee
+      }).then((result) => {
+        if (!result.ok) {
+          rpStatus.textContent = 'Saved locally. Backend sync pending (student id or network issue).';
+        }
+      });
+
       if(printAfter) printReceipt(recNo);
     }
 
