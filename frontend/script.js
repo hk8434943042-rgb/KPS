@@ -3858,6 +3858,22 @@ function loadAttendanceForDate(date){
   const tbody = qs('#attendanceTableBody');
   if (!tbody) return;
 
+  const isSunday = (() => {
+    const dt = new Date(date);
+    return !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
+  })();
+
+  // On Sundays, default all teachers to leave unless a record already exists.
+  if (isSunday) {
+    AppState.teachers.forEach(t => {
+      const key = `${t.id}|${date}`;
+      if (!AppState.teacherAttendance[key]) {
+        AppState.teacherAttendance[key] = { status: 'leave', remarks: 'Sunday' };
+      }
+    });
+    saveState();
+  }
+
   tbody.innerHTML = AppState.teachers.map(t => {
     const key = `${t.id}|${date}`;
     const att = AppState.teacherAttendance[key] || { status: 'absent', remarks: '' };
@@ -4066,10 +4082,27 @@ function loadStaffAttendanceForDate(date) {
   const tbody = qs('#staffAttendanceTableBody');
   if (!tbody) return;
 
+  const isSunday = (() => {
+    const dt = new Date(date);
+    return !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
+  })();
+
   const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
   if (staffList.length === 0) {
     tbody.innerHTML = '<tr><td colspan="3" class="muted">No staff records found.</td></tr>';
     return;
+  }
+
+  // On Sundays, default all staff to leave unless a record already exists.
+  if (isSunday) {
+    staffList.forEach((staff, idx) => {
+      const staffId = String(staff.id || `staff_${idx}`);
+      const key = `${staffId}|${date}`;
+      if (!AppState.staffAttendance[key]) {
+        AppState.staffAttendance[key] = { status: 'leave', remarks: 'Sunday' };
+      }
+    });
+    saveState();
   }
 
   tbody.innerHTML = staffList.map((staff, idx) => {
