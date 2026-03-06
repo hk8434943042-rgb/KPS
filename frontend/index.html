@@ -440,12 +440,18 @@
           <div class="card__header">
             <h3>Recent Receipts</h3>
             <div class="card__actions">
+              <div class="view-mode-toggles">
+                <button type="button" class="tab-btn receipt-view-btn active" data-receipt-view="table" title="Table View">📋 Table</button>
+                <button type="button" class="tab-btn receipt-view-btn" data-receipt-view="grid" title="Grid View">⬜ Grid</button>
+                <button type="button" class="tab-btn receipt-view-btn" data-receipt-view="list" title="List View">☰ List</button>
+              </div>
               <button class="btn btn-ghost" id="feesBtnThisMonthReceipts">This Month's Receipts</button>
               <button class="btn btn-ghost" id="feesBtnPrint4ReceiptsA4">Print 4 Receipts (A4)</button>
               <button class="btn btn-ghost" id="feesBtnReceiptsExport">Export Receipts</button>
             </div>
           </div>
-          <div class="table-wrap">
+          <!-- TABLE VIEW -->
+          <div class="table-wrap receipt-view-container" id="receiptsTableView">
             <table class="table" id="feesReceiptsTable">
               <thead>
                 <tr>
@@ -454,6 +460,12 @@
               </thead>
               <tbody id="feesReceiptsBody"><!-- rows injected --></tbody>
             </table>
+          </div>
+          <!-- GRID VIEW -->
+          <div class="receipts-box-container receipt-view-container d-none" id="receiptsGridView">
+          </div>
+          <!-- LIST VIEW -->
+          <div class="receipt-list-container receipt-view-container d-none" id="receiptsListView">
           </div>
         </div>
       </section>
@@ -2658,7 +2670,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-receipts-modal-box-1"></script>
+  <script src="script.js?v=20260306-receipts-view-modes-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>

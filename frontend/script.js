@@ -2814,6 +2814,60 @@ function renderRecentReceipts(filterByMonth=false){
       </td>
     </tr>
   `).join('');
+  
+  // Render GRID VIEW
+  const gridContainer = qs('#receiptsGridView');
+  gridContainer.innerHTML = rows.map(r => `
+    <div class="receipt-box">
+      <div class="receipt-box__header">
+        <div class="receipt-box__no">Receipt #${r.no}</div>
+        <div class="receipt-box__date">${r.date}</div>
+      </div>
+      <div class="receipt-box__details">
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Student:</span>
+          <span class="receipt-box__value">${r.name}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Admission No.:</span>
+          <span class="receipt-box__value">${r.roll}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Amount:</span>
+          <span class="receipt-box__value fw-bold" style="color: #0a6f2e;">${fmtINR(r.amount)}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Payment Method:</span>
+          <span class="receipt-box__value">${r.method}</span>
+        </div>
+      </div>
+      <div class="receipt-box__actions">
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+      </div>
+    </div>
+  `).join('');
+  
+  // Render LIST VIEW
+  const listContainer = qs('#receiptsListView');
+  listContainer.innerHTML = rows.map(r => `
+    <div class="receipt-list-item">
+      <div class="receipt-list-item__main">
+        <div class="receipt-list-item__header">
+          <span class="receipt-list-item__title">Receipt #${r.no}</span>
+          <span class="receipt-list-item__amount" style="color: #0a6f2e; font-weight: bold;">${fmtINR(r.amount)}</span>
+        </div>
+        <div class="receipt-list-item__meta">
+          <span>${r.name} (${r.roll})</span>
+          <span>${r.date}</span>
+        </div>
+      </div>
+      <div class="receipt-list-item__actions">
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+      </div>
+    </div>
+  `).join('');
   qsa('button[data-act="print"]').forEach(b=>{
     b.onclick=()=> printReceipt(b.getAttribute('data-no'));
   });
@@ -2822,6 +2876,28 @@ function renderRecentReceipts(filterByMonth=false){
   });
   qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
   qs('#feesBtnThisMonthReceipts').onclick=()=> showThisMonthReceiptsModal();
+  
+  // Wire up view mode toggles
+  qsa('.receipt-view-btn').forEach(btn => {
+    btn.onclick = () => switchReceiptView(btn.getAttribute('data-receipt-view'));
+  });
+}
+
+function switchReceiptView(viewMode){
+  // Update active button
+  qsa('.receipt-view-btn').forEach(btn => btn.classList.remove('active'));
+  qs(`.receipt-view-btn[data-receipt-view="${viewMode}"]`)?.classList.add('active');
+  
+  // Hide all views
+  qsa('.receipt-view-container').forEach(container => container.classList.add('d-none'));
+  
+  // Show selected view
+  const viewMap = {
+    'table': '#receiptsTableView',
+    'grid': '#receiptsGridView',
+    'list': '#receiptsListView'
+  };
+  qs(viewMap[viewMode])?.classList.remove('d-none');
 }
 
 function showThisMonthReceiptsModal(){
