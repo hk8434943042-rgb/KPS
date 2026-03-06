@@ -3058,7 +3058,21 @@ function initQuickPaymentBox(){
         return;
       }
 
-      // Prepare receipt data
+      // Prepare payment data - mapped to match /api/payments endpoint
+      const paymentData = {
+        student_id: student.id,
+        amount: amount,
+        payment_date: todayYYYYMMDD(),
+        payment_method: method,
+        transaction_id: ref || null,
+        purpose: 'Monthly Fees',
+        status: 'Completed',
+        remarks: `Quick payment via fees portal`,
+        discount: 0,
+        late_fee: 0
+      };
+
+      // Also prepare receipt object for frontend display
       const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
       const receipt = {
         no: receiptNo.toString(),
@@ -3068,7 +3082,7 @@ function initQuickPaymentBox(){
         amount: amount,
         method: method,
         ref: ref || null,
-        heads: { 'Cash': amount }, // Store in heads object
+        heads: { 'Cash': amount },
         discount: 0,
         latefee: 0,
         status: 'completed'
@@ -3079,14 +3093,17 @@ function initQuickPaymentBox(){
       payBtn.textContent = '⏳ Processing...';
 
       try {
-        // Save to backend
-        const response = await fetch('/api/receipts', {
+        // Save to backend using /api/payments endpoint
+        const response = await fetch('/api/payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(receipt)
+          body: JSON.stringify(paymentData)
         });
 
-        if (!response.ok) throw new Error('Failed to save receipt');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to save payment');
+        }
 
         // Update AppState
         AppState.receipts.push(receipt);
