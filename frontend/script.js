@@ -2907,6 +2907,7 @@ function renderRecentReceipts(filterByMonth=false){
       <td>${fmtINR(r.amount)}</td>
       <td style="text-align:right;">
         <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
+        <button class="btn btn-ghost small" data-act="a4" data-no="${r.no}" title="A4 Printable Receipt">📑 A4</button>
         <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
       </td>
     </tr>
@@ -2940,6 +2941,7 @@ function renderRecentReceipts(filterByMonth=false){
       </div>
       <div class="receipt-box__actions">
         <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
         <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
       </div>
     </div>
@@ -2961,12 +2963,16 @@ function renderRecentReceipts(filterByMonth=false){
       </div>
       <div class="receipt-list-item__actions">
         <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
         <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
       </div>
     </div>
   `).join('');
   qsa('button[data-act="print"]').forEach(b=>{
     b.onclick=()=> printReceipt(b.getAttribute('data-no'));
+  });
+  qsa('button[data-act="a4"]').forEach(b=>{
+    b.onclick=()=> printReceiptA4(b.getAttribute('data-no'));
   });
   qsa('button[data-act="pdf"]').forEach(b=>{
     b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
@@ -3043,6 +3049,7 @@ function showThisMonthReceiptsModal(){
         </div>
         <div class="receipt-box__actions">
           <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+          <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
           <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
         </div>
       </div>
@@ -3440,6 +3447,12 @@ function initRecordPaymentModal(){
   const rpError=qs('#rpError');
   const rpStatus=qs('#rpStatus');
 
+  const safeAmount = (val) => {
+    const n = Number(val);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+  };
+
   // Month picker can be absent in newer modal markup. Resolve month safely.
   const resolvePaymentMonth = () => {
     if (rpMonth && rpMonth.value) return rpMonth.value;
@@ -3471,6 +3484,21 @@ function initRecordPaymentModal(){
   if (rpDiscount) rpDiscount.oninput = () => updateTotals();
   if (rpLateFee) rpLateFee.oninput = () => updateTotals();
   if (rpPayNow) rpPayNow.oninput = () => validatePayNow();
+
+  qs('#rpBtnExact').onclick = () => {
+    const calc = getCalcState();
+    rpPayNow.value = String(calc.outstanding);
+    validatePayNow();
+  };
+  qs('#rpBtnHalf').onclick = () => {
+    const calc = getCalcState();
+    rpPayNow.value = String(Math.round(calc.outstanding / 2));
+    validatePayNow();
+  };
+  qs('#rpBtnClear').onclick = () => {
+    rpPayNow.value = '0';
+    validatePayNow();
+  };
 
   // Search dropdown (safe: handle missing fields) and keyboard shortcuts
   search.oninput = () => {
@@ -3543,27 +3571,73 @@ function initRecordPaymentModal(){
     updateTotals();
   }
 
-  function updateTotals(){
-    const amounts=qsa('#rpHeads input[type="number"]').map(inp=>{
-      const head=inp.getAttribute('data-head');
-      const include=qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`).checked;
-      return include? Number(inp.value||0):0;
+  function getCalcState(){
+    const amounts = qsa('#rpHeads input[type="number"]').map(inp => {
+      const head = inp.getAttribute('data-head');
+      const includeInp = qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`);
+      const include = includeInp ? includeInp.checked : true;
+      return include ? safeAmount(inp.value) : 0;
     });
-    const subtotal=amounts.reduce((a,b)=> a+b,0);
-    const discount=Number(rpDiscount.value||0);
-    const lateFee=Number(rpLateFee.value||0);
-    const totalDue=Math.max(0, subtotal+lateFee-discount);
+
+    const subtotal = amounts.reduce((a,b)=> a+b,0);
+    const discount = safeAmount(rpDiscount.value);
+    const lateFee = safeAmount(rpLateFee.value);
+    const totalDue = Math.max(0, subtotal + lateFee - discount);
+
+    const roll = rpRoll.value.trim();
+    const month = resolvePaymentMonth();
+    const key = roll && month ? `${roll}|${month}` : '';
+    const paidSoFar = key ? safeAmount(AppState.fees[key]?.paid || 0) : 0;
+    const outstanding = Math.max(0, totalDue - paidSoFar);
+
+    return { subtotal, discount, lateFee, totalDue, paidSoFar, outstanding };
+  }
+
+  function updateTotals(){
+    const calc = getCalcState();
+    const { subtotal, discount, lateFee, totalDue, paidSoFar, outstanding } = calc;
+
     rpSubtotal.textContent=fmtINR(subtotal);
     rpTotalDue.textContent=fmtINR(totalDue);
-    qs('#rpBtnExact').onclick=()=>{ rpPayNow.value=String(totalDue); validatePayNow(); };
-    qs('#rpBtnHalf').onclick =()=>{ rpPayNow.value=String(Math.round(totalDue/2)); validatePayNow(); };
-    qs('#rpBtnClear').onclick=()=>{ rpPayNow.value='0'; validatePayNow(); };
+
+    rpPayNow.max = String(outstanding);
+    const enteredPay = safeAmount(rpPayNow.value);
+    if (enteredPay > outstanding) rpPayNow.value = String(outstanding);
+
+    const remainingAfterPay = Math.max(0, outstanding - safeAmount(rpPayNow.value));
+    if (rpStatus) {
+      rpStatus.textContent = `Due: ${fmtINR(totalDue)} | Paid: ${fmtINR(paidSoFar)} | Outstanding: ${fmtINR(outstanding)} | After this payment: ${fmtINR(remainingAfterPay)}`;
+    }
+
+    if (discount > subtotal + lateFee) {
+      rpError.textContent = 'Discount cannot exceed subtotal + late fee.';
+      rpError.style.display = 'block';
+    }
+
     validatePayNow();
   }
+
   function validatePayNow(){
     rpError.style.display='none';
-    const pay=Number(rpPayNow.value||0);
+    const pay=safeAmount(rpPayNow.value);
+    const calc = getCalcState();
+
     if(pay<0){ rpError.textContent='Amount cannot be negative.'; rpError.style.display='block'; return false; }
+    if (calc.discount > calc.subtotal + calc.lateFee) {
+      rpError.textContent='Discount cannot exceed subtotal + late fee.';
+      rpError.style.display='block';
+      return false;
+    }
+    if (pay > calc.outstanding) {
+      rpError.textContent=`Pay Now cannot exceed outstanding amount (${fmtINR(calc.outstanding)}).`;
+      rpError.style.display='block';
+      return false;
+    }
+
+    if (rpStatus) {
+      const remainingAfterPay = Math.max(0, calc.outstanding - pay);
+      rpStatus.textContent = `Due: ${fmtINR(calc.totalDue)} | Paid: ${fmtINR(calc.paidSoFar)} | Outstanding: ${fmtINR(calc.outstanding)} | After this payment: ${fmtINR(remainingAfterPay)}`;
+    }
     return true;
   }
 
@@ -3591,16 +3665,27 @@ function initRecordPaymentModal(){
       heads[head]=include? Number(inp.value||0):0;
     });
 
-    const discount=Number(rpDiscount.value||0);
-    const autoFee=computeLateFee(roll,month,new Date());
-    rpLateFee.value=String(autoFee);
-    const lateFee=autoFee;
-    const payNow=Number(rpPayNow.value||0);
+    const discount=safeAmount(rpDiscount.value);
+    const lateFee=safeAmount(rpLateFee.value);
+    const payNow=safeAmount(rpPayNow.value);
     if(payNow<0){ rpError.textContent='Pay Now cannot be negative.'; rpError.style.display='block'; return false; }
 
     const key=`${roll}|${month}`;
     const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
     const netDue=Math.max(0, subtotal+lateFee-discount);
+
+    const paidAlready=safeAmount(AppState.fees[key]?.paid || 0);
+    const outstandingBefore=Math.max(0, netDue - paidAlready);
+    if (discount > subtotal + lateFee) {
+      rpError.textContent='Discount cannot exceed subtotal + late fee.';
+      rpError.style.display='block';
+      return false;
+    }
+    if (payNow > outstandingBefore) {
+      rpError.textContent=`Pay Now cannot exceed outstanding amount (${fmtINR(outstandingBefore)}).`;
+      rpError.style.display='block';
+      return false;
+    }
 
     AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0 };
     AppState.fees[key].heads=heads;
@@ -3812,6 +3897,121 @@ function printReceipt(no){
     window.print();
     setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
   }
+}
+
+function printReceiptA4(no){
+  const r = AppState.receipts.find(x => x.no === no);
+  if (!r) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || '';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logoUrl = sch.logo || 'assets/logo.png';
+  const receiptTime = getReceiptDisplayTime(r);
+  const amount = (r.amount || 0).toLocaleString(AppState.settings.locale || 'en-IN');
+
+  const w = window.open('', '_blank', 'width=900,height=1200');
+  if (!w) {
+    alert('Please allow popups to print A4 receipt.');
+    return;
+  }
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Receipt ${r.no}</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #1f2937; }
+    .page { width: 100%; min-height: calc(297mm - 24mm); border: 1px solid #d1d5db; padding: 14mm; }
+    .header { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #1d4ed8; padding-bottom: 10px; }
+    .logo { width: 70px; height: 70px; object-fit: contain; }
+    .school h1 { margin: 0; font-size: 24px; color: #1d4ed8; }
+    .school .tagline { margin: 2px 0 0; font-size: 14px; color: #374151; }
+    .school .meta { margin: 6px 0 0; font-size: 12px; color: #6b7280; line-height: 1.5; }
+    .title { text-align: center; margin: 16px 0 12px; font-size: 22px; letter-spacing: 1px; color: #1d4ed8; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin-top: 8px; }
+    .row { display: flex; justify-content: space-between; border-bottom: 1px dotted #cbd5e1; padding-bottom: 6px; }
+    .label { font-weight: 600; color: #374151; }
+    .value { color: #111827; text-align: right; }
+    .amount-box { margin: 20px 0; border: 2px solid #93c5fd; background: #eff6ff; border-radius: 10px; padding: 14px; }
+    .amount-row { display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: #1e3a8a; }
+    .note { margin-top: 14px; padding: 10px; border: 1px dashed #9ca3af; border-radius: 8px; background: #f9fafb; font-size: 12px; color: #4b5563; }
+    .signatures { display: flex; justify-content: space-between; margin-top: 42px; gap: 24px; }
+    .sign-box { width: 45%; text-align: center; }
+    .sign-line { border-top: 1px solid #111827; margin-top: 30px; padding-top: 6px; font-size: 12px; color: #4b5563; }
+    .footer { margin-top: 24px; text-align: center; font-size: 11px; color: #6b7280; }
+    @media print {
+      .page { border: none; padding: 0; min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <img class="logo" src="${logoUrl}" alt="School Logo" onerror="this.style.display='none'" />
+      <div class="school">
+        <h1>${headerName}</h1>
+        ${tagline ? `<div class="tagline">${tagline}</div>` : ''}
+        <div class="meta">
+          ${address ? `${address}<br/>` : ''}
+          ${phone ? `Phone: ${phone}<br/>` : ''}
+          ${email ? `Email: ${email}` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="title">FEE RECEIPT</div>
+
+    <div class="grid">
+      <div class="row"><span class="label">Receipt No</span><span class="value">${r.no}</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">${r.date}</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">${receiptTime}</span></div>
+      <div class="row"><span class="label">Payment Method</span><span class="value">${r.method}</span></div>
+      <div class="row"><span class="label">Student Name</span><span class="value">${r.name}</span></div>
+      <div class="row"><span class="label">Admission No</span><span class="value">${r.roll}</span></div>
+      ${r.ref ? `<div class="row"><span class="label">Reference No</span><span class="value">${r.ref}</span></div>` : ''}
+    </div>
+
+    <div class="amount-box">
+      <div class="amount-row">
+        <span>Amount Received</span>
+        <span>Rs ${amount}</span>
+      </div>
+    </div>
+
+    <div class="note">
+      Received with thanks towards school fee payment. This is a computer-generated receipt.
+    </div>
+
+    <div class="signatures">
+      <div class="sign-box"><div class="sign-line">Parent/Guardian Signature</div></div>
+      <div class="sign-box"><div class="sign-line">Authorized Signatory</div></div>
+    </div>
+
+    <div class="footer">
+      Generated from School Admin Portal
+    </div>
+  </div>
+  <script>
+    window.onload = function(){
+      setTimeout(function(){ window.print(); }, 200);
+    };
+  </script>
+</body>
+</html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 // Find Receipt by Number
