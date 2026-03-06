@@ -2275,7 +2275,7 @@ function renderFees(){
 function sumReceiptsThisMonth(){
   // Reception users see only today's receipts, admin sees full month
   if (isReceptionUser()) {
-    const today = dateOfToday();
+    const today = todayYYYYMMDD();
     return AppState.receipts.filter(r=> (r.date||'') === today)
       .reduce((sum,r)=> sum+Number(r.amount||0),0);
   }
@@ -2286,7 +2286,7 @@ function sumReceiptsThisMonth(){
 function countReceiptsThisMonth(){
   // Reception users see only today's receipts, admin sees full month
   if (isReceptionUser()) {
-    const today = dateOfToday();
+    const today = todayYYYYMMDD();
     return AppState.receipts.filter(r=> (r.date||'') === today).length;
   }
   const m=monthOfToday();
@@ -2563,7 +2563,7 @@ function filterFullyPaidStudents(allStudents) {
 
 // Show modal with receipts
 function showReceiptsModal() {
-  const today = dateOfToday();
+  const today = todayYYYYMMDD();
   let receipts = [...AppState.receipts];
   
   if (isReceptionUser()) {
@@ -2582,7 +2582,7 @@ function renderRecentReceipts(){
   const tbody=qs('#feesReceiptsBody');
   // Reception users see only today's receipts
   let filteredReceipts = [...AppState.receipts];
-  const today = dateOfToday();
+  const today = todayYYYYMMDD();
   if (isReceptionUser()) {
     filteredReceipts = filteredReceipts.filter(r=> (r.date||'') === today);
   }
