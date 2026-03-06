@@ -2146,13 +2146,17 @@ function renderFees(){
     // Hide overdue KPI for reception
     if (feesKpiOverdueCard) feesKpiOverdueCard.style.display = 'none';
     
-    // Change Outstanding KPI to show "Students with Due Fees"
+    // Change Outstanding KPI to show "Students with Due Fees" and make it clickable
     if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Students with Due Fees';
     if (feesKpiDueCard) {
       const feesKpiOutstanding = qs('#feesKpiOutstanding');
       const studentsWithDue = countStudentsWithDue();
       if (feesKpiOutstanding) feesKpiOutstanding.textContent = String(studentsWithDue);
       if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = studentsWithDue === 1 ? '1 student' : `${studentsWithDue} students`;
+      
+      // Make KPI card clickable to show student list
+      feesKpiDueCard.style.cursor = 'pointer';
+      feesKpiDueCard.onclick = () => showDueStudentsModal();
     }
     
     // Show "Students Fully Paid" KPI for reception
@@ -2287,6 +2291,72 @@ function countStudentsFullyPaid(){
   // Students fully paid = all students - students with due
   return allStudentRolls.size - studentsWithDue.size;
 }
+// Show modal with students who have due fees
+function showDueStudentsModal() {
+  const m = monthOfToday();
+  const dueStudents = [];
+  
+  // Calculate due amount for each student
+  AppState.students.forEach(s => {
+    let totalDue = 0;
+    let dueMonths = [];
+    
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return; // Skip other students and future months
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      
+      if (balance > 0) {
+        totalDue += balance;
+        dueMonths.push(month);
+      }
+    });
+    
+    if (totalDue > 0) {
+      dueStudents.push({
+        roll: s.roll,
+        name: s.name,
+        class: s.class,
+        section: s.section,
+        dueMonths: dueMonths.length,
+        dueAmount: totalDue
+      });
+    }
+  });
+  
+  // Sort by due amount (highest first)
+  dueStudents.sort((a, b) => b.dueAmount - a.dueAmount);
+  
+  // Populate modal
+  const tbody = qs('#dueStudentsBody');
+  const meta = qs('#dueStudentsMeta');
+  
+  if (meta) {
+    meta.textContent = `Total: ${dueStudents.length} student${dueStudents.length === 1 ? '' : 's'} with due fees`;
+  }
+  
+  if (tbody) {
+    if (dueStudents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No students with due fees</td></tr>';
+    } else {
+      tbody.innerHTML = dueStudents.map(s => `
+        <tr>
+          <td>${s.roll}</td>
+          <td>${s.name}</td>
+          <td>${s.class}-${s.section}</td>
+          <td>${s.dueMonths}</td>
+          <td>${fmtINR(s.dueAmount)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+  
+  // Open the modal
+  openModal('#modalDueStudents');
+}
+
 function renderRecentReceipts(){
   const tbody=qs('#feesReceiptsBody');
   // Reception users see only today's receipts
