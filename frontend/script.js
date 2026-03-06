@@ -255,6 +255,32 @@ async function syncPaymentToBackend({ studentId, amount, paymentDate, method, re
   }
 }
 
+async function deleteStudentFromBackend(student) {
+  if (!student) return { ok: false, reason: 'missing-student' };
+
+  const hasId = Number.isFinite(Number(student.id));
+  const endpoint = hasId
+    ? `${API_URL}/students/${student.id}`
+    : `${API_URL}/students/by-roll/${encodeURIComponent(student.roll || '')}`;
+
+  try {
+    const response = await fetchWithTimeout(endpoint, { method: 'DELETE' }, 8000);
+    if (!response || !response.ok) {
+      let msg = `Delete failed: ${response?.status || 'no response'}`;
+      try {
+        const err = await response.json();
+        if (err?.error) msg = err.error;
+      } catch (_) {
+        // Keep default message when response body is not JSON.
+      }
+      return { ok: false, reason: msg };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e?.message || 'request-failed' };
+  }
+}
+
 // ---------- Server Connection Check ----------
 let serverStatusCheckInterval = null;
 let isServerConnected = false;
@@ -2124,14 +2150,30 @@ function renderStudents(){
       btn.onclick=()=> openEditStudent(btn.getAttribute('data-roll'));
     });
     qsa('button[data-act="delete"]').forEach(btn=>{
-      btn.onclick=()=>{
+      btn.onclick=async ()=>{
         const roll=btn.getAttribute('data-roll');
         const student=AppState.students.find(s=> s.roll===roll);
         if(!student) return;
         if(!confirm(`Delete student ${student.name} (Roll: ${roll})? This action cannot be undone.`)) return;
+
+        const result = await deleteStudentFromBackend(student);
+        if (!result.ok) {
+          alert(`Failed to delete student from database: ${result.reason}`);
+          return;
+        }
+
         AppState.students=AppState.students.filter(s=> s.roll!==roll);
+        // Remove local fee/receipt records for immediate UI consistency.
+        Object.keys(AppState.fees).forEach(key => {
+          if (key.startsWith(`${roll}|`)) delete AppState.fees[key];
+        });
+        AppState.receipts = AppState.receipts.filter(r => r.roll !== roll);
         AppState.kpi.totalStudents=AppState.students.length;
+        AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
         saveState();
+
+        // Refresh synced payment list after backend cascade delete.
+        fetchPaymentsFromBackend().catch(() => {});
         renderStudents();
       };
     });
