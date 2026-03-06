@@ -3530,12 +3530,143 @@ function initRecordPaymentModal(){
   };
 
   rpRoll.onchange=()=>{ fillStudentInfo(); };
-  if (rpMonth) rpMonth.onchange=()=>{ loadHeads(); autoCalcLateFee(); };
+  if (rpMonth) {
+    rpMonth.onchange=function(){
+      const selected = this.value;
+      if (selected) {
+        qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => {
+          cb.checked = cb.getAttribute('data-month') === selected;
+        });
+      }
+      loadHeads(); autoCalcLateFee();
+    };
+  }
+
+  // Helper: Get all months with fees for a student, sorted newest first
+  function getUnpaidMonthsForStudent(roll) {
+    if (!roll) return [];
+    const months = [];
+    const today = new Date();
+    const currentMonth = monthOfToday(); // YYYY-MM format
+
+    Object.keys(AppState.fees).forEach(key => {
+      const [feeRoll, month] = key.split('|');
+      if (feeRoll === roll) {
+        const fee = AppState.fees[key];
+        const subtotal = Object.values(fee.heads || {}).reduce((a, b) => a + b, 0);
+        const totalDue = Math.max(0, subtotal + (fee.lateFee || 0) - (fee.discount || 0));
+        const paid = fee.paid || 0;
+
+        let status = 'paid';
+        if (paid === 0) status = 'unpaid';
+        else if (paid < totalDue) status = 'partial';
+
+        months.push({
+          month,
+          totalDue,
+          paid,
+          outstanding: Math.max(0, totalDue - paid),
+          status
+        });
+      }
+    });
+
+    // Sort newest first
+    months.sort((a, b) => b.month.localeCompare(a.month));
+    return months;
+  }
+
+  // Helper: Populate the unpaid months list with checkboxes
+  function populateUnpaidMonthsList(roll) {
+    const monthsList = qs('#rpUnpaidMonthsList');
+    if (!monthsList) return;
+
+    const months = getUnpaidMonthsForStudent(roll);
+    if (months.length === 0) {
+      monthsList.innerHTML = '<p style="grid-column: 1 / -1; opacity: 0.6;">No months with fee data.</p>';
+      return;
+    }
+
+    monthsList.innerHTML = months.map(m => {
+      const badgeClass = m.status === 'unpaid' ? 'badge-unpaid' : m.status === 'partial' ? 'badge-partial' : 'badge-paid';
+      const label = formatMonthLabel(m.month); // e.g., "March 2025"
+      const checkbox = `<input type="checkbox" data-month="${m.month}" class="month-checkbox" ${m.status !== 'paid' ? 'checked' : ''} />`;
+      const statusBadge = `<span class="month-status-badge ${badgeClass}">${m.status.toUpperCase()}</span>`;
+      const outstandingText = m.outstanding > 0 ? ` (₹${m.outstanding})` : '';
+
+      return `
+        <label class="month-item month-${m.status}">
+          ${checkbox}
+          <span class="month-label">${label}${outstandingText}</span>
+          ${statusBadge}
+        </label>
+      `;
+    }).join('');
+
+    // Wire checkbox change handlers to sync with month picker
+    qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => {
+      cb.onchange = function() {
+        if (this.checked && rpMonth) {
+          const month = this.getAttribute('data-month');
+          rpMonth.value = month;
+          // Uncheck other months if wpMonth exists (treat it as single-select)
+          if (rpMonth.value !== '') {
+            qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(other => {
+              if (other !== this) other.checked = false;
+            });
+          }
+        }
+        loadHeads(); autoCalcLateFee();
+      };
+    });
+
+    // Auto-select first unpaid month if no month picker exists
+    if (!rpMonth) {
+      const firstUnpaid = months.find(m => m.status === 'unpaid');
+      if (firstUnpaid) {
+        const firstCheckbox = qs(`#rpUnpaidMonthsList input[data-month="${firstUnpaid.month}"]`);
+        if (firstCheckbox) firstCheckbox.checked = true;
+      }
+    }
+  }
+
+  // Wire unpaid months action buttons
+  if (qs('#rpBtnSelectAll')) {
+    qs('#rpBtnSelectAll').onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+      loadHeads(); // Reload heads for first selected month
+    };
+  }
+
+  if (qs('#rpBtnClearMonths')) {
+    qs('#rpBtnClearMonths').onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+    };
+  }
+
+  if (qs('#rpBtnMarkPrev')) {
+    qs('#rpBtnMarkPrev').onclick = () => {
+      const roll = rpRoll.value.trim();
+      if (!roll) return;
+      const firstChecked = qs('#rpUnpaidMonthsList input[type="checkbox"]:checked');
+      if (firstChecked) {
+        const month = firstChecked.getAttribute('data-month');
+        if (month) {
+          // Uncheck all, then check only this one
+          qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+          firstChecked.checked = true;
+          loadHeads();
+        }
+      }
+    };
+  }
 
   function fillStudentInfo(){
     const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
-    if(!s){ rpName.value=''; rpClass.value=''; return; }
-    rpName.value=s.name; rpClass.value=s.class; loadHeads(); autoCalcLateFee();
+    if(!s){ rpName.value=''; rpClass.value=''; rpHeadsWrap.innerHTML=''; qs('#rpUnpaidMonthsList').innerHTML=''; return; }
+    rpName.value=s.name; rpClass.value=s.class; 
+    populateUnpaidMonthsList(rpRoll.value.trim());
+    loadHeads(); autoCalcLateFee();
   }
 
   function loadHeads(){
