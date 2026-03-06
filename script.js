@@ -1,0 +1,6740 @@
+/**
+ * @fileoverview School Admin Portal - Main Application Script
+ * Note: This file uses template literals with HTML. VS Code may show false 
+ * JSX errors which can be ignored - the code is valid JavaScript.
+ * 
+ * eslint-disable no-unused-expressions, no-undef
+ */
+/* eslint-disable */
+/* ============================
+   School Admin Portal — script.js
+   Author: Himanshu Kumar
+   ============================ */
+
+console.log('📜 script.js loading...');
+
+// global error catching (helps debug freezes)
+window.addEventListener('error', e => {
+  console.error('Global error caught:', e.message, e.filename + ':' + e.lineno);
+  // Don't show alert - it blocks the page
+  // alert('An error occurred: ' + e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled promise rejection:', e.reason);
+  // Don't show alert - it blocks the page  
+  // alert('An unhandled promise rejection occurred: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+
+// ===========================
+// AUTHENTICATION CHECK
+// ===========================
+window.addEventListener('load', () => {
+  // Don't redirect if already on login page
+  const currentPage = window.location.pathname.split('/').pop();
+  if (currentPage === 'login.html' || currentPage === '' || currentPage.includes('set-api')) {
+    return; // Allow login.html and set-api.html to load
+  }
+  
+  // Check if user is authenticated - check sessionStorage (set by login.html)
+  const isAuthenticated = sessionStorage.getItem('isAuthenticated');
+  if (isAuthenticated !== 'true') {
+    // Redirect to login page
+    window.location.href = 'login.html';
+  }
+});
+
+// ===========================
+// GLOBAL API CONFIGURATION
+// ===========================
+// Use API URL from api-config.js, which can be overridden by API_URL_OVERRIDE in localStorage
+const DEFAULT_API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+let API_URL = DEFAULT_API_URL;
+const API_URL_OVERRIDE = localStorage.getItem('API_URL_OVERRIDE');
+if (API_URL_OVERRIDE) {
+  API_URL = API_URL_OVERRIDE.replace(/\/+$/, '');
+}
+
+function clearStaleCloudflareOverride() {
+  const override = (localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  if (!override) return false;
+
+  // Cloudflare quick-tunnel URLs are ephemeral and commonly expire.
+  if (!/\.trycloudflare\.com/i.test(override)) return false;
+
+  localStorage.removeItem('API_URL_OVERRIDE');
+  API_URL = DEFAULT_API_URL;
+  console.warn('Removed stale Cloudflare API override and reverted to default API:', API_URL);
+
+  const setApiBaseUrl = document.getElementById('setApiBaseUrl');
+  if (setApiBaseUrl) setApiBaseUrl.value = '';
+
+  const settingsApiStatus = document.getElementById('settingsApiStatus');
+  if (settingsApiStatus) {
+    settingsApiStatus.textContent = `Removed expired Cloudflare override. Active API: ${API_URL}`;
+    settingsApiStatus.style.color = '#c0392b';
+  }
+
+  return true;
+}
+
+function clearApiOverrideAndReconnect() {
+  const previousOverride = (localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  localStorage.removeItem('API_URL_OVERRIDE');
+  API_URL = DEFAULT_API_URL;
+
+  const setApiBaseUrl = document.getElementById('setApiBaseUrl');
+  if (setApiBaseUrl) setApiBaseUrl.value = '';
+
+  const settingsApiStatus = document.getElementById('settingsApiStatus');
+  if (settingsApiStatus) {
+    settingsApiStatus.textContent = previousOverride
+      ? `API override cleared (${previousOverride}). Active API: ${API_URL}`
+      : `No API override found. Active API: ${API_URL}`;
+    settingsApiStatus.style.color = '';
+  }
+
+  checkServerConnection(false);
+}
+
+// ---------- Global State ----------
+const AppState = {
+  theme: 'system',
+  view: 'dashboard',
+  selectedChildAdmissionNo: null, // For parent portal - tracks which child's data to display
+
+  // Core data
+  students: [],
+  fees: {},          // key: `${admission_no}|${YYYY-MM}` -> { heads, paid, discount, lateFee, lastReceipt? }
+  receipts: [],      // { no, date, roll (admission_no), name, method, amount, ref }
+
+  // KPIs used by dashboard
+  kpi: {
+    totalStudents: 0,
+    attendanceToday: 0.942,
+    feesCollectedMonth: 0,
+    issuesOpen: 0
+  },
+
+  // Pagination config
+  pagination: {
+    students: { page: 1, pageSize: 10, totalPages: 1, filtered: [] }
+  },
+
+  // Fee heads by class
+  feeHeadsByClass: {},
+
+  // Late fee rules (with sensible defaults)
+  lateFeeRules: {
+    cutoffDay: 10,
+    graceDays: 0,
+    cap: 200,
+    startAfter: 0,
+    slabs: [],                          // [{from:1, to:10, perDay:10}, {from:11, to:null, perDay:20}]
+    skipSat: false,
+    skipSun: false,
+    holidays: [],                       // ["2026-03-08", ...]
+    shiftRule: 'none',                  // 'none' | 'nextBusiness' | 'prevBusiness'
+    applyToHeads: {                     // when true → late fee applies only if that head is included
+      Tuition: true,
+      Transport: true,
+      Lab: false,
+      Activity: false,
+      Miscellaneous: true
+    },
+    classOverrides: {}                  // e.g., { "IX": { cap:300 }, "X": { cutoffDay:12 } }
+  },
+
+  // Settings (+ School profile)
+  settings: {
+    theme: 'system',
+    currency: '₹',
+    locale: 'en-IN',
+    studentsPageSize: 10,
+    defaultFeesMonth: null,
+    chartAnimation: false,
+    school: {
+      name: 'KHUSHI PUBLIC SCHOOL',
+      tagline: 'Admin Portal',
+      address: 'Sheikhpura, Bihar',
+      phone: '+91-XXXXXXXXXX',
+      email: '',
+      logo: 'assets/logo.png'
+    }
+  },
+
+  // Transport module
+  transport: {
+    routes: [],
+    vehicles: [],
+    assignments: [] // { roll (admission_no), routeId, stop, fee, status }
+  },
+
+  // Exams module
+  exams: [],
+  marks: {}, // key: `${examId}|${admission_no}` -> { obtainedMarks, status }
+
+  // Teachers module
+  teachers: [], // { id, name, phone, email, subjects, joinDate, salary, status }
+  teacherAttendance: {}, // key: `${teacherId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
+  salaryPayments: [], // { id, teacherId, month, amount, date, status }
+
+  // Staff module
+  staff: [], // { id, name, role, phone, joinDate, salary, status }
+  staffAttendance: {}, // key: `${staffId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
+
+  // Classes module
+  classes: [], // { id, class, section, classTeacherId, subjects: {subjectName: teacherId}, capacity, status }
+
+  // Notices module
+  notices: [] // { id, title, description, author, date, priority, status, audience }
+};
+
+const AttendanceMonthState = {
+  teacher: null,
+  staff: null
+};
+
+// ---------- Persistence ----------
+const STORAGE_KEY = 'khushi_school_admin';
+function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState)); }
+
+// helper that performs fetch with a timeout (default 5s)
+async function fetchWithTimeout(url, opts = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { signal: controller.signal, ...opts });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+// Fetch students from backend API and update AppState.students
+async function fetchStudentsFromBackend() {
+  try {
+    console.log('[API] Fetching students from:', API_URL + '/students');
+    const response = await fetchWithTimeout(API_URL + '/students', {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch students: ${response?.status || 'no response'}`);
+    const students = await response.json();
+    
+    // Map database fields to AppState format
+    AppState.students = students.map(s => ({
+      id: s.id,
+      roll: s.roll_no,  // Map roll_no to roll
+      name: s.name,
+      email: s.email || '',
+      phone: s.phone || '',
+      class: s.class_name || '',  // Map class_name to class
+      section: s.section || '',
+      dob: s.date_of_birth || '',
+      address: s.address || '',
+      parent_name: s.parent_name || '',
+      parent_phone: s.parent_phone || '',
+      status: 'Active',  // Default status
+      created_at: s.created_at,
+      updated_at: s.updated_at
+    }));
+    
+    AppState.kpi.totalStudents = AppState.students.length;
+    console.log('Loaded students from backend:', AppState.students);
+    return AppState.students;
+  } catch (e) {
+    console.warn('Could not load students from backend:', e);
+    return [];
+  }
+}
+
+// Fetch payments from backend API and map them to frontend receipt format
+async function fetchPaymentsFromBackend() {
+  try {
+    console.log('[API] Fetching payments from:', API_URL + '/payments');
+    const response = await fetchWithTimeout(API_URL + '/payments', {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch payments: ${response?.status || 'no response'}`);
+    const payments = await response.json();
+
+    AppState.receipts = (payments || []).map(p => ({
+      no: p.transaction_id || `P-${p.id}`,
+      date: String(p.payment_date || '').slice(0, 10),
+      time: normalizeReceiptTime(p.payment_time) || normalizeReceiptTime(p.created_at),
+      roll: p.roll_no || '',
+      name: p.name || '',
+      method: p.payment_method || 'Cash',
+      amount: Number(p.amount || 0),
+      ref: p.transaction_id || ''
+    }));
+
+    AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+    saveState();
+    console.log('Loaded payments from backend:', AppState.receipts.length);
+    return AppState.receipts;
+  } catch (e) {
+    console.warn('Could not load payments from backend:', e);
+    return [];
+  }
+}
+
+async function syncPaymentToBackend({ studentId, amount, paymentDate, method, ref, purpose, discount, lateFee }) {
+  if (!studentId) return { ok: false, reason: 'missing-student-id' };
+
+  const payload = {
+    student_id: studentId,
+    amount: Number(amount || 0),
+    payment_date: paymentDate,
+    payment_method: method || 'Cash',
+    transaction_id: ref || null,
+    purpose: purpose || 'School Fee',
+    status: 'Completed',
+    remarks: '',
+    discount: Number(discount || 0),
+    late_fee: Number(lateFee || 0)
+  };
+
+  try {
+    const response = await fetchWithTimeout(API_URL + '/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 8000);
+
+    if (!response || !response.ok) {
+      throw new Error(`Payment sync failed: ${response?.status || 'no response'}`);
+    }
+
+    return { ok: true };
+  } catch (e) {
+    console.warn('[SYNC] Payment save to backend failed:', e);
+    return { ok: false, reason: 'request-failed' };
+  }
+}
+
+async function deleteStudentFromBackend(student) {
+  if (!student) return { ok: false, reason: 'missing-student' };
+
+  const tryDelete = async (endpoint) => {
+    try {
+      const response = await fetchWithTimeout(endpoint, { method: 'DELETE' }, 8000);
+      if (response && response.ok) return { ok: true };
+
+      let msg = `Delete failed: ${response?.status || 'no response'}`;
+      try {
+        const err = await response.json();
+        if (err?.error) msg = err.error;
+      } catch (_) {
+        // Keep default message when response body is not JSON.
+      }
+      return { ok: false, reason: msg, status: response?.status || 0 };
+    } catch (e) {
+      return { ok: false, reason: e?.message || 'request-failed', status: 0 };
+    }
+  };
+
+  // 1) Preferred path: delete by numeric id when present.
+  const hasId = Number.isFinite(Number(student.id));
+  if (hasId) {
+    const byId = await tryDelete(`${API_URL}/students/${student.id}`);
+    if (byId.ok) return byId;
+    // If already gone, treat as success for UI consistency.
+    if (byId.status === 404) return { ok: true };
+  }
+
+  // 2) Resolve id from backend list (handles stale/local students without id).
+  try {
+    const listResp = await fetchWithTimeout(`${API_URL}/students`, {}, 8000);
+    if (listResp && listResp.ok) {
+      const rows = await listResp.json();
+      const hit = (rows || []).find(r => String(r.roll_no || '').trim() === String(student.roll || '').trim());
+      if (hit?.id) {
+        const byResolvedId = await tryDelete(`${API_URL}/students/${hit.id}`);
+        if (byResolvedId.ok) return byResolvedId;
+        if (byResolvedId.status === 404) return { ok: true };
+      }
+    }
+  } catch (_) {
+    // Continue to roll-based fallback.
+  }
+
+  // 3) Final fallback: delete by roll endpoint (for legacy backend variants).
+  const byRoll = await tryDelete(`${API_URL}/students/by-roll/${encodeURIComponent(student.roll || '')}`);
+  if (byRoll.ok || byRoll.status === 404) return { ok: true };
+
+  return { ok: false, reason: byRoll.reason || 'delete-failed' };
+}
+
+// ---------- Server Connection Check ----------
+let serverStatusCheckInterval = null;
+let isServerConnected = false;
+
+async function checkServerConnection(canRetryAfterOverrideCleanup = true) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    // Check root endpoint - always available if server is running
+    const baseUrl = API_URL.replace('/api', '');
+    const response = await fetch(baseUrl + '/', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    const isConnected = response && response.ok;
+    updateServerStatus(isConnected);
+    console.log('Server check:', isConnected ? 'Connected ✓' : 'Disconnected ✗');
+  } catch (e) {
+    console.warn('Server connection check failed:', e.message);
+
+    if (canRetryAfterOverrideCleanup && clearStaleCloudflareOverride()) {
+      return checkServerConnection(false);
+    }
+
+    updateServerStatus(false);
+  }
+}
+
+function updateServerStatus(isConnected) {
+  isServerConnected = isConnected;
+  const statusTopbar = document.getElementById('serverStatusTopbar');
+  const statusDot = document.getElementById('serverStatusDot');
+  const statusLabel = document.getElementById('serverStatusLabel');
+  const offlineBanner = document.getElementById('offlineBanner');
+  
+  // also update login page indicator if present
+  const loginStatusTopbar = document.getElementById('loginServerStatusTopbar');
+  const loginStatusDot = document.getElementById('loginServerStatusDot');
+  const loginStatusLabel = document.getElementById('loginServerStatusLabel');
+  
+  if (statusTopbar && statusDot && statusLabel) {
+    if (isConnected) {
+      statusDot.classList.add('connected');
+      statusDot.classList.remove('disconnected');
+      statusLabel.textContent = 'Online';
+      statusTopbar.classList.add('connected');
+      statusTopbar.classList.remove('disconnected');
+    } else {
+      statusDot.classList.remove('connected');
+      statusDot.classList.add('disconnected');
+      statusLabel.textContent = 'Offline';
+      statusTopbar.classList.remove('connected');
+      statusTopbar.classList.add('disconnected');
+    }
+  }
+  
+  if (loginStatusDot && loginStatusLabel) {
+    if (isConnected) {
+      loginStatusDot.classList.add('connected');
+      loginStatusDot.classList.remove('disconnected');
+      loginStatusLabel.textContent = 'Online';
+    } else {
+      loginStatusDot.classList.remove('connected');
+      loginStatusDot.classList.add('disconnected');
+      loginStatusLabel.textContent = 'Offline';
+    }
+  }
+
+  if (offlineBanner) {
+    offlineBanner.classList.toggle('offline-banner--hidden', !!isConnected);
+  }
+}
+
+function startServerStatusCheck() {
+  // Initial check
+  checkServerConnection();
+  
+  // Check every 10 seconds
+  if (serverStatusCheckInterval) clearInterval(serverStatusCheckInterval);
+  serverStatusCheckInterval = setInterval(checkServerConnection, 10000);
+}
+
+function stopServerStatusCheck() {
+  if (serverStatusCheckInterval) {
+    clearInterval(serverStatusCheckInterval);
+    serverStatusCheckInterval = null;
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      Object.assign(AppState, stored);
+      if (!Array.isArray(AppState.staff)) AppState.staff = [];
+      if (!AppState.staffAttendance || typeof AppState.staffAttendance !== 'object') {
+        AppState.staffAttendance = {};
+      }
+      // Check if stored data has all new classes, if not, reseed
+      const requiredClasses = ['Nursery', 'LKG', 'UKG', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+      const hasAllClasses = requiredClasses.every(cls => AppState.feeHeadsByClass[cls]);
+      if (!hasAllClasses) {
+        console.log('Updating to new class structure...');
+        seedDemoData();
+        saveState();
+      }
+    } else {
+      seedDemoData();
+      saveState();
+    }
+  } catch (e) {
+    console.warn('Failed to load state', e);
+    seedDemoData();
+    saveState();
+  }
+  // Always try to fetch students + payments from backend (async, don't block)
+  Promise.all([
+    fetchStudentsFromBackend(),
+    fetchPaymentsFromBackend()
+  ]).then(() => {
+    if (AppState.view === 'students') renderStudents();
+    if (AppState.view === 'fees') renderFees();
+    if (AppState.view === 'dashboard') renderDashboard();
+  }).catch(e => console.warn('[WARN] Background data fetch failed:', e));
+}
+
+// ---------- Authentication ----------
+const AUTH_KEY = 'khushi_portal_auth';
+const ROLE_KEY = 'khushi_portal_role';
+const USER_KEY = 'khushi_portal_user';
+
+const SETTINGS_KEY = 'khushi_school_settings';
+const LATE_FEE_RULES_KEY = 'khushi_late_fee_rules';
+const FEE_HEADS_BY_CLASS_KEY = 'khushi_fee_heads_by_class';
+const NOTES_KEY = 'khushi_portal_notes';
+const SCHOOL_CALENDAR_KEY = 'khushi_school_calendar';
+
+// Helper functions to check both session and local storage for backward compatibility
+function getAuthStorage(key) {
+  return sessionStorage.getItem(key) || localStorage.getItem(key);
+}
+
+function setAuthStorage(key, value) {
+  sessionStorage.setItem(key, value);
+  localStorage.setItem(key, value); // Keep both for compatibility
+}
+
+function removeAuthStorage(key) {
+  sessionStorage.removeItem(key);
+  localStorage.removeItem(key);
+}
+
+// Multi-role user credentials
+const VALID_USERS = {
+  admin: [
+    { username: 'H9m@nshu', password: 'admin123', name: 'Himanshu Kumar' },
+    { username: 'admin', password: 'admin123', name: 'Administrator' }
+  ],
+  parent: [
+    { username: 'parent1', password: 'parent123', name: 'Rajesh Sharma', rolls: ['1001', '1002'] },
+    { username: 'parent2', password: 'parent123', name: 'Priya Verma', rolls: ['1002'] },
+    { username: 'parent3', password: 'parent123', name: 'Amit Singh', rolls: ['1004'] }
+  ],
+  public: [
+    { username: 'public', password: 'public123', name: 'Visitor' }
+  ]
+};
+
+// ---------- Razorpay Configuration ----------
+// Note: Replace with your actual Razorpay Key ID from dashboard
+const RAZORPAY_CONFIG = {
+  keyId: 'rzp_test_1OfccbDDELVqHo',  // Replace with your live key ID
+  keySecret: 'test_key_secret',       // Store safely on backend - NEVER expose in frontend
+  serviceName: 'KHUSHI PUBLIC SCHOOL - Fee Payment'
+};
+
+// Razorpay payment state tracking
+const RazorpayState = {
+  currentPayment: null,
+  paymentInProgress: false
+};
+
+function isAuthenticated() {
+  return getAuthStorage(AUTH_KEY) === 'true' || getAuthStorage('isAuthenticated') === 'true';
+}
+
+function getUserRole() {
+  return getAuthStorage(ROLE_KEY) || getAuthStorage('userType') || 'admin';
+}
+
+function getPanelRole() {
+  // Returns 'main_admin' or 'reception' for distinguishing admin types
+  return getAuthStorage('khushi_admin_panel_role') || 'main_admin';
+}
+
+function isReceptionUser() {
+  return getPanelRole() === 'reception';
+}
+
+function getCurrentUser() {
+  return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
+  return getAuthStorage(USER_KEY) || getAuthStorage('user') || '';
+}
+
+function accessPublicPortal() {
+  // Allow direct access to public portal without authentication
+  setAuthStorage(AUTH_KEY, 'true');
+  setAuthStorage(ROLE_KEY, 'public');
+  setAuthStorage(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+  setAuthStorage('isAuthenticated', 'true');
+  setAuthStorage('userType', 'public');
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) loginPage.classList.add('hidden');
+  document.body.style.overflow = 'auto';
+  // Reset all forms (if any)
+  document.querySelectorAll('.login-form').forEach(f => f.reset());
+  switchRole('public');
+}
+
+function handleLogin(event, role) {
+  console.log('handleLogin invoked', role, event);
+  event.preventDefault();
+  
+  // Get form fields for this specific role
+  const form = event.target;
+  const usernameInput = form.querySelector('.loginUsername');
+  const passwordInput = form.querySelector('.loginPassword');
+  const errorDiv = form.querySelector('.login-error');
+  
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+  
+  if (!username || !password) {
+    errorDiv.textContent = 'Please enter username and password';
+    errorDiv.classList.add('show');
+    return;
+  }
+
+  // Allow public role without strict credential checking
+  if (role === 'public') {
+    localStorage.setItem(AUTH_KEY, 'true');
+    localStorage.setItem(ROLE_KEY, 'public');
+    localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    document.querySelectorAll('.login-form').forEach(f => f.reset());
+    switchRole('public');
+    return;
+  }
+
+  const users = VALID_USERS[role] || [];
+  const user = users.find(u => u.username === username && u.password === password);
+  
+  if (user) {
+    setAuthStorage(AUTH_KEY, 'true');
+    setAuthStorage(ROLE_KEY, role);
+    setAuthStorage(USER_KEY, JSON.stringify({ ...user, role }));
+    setAuthStorage('isAuthenticated', 'true');
+    setAuthStorage('userType', role);
+    errorDiv.classList.remove('show');
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    document.querySelectorAll('.login-form').forEach(f => f.reset());
+    switchRole(role);
+  } else {
+    errorDiv.textContent = 'Invalid credentials';
+    errorDiv.classList.add('show');
+  }
+}
+
+function handleLogout() {
+  if (confirm('Are you sure you want to logout?')) {
+    stopServerStatusCheck();
+    removeAuthStorage(AUTH_KEY);
+    removeAuthStorage(ROLE_KEY);
+    removeAuthStorage(USER_KEY);
+    removeAuthStorage('isAuthenticated');
+    removeAuthStorage('user');
+    removeAuthStorage('userType');
+    
+    // Call backend logout endpoint
+    fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    }).catch(err => console.error('Logout error:', err)).finally(() => {
+      // Redirect to login page
+      window.location.href = 'login.html';
+    });
+  }
+}
+
+function initializeAuth() {
+  // Check if user is already authenticated from login page
+  if (!isAuthenticated()) {
+    // If not authenticated, set default admin auth for backward compatibility
+    setAuthStorage(AUTH_KEY, 'true');
+    setAuthStorage(ROLE_KEY, 'admin');
+    setAuthStorage('isAuthenticated', 'true');
+    setAuthStorage('userType', 'admin');
+  }
+
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) {
+    // remove from DOM entirely, no need for hidden toggling
+    loginPage.parentNode.removeChild(loginPage);
+  }
+  document.body.style.overflow = 'auto';
+
+  // Display logged-in user's name in topbar
+  try {
+    displayUserInfo();
+  } catch (e) {
+    console.warn('⚠️ displayUserInfo error:', e);
+  }
+
+  // Setup logout button (still works if present)
+  const logoutBtn = document.getElementById('btnLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+    console.log('✓ Logout button handler attached');
+  }
+
+  // Setup server status topbar click to manually check
+  const serverStatusTopbar = document.getElementById('serverStatusTopbar');
+  if (serverStatusTopbar) {
+    serverStatusTopbar.addEventListener('click', checkServerConnection);
+    console.log('✓ Server status topbar handler attached');
+  }
+
+  const offlineBannerRetry = document.getElementById('offlineBannerRetry');
+  if (offlineBannerRetry) {
+    offlineBannerRetry.addEventListener('click', () => checkServerConnection(false));
+  }
+
+  const offlineBannerResetApi = document.getElementById('offlineBannerResetApi');
+  if (offlineBannerResetApi) {
+    offlineBannerResetApi.addEventListener('click', clearApiOverrideAndReconnect);
+  }
+  
+  // Auto-check server connection on initialization
+  console.log('Starting auto server connection check...');
+  checkServerConnection();
+}
+
+function displayUserInfo() {
+  const userDisplayEl = document.getElementById('userDisplayName');
+  const userStr = getAuthStorage('user');
+  if (userDisplayEl && userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      const displayName = user.full_name || user.username || 'Admin';
+      const panelRole = getPanelRole();
+      
+      // Add role indicator for reception users
+      if (panelRole === 'reception') {
+        userDisplayEl.textContent = `${displayName} (Reception)`;
+      } else {
+        userDisplayEl.textContent = displayName;
+      }
+    } catch (e) {
+      userDisplayEl.textContent = 'Admin';
+    }
+  }
+}
+
+// Display today's date in header (day month year format)
+function displayTodayDate() {
+  const headerDateEl = document.getElementById('headerDate');
+  if (!headerDateEl) return;
+  
+  const today = new Date();
+  const day = today.getDate();
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                  'July', 'August', 'September', 'October', 'November', 'December'];
+  const month = months[today.getMonth()];
+  const year = today.getFullYear();
+  
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayOfWeek = dayNames[today.getDay()];
+  
+  headerDateEl.textContent = `${dayOfWeek}, ${day} ${month} ${year}`;
+}
+
+// ---------- Login helpers ----------
+function initLoginHandlers() {
+  // attach submit listeners to forms; rely on data-role attribute
+  document.querySelectorAll('.login-form').forEach(form => {
+    const role = form.dataset.role;
+    if (!role) return;
+    form.addEventListener('submit', e => {
+      console.log('login form submit for role', role, e);
+      handleLogin(e, role);
+    });
+  });
+
+  // as a safety net, also watch the login buttons directly so we can log clicks
+  document.querySelectorAll('.login-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      console.log('login button clicked', btn);
+      // ensure the surrounding form is submitted in case default prevented
+      const form = btn.closest('form');
+      if (form) {
+        const role = form.dataset.role;
+        if (role) {
+          handleLogin({ preventDefault: () => {}, target: form }, role);
+        }
+      }
+    });
+  });
+
+  // server check button on login page
+  const loginCheckBtn = document.getElementById('btnLoginCheckServer');
+  if (loginCheckBtn) {
+    loginCheckBtn.addEventListener('click', async () => {
+      await checkServerConnection();
+      alert(isServerConnected ? 'Server is Online' : 'Server is Offline');
+    });
+  }
+}
+
+// ---------- Role-based Switching ----------
+function switchRole(role) {
+  const role_val = role || getUserRole();
+  
+  // Get key elements
+  const sidebar = document.querySelector('.sidebar');
+  const app = document.querySelector('.app');
+  
+  // Hide all views
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  
+  if (role_val === 'admin') {
+    // Show admin interface
+    if (sidebar) sidebar.classList.remove('hidden');
+    if (app) app.classList.remove('hidden');
+    
+    // Apply role-based restrictions for reception
+    applyRoleBasedAccess();
+    
+    // Start server status monitoring for admin
+    startServerStatusCheck();
+    switchView('dashboard');
+  } else if (role_val === 'parent') {
+    // Hide admin UI, show parent portal
+    stopServerStatusCheck();
+    if (sidebar) sidebar.classList.add('hidden');
+    if (app) app.classList.add('hidden');
+    renderParentPortal();
+  } else if (role_val === 'public') {
+    // Hide admin UI, show public portal
+    stopServerStatusCheck();
+    if (sidebar) sidebar.classList.add('hidden');
+    if (app) app.classList.add('hidden');
+    renderPublicPortal();
+  }
+}
+
+function renderParentPortal() {
+  const view = document.getElementById('view-parent');
+  if (view) view.classList.remove('hidden');
+  
+  const currentUser = JSON.parse(getCurrentUser() || '{}');
+  const parentRolls = currentUser.rolls || [currentUser.roll]; // Handle both old (single) and new (multiple) format
+  
+  // Initialize selected child if not set
+  if (!AppState.selectedChildRoll || !parentRolls.includes(AppState.selectedChildRoll)) {
+    AppState.selectedChildRoll = parentRolls[0] || null;
+  }
+  
+  if (!AppState.selectedChildRoll) return;
+  
+  // Update welcome message
+  const welcome = document.getElementById('parentWelcome');
+  if (welcome) welcome.textContent = `Welcome, ${currentUser.name}!`;
+  
+  // Setup child selector if multiple children
+  const childSelectorDiv = document.getElementById('parentChildSelector');
+  if (childSelectorDiv && parentRolls.length > 1) {
+    childSelectorDiv.classList.remove('hidden');
+    const selector = document.getElementById('parentChildSelect');
+    if (selector) {
+      // Clear and populate selector
+      selector.innerHTML = parentRolls.map(roll => {
+        const student = AppState.students.find(s => s.roll === roll);
+        return `<option value="${roll}">${student ? student.name + ' (' + student.roll + ')' : 'Admission No. ' + roll}</option>`;
+      }).join('');
+      selector.value = AppState.selectedChildRoll;
+      selector.onchange = (e) => {
+        AppState.selectedChildRoll = e.target.value;
+        renderParentPortal();
+      };
+    }
+  } else if (childSelectorDiv) {
+    childSelectorDiv.classList.add('hidden');
+  }
+  
+  // Get selected student
+  const student = AppState.students.find(s => s.roll === AppState.selectedChildRoll);
+  if (!student) return;
+  
+  // Update student info
+  document.getElementById('parentChildName').textContent = student.name;
+  document.getElementById('parentChildClass').textContent = `${student.class}-${student.section}`;
+  document.getElementById('parentRoll').textContent = student.roll;
+  document.getElementById('parentName').textContent = student.name;
+  document.getElementById('parentClass').textContent = student.class;
+  document.getElementById('parentSection').textContent = student.section;
+  document.getElementById('parentStatus').textContent = student.status;
+  document.getElementById('parentPhone').textContent = student.phone;
+  
+  // Calculate fees
+  const lastNMonths = genLastNMonths(3);
+  let totalDue = 0;
+  lastNMonths.forEach(month => {
+    const key = `${student.roll}|${month}`;
+    const fee = AppState.fees[key];
+    if (fee) {
+      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
+      totalDue += Math.max(0, headTotal - fee.paid);
+    }
+  });
+  document.getElementById('parentFeesDue').textContent = fmtINR(totalDue);
+  
+  // Render fees table
+  const feesTable = document.getElementById('parentFeesTable');
+  if (feesTable) {
+    feesTable.innerHTML = lastNMonths.map(month => {
+      const key = `${student.roll}|${month}`;
+      const fee = AppState.fees[key];
+      if (!fee) return '';
+      
+      // Extract individual fee heads
+      const tuition = fee.heads.Tuition || 0;
+      const transport = fee.heads.Transport || 0;
+      const miscellaneous = fee.heads.Miscellaneous || 0;
+      
+      // Calculate Other as sum of remaining heads (excluding Tuition, Transport, Miscellaneous)
+      let other = 0;
+      for (const [key, value] of Object.entries(fee.heads)) {
+        if (!['Tuition', 'Transport', 'Miscellaneous'].includes(key)) {
+          other += value;
+        }
+      }
+      
+      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
+      const due = Math.max(0, headTotal - fee.paid);
+      return `
+        <tr>
+          <td>${month}</td>
+          <td>${fmtINR(tuition)}</td>
+          <td>${fmtINR(transport)}</td>
+          <td>${fmtINR(miscellaneous)}</td>
+          <td>${fmtINR(other)}</td>
+          <td><strong>${fmtINR(headTotal)}</strong></td>
+          <td>${fmtINR(fee.paid)}</td>
+          <td>${fmtINR(due)}</td>
+          <td><span class="badge ${due > 0 ? 'danger' : 'success'}">${due > 0 ? 'Due' : 'Paid'}</span></td>
+        </tr>
+      `;
+    }).join('');
+  }
+  
+  // Render parent notices
+  const parentNoticesList = document.getElementById('parentNoticesList');
+  if (parentNoticesList) {
+    const noticesHTML = AppState.notices
+      .filter(n => n.status === 'active' && (n.audience === 'all' || n.audience === 'parents'))
+      .map(n => `
+        <div style="padding:12px; border-bottom:1px solid var(--border);">
+          <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • by ${escapedText(n.author)}</p>
+          <p style="margin:8px 0;">${escapedText(n.description)}</p>
+        </div>
+      `).join('');
+    parentNoticesList.innerHTML = noticesHTML || '<p>No notices to display.</p>';
+  }
+  
+  // Setup pay fee button
+  const payFeeBtn = document.getElementById('parentBtnPayFee');
+  if (payFeeBtn) {
+    payFeeBtn.onclick = () => {
+      if (openModal('#modalParentPayFee')) {
+        initParentPayFeeModal(student);
+      }
+    };
+  }
+  
+  // Setup tab switching
+  setupTabSwitching('parent');
+  
+  // Setup logout button
+  const logoutBtn = document.getElementById('parentBtnLogout');
+  if (logoutBtn) logoutBtn.onclick = handleLogout;
+}
+
+function renderPublicPortal() {
+  const view = document.getElementById('view-public');
+  if (view) view.classList.remove('hidden');
+  
+  // Render public notices
+  const publicNoticesList = document.getElementById('publicNoticesList');
+  if (publicNoticesList) {
+    const noticesHTML = AppState.notices
+      .filter(n => n.status === 'active')
+      .slice(0, 5)
+      .map(n => `
+        <div style="padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+          <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • ${n.audience}</p>
+          <p style="margin:8px 0;">${escapedText(n.description)}</p>
+        </div>
+      `).join('');
+    publicNoticesList.innerHTML = noticesHTML || '<p>No announcements at this time.</p>';
+  }
+  
+  // Setup logout button
+  const logoutBtn = document.getElementById('publicBtnLogout');
+  if (logoutBtn) logoutBtn.onclick = handleLogout;
+}
+
+function setupTabSwitching(portal) {
+  const tabBtns = document.querySelectorAll(`#view-${portal} .tab-btn`);
+  const tabContents = document.querySelectorAll(`#view-${portal} .tab-content`);
+  
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabBtns.forEach(b => b.classList.remove('active'));
+      tabContents.forEach(t => t.classList.add('hidden'));
+      
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-tab');
+      const tabContent = document.getElementById(tabId);
+      if (tabContent) tabContent.classList.remove('hidden');
+    });
+  });
+}
+
+// ---------- Parent Payment Functions ----------
+function initParentPayFeeModal(student) {
+  const form = qs('#formParentPayFee');
+  const modal = qs('#modalParentPayFee');
+  const currentUser = JSON.parse(getCurrentUser() || '{}');
+  if (!form || !student) return;
+  
+  // Calculate total due for this month
+  const month = monthOfToday();
+  const key = `${student.roll}|${month}`;
+  const fee = AppState.fees[key];
+  const headTotal = fee ? Object.values(fee.heads).reduce((a,b) => a+b, 0) : 0;
+  const paid = fee ? (fee.paid || 0) : 0;
+  const due = Math.max(0, headTotal - paid);
+  
+  // Populate modal
+  document.getElementById('payFeeStudentName').textContent = student.name;
+  document.getElementById('payFeeRoll').textContent = student.roll;
+  document.getElementById('payFeeTotalDue').textContent = fmtINR(due);
+  
+  const amountField = document.getElementById('payFeeAmount');
+  if (amountField) amountField.value = due;
+  
+  // Pre-fill parent's details
+  const nameField = document.getElementById('payFeeFullName');
+  const emailField = document.getElementById('payFeeEmail');
+  const phoneField = document.getElementById('payFeePhone');
+  
+  if (nameField) nameField.value = currentUser.name || '';
+  if (emailField) emailField.value = currentUser.email || '';
+  if (phoneField) phoneField.value = '';
+  
+  // Handle form submission
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const amount = Number(document.getElementById('payFeeAmount')?.value || 0);
+    const fullName = document.getElementById('payFeeFullName')?.value?.trim() || '';
+    const email = document.getElementById('payFeeEmail')?.value?.trim() || '';
+    const phone = document.getElementById('payFeePhone')?.value?.trim() || '';
+    
+    if (!amount || amount <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    if (!fullName) {
+      alert('Please enter your full name');
+      return;
+    }
+    if (!email) {
+      alert('Please enter your email address');
+      return;
+    }
+    if (!phone) {
+      alert('Please enter your phone number');
+      return;
+    }
+    
+    // Initiate Razorpay payment
+    initiateRazorpayPayment(student, amount, fullName, email, phone, modal);
+  };
+}
+
+// ---------- Razorpay Payment Integration ----------
+function initiateRazorpayPayment(student, amount, fullName, email, phone, modal) {
+  if (RazorpayState.paymentInProgress) {
+    alert('A payment is already in progress. Please wait.');
+    return;
+  }
+  
+  RazorpayState.paymentInProgress = true;
+  
+  // Store current payment details
+  RazorpayState.currentPayment = {
+    student,
+    amount,
+    fullName,
+    email,
+    phone,
+    modal,
+    orderId: 'order_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+  };
+  
+  // Razorpay options
+  const options = {
+    key: RAZORPAY_CONFIG.keyId,
+    amount: amount * 100,  // Amount in paise (smallest currency unit)
+    currency: 'INR',
+    name: RAZORPAY_CONFIG.serviceName,
+    description: `Fee payment for ${student.name} (Admission No.: ${student.roll})`,
+    order_id: RazorpayState.currentPayment.orderId,
+    prefill: {
+      name: fullName,
+      email: email,
+      contact: phone
+    },
+    notes: {
+      studentName: student.name,
+      studentRoll: student.roll,
+      studentClass: student.class,
+      orderId: RazorpayState.currentPayment.orderId
+    },
+    theme: {
+      color: '#2563eb'
+    },
+    handler: handleRazorpaySuccess,
+    modal: {
+      ondismiss: handleRazorpayCancel
+    }
+  };
+  
+  // Open Razorpay checkout
+  const razorpay = new Razorpay(options);
+  razorpay.open();
+  
+  razorpay.on('payment.failed', handleRazorpayError);
+}
+
+function handleRazorpaySuccess(response) {
+  const payment = RazorpayState.currentPayment;
+  if (!payment) {
+    alert('Payment session lost. Please try again.');
+    RazorpayState.paymentInProgress = false;
+    return;
+  }
+  
+  // Process successful payment
+  const receiptData = {
+    razorpayPaymentId: response.razorpay_payment_id,
+    razorpayOrderId: response.razorpay_order_id,
+    razorpaySignature: response.razorpay_signature,
+    studentName: payment.student.name,
+    studentRoll: payment.student.roll,
+    paidBy: payment.fullName,
+    email: payment.email,
+    phone: payment.phone
+  };
+  
+  processRazorpayPayment(payment.student, payment.amount, receiptData, payment.modal);
+  RazorpayState.paymentInProgress = false;
+}
+
+function handleRazorpayError(error) {
+  RazorpayState.paymentInProgress = false;
+  alert('❌ Payment Failed!\n\nCode: ' + error.code + '\nDescription: ' + error.description + '\n\nPlease try again.');
+}
+
+function handleRazorpayCancel() {
+  RazorpayState.paymentInProgress = false;
+  console.log('Payment cancelled by user');
+}
+
+function processRazorpayPayment(student, amount, receiptData, modal) {
+  const month = monthOfToday();
+  const key = `${student.roll}|${month}`;
+  
+  // Update fee data
+  if (!AppState.fees[key]) {
+    AppState.fees[key] = { heads: {}, paid: 0, discount: 0, lateFee: 0 };
+  }
+  AppState.fees[key].paid = (AppState.fees[key].paid || 0) + amount;
+  
+  // Create receipt with Razorpay details
+  const receipt = {
+    no: 'R-' + String(AppState.receipts.length + 1).padStart(4, '0'),
+    date: todayYYYYMMDD(),
+    time: formatNowTime12h(),
+    roll: student.roll,
+    name: student.name,
+    method: 'razorpay',
+    amount: amount,
+    ref: receiptData.razorpayPaymentId,
+    razorpayData: receiptData,
+    status: 'completed'
+  };
+  
+  AppState.receipts.push(receipt);
+  saveState();
+  
+  // Show success message with Razorpay details
+  const successMsg = `✅ Payment Successful!\n\nReceipt No: ${receipt.no}\nAmount: ₹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
+  alert(successMsg);
+  
+  // Close modal and refresh
+  if (modal) modal.close();
+  renderParentPortal();
+}
+
+// ========== THERMAL PRINTER RECEIPT FUNCTIONS ==========
+
+/**
+ * Print receipt on thermal printer (ESC/POS format)
+ * Works with thermal printers like the ones used in petrol pumps
+ */
+async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose, paymentTime) {
+  try {
+    const receiptData = {
+      payment_id: paymentId,
+      student_name: studentName,
+      roll_no: rollNo,
+      amount: parseFloat(amount),
+      payment_method: paymentMethod,
+      purpose: purpose || 'School Fee',
+      receipt_number: 'RCP-' + String(AppState.receipts.length + 1).padStart(5, '0'),
+      payment_date: todayYYYYMMDD(),
+      payment_time: paymentTime || formatNowTime12h()
+    };
+    
+    const response = await fetch(API_URL + '/receipt/thermal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate receipt');
+    
+    const result = await response.json();
+    
+    // Convert string back to bytes and send to printer
+    if (result.receipt) {
+      // Check if Web Serial API is available (for direct USB/Serial thermal printer)
+      if (navigator.serial) {
+        await sendToSerialPrinter(result.receipt);
+      } else {
+        alert('⚠️ Web Serial API not available.\n\nReceipt generated. Please use the Print option from your printer settings.');
+        printHTMLReceipt(receiptData);
+      }
+    }
+  } catch (error) {
+    console.error('Thermal receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Print receipt via browser print dialog (for thermal printer connected via USB)
+ */
+async function printHTMLReceipt(receiptData) {
+  try {
+    const response = await fetch(API_URL + '/receipt/html', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate HTML receipt');
+    
+    const htmlContent = await response.text();
+    
+    // Open in new window for printing
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+    
+  } catch (error) {
+    console.error('HTML receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Send ESC/POS commands directly to serial thermal printer
+ * Requires Web Serial API and appropriate permissions
+ */
+async function sendToSerialPrinter(receiptData) {
+  try {
+    // Request serial port access
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    
+    const writer = port.writable.getWriter();
+    
+    // Convert string to bytes
+    const encoder = new TextEncoder();
+    const data = encoder.encode(receiptData);
+    
+    // Send to printer
+    await writer.write(data);
+    writer.releaseLock();
+    
+    // Close port
+    await port.close();
+    
+    alert('✅ Receipt sent to thermal printer!');
+  } catch (error) {
+    console.error('Serial printer error:', error);
+    alert('Could not connect to printer. Error: ' + error.message);
+  }
+}
+
+/**
+ * Quick print button for admin dashboard
+ * Prints receipt for any payment transaction
+ */
+function printPaymentReceipt(paymentIndex) {
+  const payment = AppState.receipts[paymentIndex];
+  if (!payment) {
+    alert('Payment not found');
+    return;
+  }
+  
+  printThermalReceipt(
+    paymentIndex,
+    payment.name,
+    payment.roll,
+    payment.amount,
+    payment.method,
+    'School Fee'
+  );
+}
+
+// ---------- Demo Seed Data ----------
+function seedDemoData() {
+  // Students
+  AppState.students = [
+    { roll: '1001', admission_date: '2020-06-10', name: 'Priya Kumari', dob: '2015-03-15', aadhar: '123456789012', father_name: 'Rajesh Kumari', mother_name: 'Anita Kumari', class: 'IX',  section: 'A', phone: '+91-98765 43210', status: 'Active' },
+    { roll: '1002', admission_date: '2019-05-20', name: 'Rahul Raj',    dob: '2014-07-22', aadhar: '234567890123', father_name: 'Vikram Raj', mother_name: 'Priya Raj', class: 'X',   section: 'B', phone: '+91-98765 11111', status: 'Active' },
+    { roll: '1003', admission_date: '2018-04-12', name: 'Anita Singh',  dob: '2013-11-08', aadhar: '345678901234', father_name: 'Arjun Singh', mother_name: 'Meera Singh', class: 'XII', section: 'A', phone: '+91-98765 22222', status: 'Pending' },
+    { roll: '1004', admission_date: '2021-03-15', name: 'Aman Kumar',   dob: '2016-01-30', aadhar: '456789012345', father_name: 'Suresh Kumar', mother_name: 'Divya Kumar', class: 'VIII',section: 'C', phone: '+91-98765 33333', status: 'Active' },
+  ];
+  AppState.kpi.totalStudents = AppState.students.length;
+
+  // Fee heads per class
+  AppState.feeHeadsByClass = {
+    'Nursery': { Tuition: 300, Transport: 100, Activity: 20, Miscellaneous: 50 },
+    'LKG':     { Tuition: 350, Transport: 120, Activity: 25, Miscellaneous: 60 },
+    'UKG':     { Tuition: 400, Transport: 150, Activity: 30, Miscellaneous: 70 },
+    'I':       { Tuition: 450, Transport: 150, Activity: 35, Miscellaneous: 75 },
+    'II':      { Tuition: 500, Transport: 180, Activity: 40, Miscellaneous: 85 },
+    'III':     { Tuition: 550, Transport: 200, Activity: 45, Miscellaneous: 95 },
+    'IV':      { Tuition: 600, Transport: 220, Activity: 50, Miscellaneous: 100 },
+    'V':       { Tuition: 650, Transport: 250, Lab: 75, Miscellaneous: 110 },
+    'VI':      { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
+    'VII':     { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
+    'VIII':    { Tuition: 700, Transport: 250, Activity: 50, Miscellaneous: 120 },
+    'IX':      { Tuition: 800, Transport: 300, Lab: 100, Miscellaneous: 130 },
+    'X':       { Tuition: 900, Transport: 300, Lab: 120, Miscellaneous: 130 }
+  };
+
+  // Fees (create for last 3 months showing up in parent portal)
+  // Uses getFeesForStudentMonth to dynamically include/exclude Miscellaneous fee based on month
+  const lastNMonths = genLastNMonths(3);
+  AppState.students.forEach(s => {
+    lastNMonths.forEach(month => {
+      const key = `${s.roll}|${month}`;
+      // Only create if doesn't exist
+      if (!AppState.fees[key]) {
+        const heads = getFeesForStudentMonth(s, month);
+        AppState.fees[key] = { heads, paid: 0, discount: 0, lateFee: 0 };
+      }
+    });
+  });
+
+  // One sample receipt
+  AppState.receipts = [
+    { no: 'R-0001', date: todayYYYYMMDD(), roll: '1001', name: 'Priya Kumari', method: 'UPI', amount: 500, ref: 'TXN123' }
+  ];
+
+  // KPIs
+  AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+  AppState.kpi.issuesOpen = 6;
+
+  // Transport seed (only if empty)
+  if (AppState.transport.routes.length === 0) {
+    AppState.transport.routes.push({
+      id: 'R1',
+      name: 'Ariari Morning',
+      stops: ['Ariari Chowk', 'Khushalganj'],
+      pickup: '07:15',
+      drop: '14:30',
+      status: 'active'
+    });
+  }
+  if (AppState.transport.vehicles.length === 0) {
+    AppState.transport.vehicles.push({
+      id: 'V1',
+      label: 'Bus #1',
+      reg: 'BR-01-AB-1234',
+      capacity: 40,
+      driverName: 'Suresh',
+      driverPhone: '+91-9XXXXXXX',
+      routeId: 'R1',
+      status: 'active'
+    });
+  }
+  if (AppState.transport.assignments.length === 0) {
+    AppState.transport.assignments.push({
+      roll: '1001',
+      routeId: 'R1',
+      stop: 'Ariari Chowk',
+      fee: 300,
+      status: 'active'
+    });
+  }
+
+  // Notices seed (only if empty)
+  if (AppState.notices.length === 0) {
+    AppState.notices.push(
+      {
+        id: 'notice-1',
+        title: 'Parent-Teacher Meeting',
+        description: 'A parent-teacher meeting is scheduled on March 2nd, 2026 at 3:00 PM in the school auditorium. Parents are requested to bring their ward\'s report card.',
+        author: 'Principal',
+        date: '2026-02-15',
+        priority: 'high',
+        audience: 'parents',
+        status: 'active'
+      },
+      {
+        id: 'notice-2',
+        title: 'Annual Sports Day',
+        description: 'Our Annual Sports Day will be held on March 15th, 2026. Students are requested to participate in various events. Interested students can register with their class teacher.',
+        author: 'Sports Coordinator',
+        date: '2026-02-10',
+        priority: 'medium',
+        audience: 'students',
+        status: 'active'
+      },
+      {
+        id: 'notice-3',
+        title: 'Exam Schedule Released',
+        description: 'The final examination schedule for classes VIII to X has been released. Students can view the schedule on the school portal. All students must be present on their exam dates.',
+        author: 'Academic Head',
+        date: '2026-02-05',
+        priority: 'high',
+        audience: 'all',
+        status: 'active'
+      },
+      {
+        id: 'notice-4',
+        title: 'School Closed for Holi',
+        description: 'School will remain closed on March 8th and 9th for Holi celebration. Regular classes will resume on March 10th, 2026.',
+        author: 'Administration',
+        date: '2026-02-01',
+        priority: 'medium',
+        audience: 'all',
+        status: 'active'
+      },
+      {
+        id: 'notice-5',
+        title: 'Fee Payment Reminder',
+        description: 'Please note that the monthly fees for February 2026 are due by February 10th. Late submission will attract a 5% penalty.',
+        author: 'Finance Office',
+        date: '2026-02-01',
+        priority: 'low',
+        audience: 'parents',
+        status: 'inactive'
+      }
+    );
+  }
+}
+
+// ---------- Utilities ----------
+const qs  = sel => document.querySelector(sel);
+const qsa = sel => Array.from(document.querySelectorAll(sel));
+
+function fmtINR(n) {
+  const val = Number(n || 0);
+  const sym = AppState.settings?.currency || '₹';
+  const loc = AppState.settings?.locale || 'en-IN';
+  return sym + ' ' + val.toLocaleString(loc, { maximumFractionDigits: 0 });
+}
+
+function todayYYYYMMDD() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatNowTime12h() {
+  return new Date().toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+function normalizeReceiptTime(input) {
+  if (!input) return '';
+  const raw = String(input).trim();
+  if (!raw) return '';
+  if (/^\d{1,2}:\d{2}(\s?[APMapm]{2})?$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  }
+  return '';
+}
+
+function getReceiptDisplayTime(receipt) {
+  return normalizeReceiptTime(receipt?.time) || formatNowTime12h();
+}
+
+function monthOfToday() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  return `${yyyy}-${mm}`;
+}
+
+function formatMonthLabel(monthStr) {
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return '—';
+  const [year, month] = monthStr.split('-').map(Number);
+  const dt = new Date(year, month - 1, 1);
+  if (Number.isNaN(dt.getTime())) return monthStr;
+  return dt.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+// ===== MISCELLANEOUS FEE HELPER =====
+// Miscellaneous fee is collected 4 times per year at 3-month intervals
+// Collection months: January (1), April (4), July (7), October (10)
+function isMiscellaneousFeeMonth(monthStr) {
+  try {
+    const parts = monthStr.split('-');
+    const monthNum = parseInt(parts[1], 10);
+    return [1, 4, 7, 10].includes(monthNum);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Get fee heads for a student in a specific month
+// This dynamically adds/removes miscellaneous fee based on the month
+// Get fee heads for a student in a specific month.
+// Accepts either (studentClass, month) or (studentObject, month) or (rollString, month).
+// Behavior:
+// - Removes Miscellaneous if month not one of collection months
+// - If student is provided and admission_date is present, do not charge for months before admission.
+// - If admission happens during the month, prorate each head based on days remaining in that month (inclusive).
+function getFeesForStudentMonth(studentClassOrStudent, month) {
+  // Resolve student/class
+  let student = null;
+  let studentClass = studentClassOrStudent;
+  if (typeof studentClassOrStudent === 'object' && studentClassOrStudent !== null) {
+    student = studentClassOrStudent;
+    studentClass = student.class;
+  } else if (typeof studentClassOrStudent === 'string') {
+    // could be a roll or a class name; prefer matching a student roll first
+    const s = AppState.students.find(x => x.roll === studentClassOrStudent);
+    if (s) { student = s; studentClass = s.class; }
+  }
+
+  const baseHeads = AppState.feeHeadsByClass[studentClass] || { Tuition: 800 };
+  let heads = { ...baseHeads };
+
+  // If this month is NOT a miscellaneous fee month, remove it
+  if (!isMiscellaneousFeeMonth(month)) {
+    delete heads.Miscellaneous;
+  }
+
+  // If we have a student with admission_date, adjust charges based on admission
+  if (student && student.admission_date) {
+    // admission_date expected as YYYY-MM-DD
+    const adm = new Date(student.admission_date);
+    if (!adm || isNaN(adm.getTime())) return heads;
+
+    const [yStr, mStr] = month.split('-');
+    const year = Number(yStr);
+    const mon = Number(mStr);
+    if (!year || !mon) return heads;
+
+    const monthStart = new Date(year, mon - 1, 1);
+    const monthDays = daysInMonth(year, mon);
+    const monthEnd = new Date(year, mon - 1, monthDays);
+
+    // If admission is after the end of this month => not admitted yet => no heads
+    if (adm > monthEnd) return {};
+
+    // If admission is on or before the first day of month => full heads
+    if (adm <= monthStart) return heads;
+
+    // Admission happened during this month => prorate heads
+    const admDay = adm.getDate();
+    const daysRemaining = monthDays - admDay + 1; // inclusive of admission day
+    const ratio = daysRemaining / monthDays;
+
+    const prorated = {};
+    for (const [h, amt] of Object.entries(heads)) {
+      prorated[h] = Math.round(Number(amt || 0) * ratio);
+    }
+    return prorated;
+  }
+
+  return heads;
+}
+
+// ===== END MISCELLANEOUS FEE HELPER =====
+function genLastNMonths(n) {
+  const list=[]; const d=new Date();
+  for (let i=n-1;i>=0;i--) {
+    const d2=new Date(d.getFullYear(), d.getMonth()-i, 1);
+    const yyyy=d2.getFullYear(); const mm=String(d2.getMonth()+1).padStart(2,'0');
+    list.push(`${yyyy}-${mm}`);
+  }
+  return list;
+}
+function arrayToCSV(rows){
+  return rows.map(r => r.map(val => {
+    const v=(val??'').toString().replace(/"/g,'""');
+    return `"${v}"`;
+  }).join(',')).join('\n');
+}
+function downloadFile(filename, content, mime='text/csv'){
+  const blob=new Blob([content],{type:mime});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},0);
+}
+
+// ===== Late Fee Helpers =====
+function parseYearMonth(yyyyMM){ if(!yyyyMM||!/^(\d{4})-(\d{2})$/.test(yyyyMM)) return null; const [y,m]=yyyyMM.split('-').map(Number); return {year:y,month:m}; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function ymd(d){ const yyyy=d.getFullYear(); const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${yyyy}-${mm}-${dd}`; }
+function isWeekend(d){ const day=d.getDay(); return day===0||day===6; }
+function makeHolidaySet(holidays){ const set=new Set(); (holidays||[]).forEach(h=>{ if(h&&/^\d{4}-\d{2}-\d{2}$/.test(h)) set.add(h); }); return set; }
+function isHoliday(d,holidaySet){ return holidaySet.has(ymd(d)); }
+function isBusinessDay(d,rules,holidaySet){ if(rules.skipSun && d.getDay()===0) return false; if(rules.skipSat && d.getDay()===6) return false; if(isHoliday(d,holidaySet)) return false; return true; }
+function effectiveLateRulesForClass(klass){ const base=AppState.lateFeeRules||{}; const ovr=(base.classOverrides&&base.classOverrides[klass])||{}; return { ...base, cutoffDay: ovr.cutoffDay??base.cutoffDay, graceDays: ovr.graceDays??base.graceDays, cap: ovr.cap??base.cap, startAfter: ovr.startAfter??base.startAfter }; }
+function daysInMonth(year,month){ return new Date(year,month,0).getDate(); }
+function computeDueDate(yyyyMM,rules){
+  const parsed=parseYearMonth(yyyyMM); if(!parsed) return null;
+  const {year,month}=parsed;
+  const cutoff=Math.max(1,Math.min(rules.cutoffDay||1, daysInMonth(year,month)));
+  let due=new Date(year,month-1,cutoff);
+  const holidaySet=makeHolidaySet(rules.holidays||[]);
+  const needsShift=(rules.skipSun||rules.skipSat)?isWeekend(due):false;
+  const isHol=isHoliday(due,holidaySet);
+  if((rules.shiftRule&&rules.shiftRule!=='none')&&(needsShift||isHol)){
+    if(rules.shiftRule==='nextBusiness'){
+      do{ due=addDays(due,1);} while(!isBusinessDay(due,rules,holidaySet));
+    } else if(rules.shiftRule==='prevBusiness'){
+      do{ due=addDays(due,-1);} while(!isBusinessDay(due,rules,holidaySet));
+    }
+  }
+  return due;
+}
+function countChargeableDays(startDateExclusive,endDateInclusive,rules){
+  const holidaySet=makeHolidaySet(rules.holidays||[]);
+  let d=addDays(startDateExclusive,1);
+  const end=new Date(endDateInclusive);
+  let days=0;
+  while(d<=end){ if(isBusinessDay(d,rules,holidaySet)) days++; d=addDays(d,1); }
+  return days;
+}
+function applySlabs(totalDays,slabs){
+  if(!Array.isArray(slabs)||slabs.length===0||totalDays<=0) return 0;
+  let amount=0;
+  for(let i=1;i<=totalDays;i++){
+    const slab=slabs.find(s=> i>=(s.from||1) && (s.to? i<=s.to : true));
+    amount+=Number(slab?.perDay||0);
+  }
+  return amount;
+}
+function computeLateFee(roll,yyyyMM,today=new Date()){
+  const student=AppState.students.find(s=>s.roll===roll); if(!student) return 0;
+  const rules=effectiveLateRulesForClass(student.class);
+  const appliesToHeads=rules.applyToHeads||{};
+  const applicableHeadNames=Object.entries(appliesToHeads).filter(([_,on])=>!!on).map(([h])=>h);
+
+  // Only if any applicable head is included (if rule restricts)
+  // If the user has unchecked all heads (intent: pay only late fee), allow late fee calculation.
+  let hasApplicableHeadIncluded = true;
+  const headsWrap = document.querySelector('#rpHeads');
+  if (headsWrap) {
+    const includedAll = Array.from(headsWrap.querySelectorAll('input[type="checkbox"][data-include]'));
+    const included = includedAll.filter(x => x.checked).map(x => x.getAttribute('data-include'));
+    // If no checkboxes are checked at all, assume admin intends to add only late fee — allow calculation
+    if (included.length === 0) {
+      hasApplicableHeadIncluded = true;
+    } else {
+      hasApplicableHeadIncluded = included.some(h => applicableHeadNames.includes(h));
+    }
+  }
+  if (!hasApplicableHeadIncluded && applicableHeadNames.length > 0) return 0;
+
+  const parsed=parseYearMonth(yyyyMM); if(!parsed) return 0;
+  const mStrToday=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  if(yyyyMM>mStrToday) return 0;
+
+  const due=computeDueDate(yyyyMM,rules); if(!due) return 0;
+  let startChargeDate=addDays(due, Number(rules.graceDays||0)+Number(rules.startAfter||0));
+  const todayYMD=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+  if(todayYMD<=startChargeDate) return 0;
+
+  const chargeDays=countChargeableDays(startChargeDate,todayYMD,rules);
+  if(chargeDays<=0) return 0;
+
+  const slabs=Array.isArray(rules.slabs)?rules.slabs:[];
+  let fee=applySlabs(chargeDays,slabs);
+  const cap=Number(rules.cap||0);
+  if(cap>0) fee=Math.min(fee,cap);
+  return Math.max(0,Math.round(fee));
+}
+
+// ---------- Theme ----------
+function applyThemeFromSettings() {
+  const t = AppState.settings?.theme || 'system';
+  AppState.theme = t; // keep in sync if used elsewhere
+  document.documentElement.setAttribute('data-theme', t);
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.textContent = (t === 'dark') ? '🌞' : '🌙';
+}
+function initThemeToggle(){
+  const btn=qs('#themeToggle');
+  const nextTheme = (t) => t==='dark'?'light':'dark';
+  if (!btn) return;
+  btn.addEventListener('click',()=>{
+    AppState.settings.theme = nextTheme(AppState.settings.theme || 'light');
+    applyThemeFromSettings();
+    saveState();
+  });
+}
+
+// ---------- Branding ----------
+function applySchoolBranding() {
+  const sch = AppState.settings.school;
+  const brandLogo = document.querySelector('.sidebar .brand-logo');
+  const brandTextStrong = document.querySelector('.sidebar .brand-text strong');
+  const brandTextSmall  = document.querySelector('.sidebar .brand-text small');
+  if (brandLogo) brandLogo.src = sch.logo || 'assets/logo.png';
+  if (brandTextStrong) brandTextStrong.textContent = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  if (brandTextSmall)  brandTextSmall.textContent  = sch.tagline || 'Admin Portal';
+}
+
+// ---------- Role-Based Access Control ----------
+function applyRoleBasedAccess() {
+  const isReception = isReceptionUser();
+  const panelRole = getPanelRole();
+  
+  console.log('🔍 Applying role-based access...');
+  console.log('  - Panel Role:', panelRole);
+  console.log('  - Is Reception:', isReception);
+  
+  // Define which views Reception can access
+  const receptionAllowedViews = [
+    'dashboard',
+    'students',
+    'fees',
+    'classes',
+    'teachers',
+    'staff',
+    'transport',
+    'notices'
+  ];
+  
+  // Define which views are Admin-only
+  const adminOnlyViews = [
+    'exams',
+    'settings',
+    'audit',
+    'parents'
+  ];
+  
+  if (isReception) {
+    // Hide admin-only menu items
+    adminOnlyViews.forEach(view => {
+      const menuItem = document.querySelector(`.menu__item[data-view="${view}"]`);
+      if (menuItem) {
+        menuItem.style.display = 'none';
+        console.log('  ✗ Hidden:', view);
+      }
+    });
+    
+    // ===== RECEPTION RESTRICTIONS FOR TEACHERS SECTION =====
+    // Hide teacher management controls - only allow attendance marking
+    const addTeacherBtn = document.getElementById('teacherBtnAdd');
+    if (addTeacherBtn) addTeacherBtn.style.display = 'none';
+    
+    const exportTeacherBtn = document.getElementById('teacherBtnExport');
+    if (exportTeacherBtn) exportTeacherBtn.style.display = 'none';
+    
+    // Hide Teachers Tab and Salary Tab - only show Attendance Tab
+    const teachersTabBtn = document.querySelector('#view-teachers [data-tab="teachers-tab"]');
+    const salaryTabBtn = document.querySelector('#view-teachers [data-tab="salary-tab"]');
+    if (teachersTabBtn) teachersTabBtn.style.display = 'none';
+    if (salaryTabBtn) salaryTabBtn.style.display = 'none';
+    
+    // Auto-load Attendance tab when reception opens Teachers view
+    const attendanceTabBtn = document.querySelector('#view-teachers [data-tab="attendance-tab"]');
+    if (attendanceTabBtn) {
+      // If we're in teachers view, automatically switch to attendance tab
+      if (AppState.view === 'teachers') {
+        setTimeout(() => {
+          attendanceTabBtn.click();
+        }, 100);
+      }
+    }
+    
+    // Update user display to show role
+    const userDisplayEl = document.getElementById('userDisplayName');
+    if (userDisplayEl) {
+      const currentText = userDisplayEl.textContent;
+      if (!currentText.includes('Reception')) {
+        userDisplayEl.textContent = currentText + ' (Reception)';
+      }
+    }
+    
+    // Restrict access if someone tries to navigate to admin-only view directly
+    const currentView = AppState.view;
+    if (adminOnlyViews.includes(currentView)) {
+      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      switchView('dashboard');
+    }
+    
+    console.log('✓ Reception role restrictions applied');
+    console.log('  ✗ Hidden: Teachers Tab (attendance only)');
+    console.log('  ✗ Hidden: Salary Tab');
+    console.log('  ✗ Hidden: Add Teacher button');
+    console.log('  ✗ Hidden: Export Teachers button');
+
+    // ===== RECEPTION RESTRICTIONS FOR STAFF SECTION =====
+    const addStaffBtn = document.getElementById('staffBtnAdd');
+    const staffPrefBtn = document.getElementById('staffBtnPreferences');
+    if (addStaffBtn) addStaffBtn.style.display = 'none';
+    if (staffPrefBtn) staffPrefBtn.style.display = 'none';
+
+    const staffListTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-list-tab"]');
+    const staffSalaryTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-salary-tab"]');
+    const staffAttendanceTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-attendance-tab"]');
+    if (staffListTabBtn) staffListTabBtn.style.display = 'none';
+    if (staffSalaryTabBtn) staffSalaryTabBtn.style.display = 'none';
+
+    if (staffAttendanceTabBtn && AppState.view === 'staff') {
+      setTimeout(() => {
+        staffAttendanceTabBtn.click();
+      }, 100);
+    }
+
+    console.log('  ✗ Hidden: Staff List Tab (attendance only)');
+    console.log('  ✗ Hidden: Staff Salary Tab');
+    console.log('  ✗ Hidden: Add Staff button');
+    console.log('  ✗ Hidden: Staff Preferences button');
+  } else {
+    // Main Admin - show all menu items
+    document.querySelectorAll('.menu__item').forEach(item => {
+      item.style.display = '';
+    });
+    console.log('✓ Full admin access granted (Main Admin)');
+  }
+}
+
+// ---------- Sidebar & Routing ----------
+function initSidebarNavigation(){
+  const sidebar = qs('#sidebar');
+  const sidebarOpen = qs('#sidebarOpen');
+  const sidebarClose = qs('#sidebarClose');
+  
+  if (sidebarOpen) sidebarOpen.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebar?.classList.add('open');
+  });
+  
+  if (sidebarClose) sidebarClose.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebar?.classList.remove('open');
+  });
+
+  const menuItems = qsa('.menu__item');
+  menuItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const view = item.getAttribute('data-view');
+      if (!view) return;
+      
+      // Remove active from all items
+      menuItems.forEach(i => i.classList.remove('active'));
+      // Add active to clicked item
+      item.classList.add('active');
+      
+      // Close mobile sidebar
+      if (sidebar) sidebar.classList.remove('open');
+      
+      // Switch view
+      switchView(view);
+    });
+  });
+
+  // Note: initial view is set by switchRole() function
+  // Don't call switchView here to avoid double-triggering
+}
+
+// ---------- Performance Optimization ----------
+let viewSwitchInProgress = false;
+let switchViewTimeout;
+
+function switchView(viewId) {
+  // Check if reception user is trying to access admin-only view
+  if (isReceptionUser()) {
+    const adminOnlyViews = ['exams', 'settings', 'audit', 'parents'];
+    if (adminOnlyViews.includes(viewId)) {
+      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      return; // Don't switch to restricted view
+    }
+  }
+  
+  // Debounce rapid view switches
+  if (viewSwitchInProgress) return;
+  viewSwitchInProgress = true;
+  
+  clearTimeout(switchViewTimeout);
+  switchViewTimeout = setTimeout(() => {
+    viewSwitchInProgress = false;
+  }, 300);
+
+  AppState.view = viewId;
+  const views = document.querySelectorAll('.view');
+  views.forEach(v => v.classList.add('hidden'));
+  const target = document.getElementById(`view-${viewId}`);
+  if (target) target.classList.remove('hidden');
+
+  // Use requestAnimationFrame for smooth rendering
+  requestAnimationFrame(() => {
+    if (viewId === 'dashboard') renderDashboard();
+    else if (viewId === 'students')  renderStudents();
+    else if (viewId === 'fees')      renderFees();
+    else if (viewId === 'exams')     renderExams();
+    else if (viewId === 'classes')   renderClasses();
+    else if (viewId === 'teachers') {
+      renderTeachers();
+      // If reception user opens teachers view, auto-switch to attendance tab
+      if (isReceptionUser()) {
+        setTimeout(() => {
+          const attendanceTabBtn = document.querySelector('#view-teachers [data-tab="attendance-tab"]');
+          if (attendanceTabBtn) attendanceTabBtn.click();
+        }, 50);
+      }
+    }
+    else if (viewId === 'staff') {
+      renderStaff();
+      if (isReceptionUser()) {
+        setTimeout(() => {
+          const staffAttendanceTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-attendance-tab"]');
+          if (staffAttendanceTabBtn) staffAttendanceTabBtn.click();
+        }, 50);
+      }
+    }
+    else if (viewId === 'transport') renderTransport();
+    else if (viewId === 'notices')   renderNotices();
+    else if (viewId === 'settings')  renderSettings();
+  });
+}
+
+// ---------- Dashboard ----------
+let admissionsChart, attendanceChart;
+let chartRenderInProgress = false;
+
+// Fetch dashboard statistics from database
+async function fetchDashboardStats() {
+  try {
+    const response = await fetch(API_URL + '/stats/dashboard');
+    if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+    const stats = await response.json();
+    return stats;
+  } catch (e) {
+    console.error('Error fetching dashboard stats:', e);
+    return null;
+  }
+}
+
+// Fetch attendance data for today
+async function fetchTodayAttendance() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const response = await fetch(`${API_URL}/attendance?date=${today}`);
+    if (!response.ok) throw new Error('Failed to fetch attendance');
+    const attendance = await response.json();
+    return attendance;
+  } catch (e) {
+    console.error('Error fetching attendance:', e);
+    return [];
+  }
+}
+
+// Fetch all students
+async function fetchAllStudents() {
+  try {
+    const response = await fetchWithTimeout(API_URL + '/students');
+    if (!response || !response.ok) throw new Error('Failed to fetch students');
+    const students = await response.json();
+    return students;
+  } catch (e) {
+    console.error('Error fetching students:', e);
+    return [];
+  }
+}
+
+// Fetch all payments
+async function fetchAllPayments() {
+  try {
+    const response = await fetchWithTimeout(API_URL + '/payments');
+    if (!response || !response.ok) throw new Error('Failed to fetch payments');
+    const payments = await response.json();
+    return payments;
+  } catch (e) {
+    console.error('Error fetching payments:', e);
+    return [];
+  }
+}
+
+function renderDashboard(){
+  if (chartRenderInProgress) return;
+  
+  // Initialize server status check
+  startServerStatusCheck();
+  
+  // Load data from database
+  loadDashboardData();
+  
+  // Setup refresh button
+  const btnRefresh = qs('#btnRefreshDash');
+  if (btnRefresh) {
+    btnRefresh.onclick = async () => {
+      btnRefresh.disabled = true;
+      btnRefresh.textContent = '⏳ Syncing...';
+      await loadDashboardData();
+      btnRefresh.disabled = false;
+      btnRefresh.textContent = '🔄 Refresh';
+    };
+  }
+  
+  const btnExportCSV = qs('#btnExportCSV');
+  if (btnExportCSV) btnExportCSV.onclick = exportStudentsCSV;
+  const btnPrint = qs('#btnPrint');
+  if (btnPrint) btnPrint.onclick = ()=> window.print();
+}
+
+// Animate number counting up
+function animateNumber(element, targetValue, duration = 1500, isPercentage = false, isCurrency = false) {
+  if (!element) return;
+  
+  const startValue = 0;
+  const startTime = performance.now();
+  
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Easing function (easeOutExpo)
+    const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+    const currentValue = startValue + (targetValue - startValue) * easeProgress;
+    
+    if (isCurrency) {
+      element.textContent = fmtINR(Math.round(currentValue));
+    } else if (isPercentage) {
+      element.textContent = currentValue.toFixed(1) + '%';
+    } else {
+      element.textContent = Math.round(currentValue).toLocaleString('en-IN');
+    }
+    
+    if (progress < 1) {
+      requestAnimationFrame(update);
+    }
+  }
+  
+  requestAnimationFrame(update);
+}
+
+async function loadDashboardData() {
+  // Fetch all data in parallel
+  const [stats, todayAttendance, allStudents, allPayments] = await Promise.all([
+    fetchDashboardStats(),
+    fetchTodayAttendance(),
+    fetchAllStudents(),
+    fetchAllPayments()
+  ]);
+
+  // Update KPI title based on user role
+  const kpiFeesTitle = qs('#kpiFeesTitle');
+  if (isReceptionUser()) {
+    if (kpiFeesTitle) kpiFeesTitle.textContent = 'Fees Collected (Today)';
+  } else {
+    if (kpiFeesTitle) kpiFeesTitle.textContent = 'Fees Collected (This Month)';
+  }
+
+  // Update KPI cards with real data
+  const kpiStudents = qs('#kpiStudents');
+  const kpiAttendance = qs('#kpiAttendance');
+  const kpiFees = qs('#kpiFees');
+  const kpiIssues = qs('#kpiIssues');
+  
+  if (stats) {
+    if (kpiStudents) animateNumber(kpiStudents, stats.total_students, 1500);
+    if (kpiFees) animateNumber(kpiFees, stats.month_revenue, 1500, false, true);
+    if (kpiIssues) animateNumber(kpiIssues, stats.pending_payments, 1500);
+  } else {
+    if (kpiStudents) animateNumber(kpiStudents, AppState.kpi.totalStudents, 1500);
+    if (kpiFees) animateNumber(kpiFees, AppState.kpi.feesCollectedMonth, 1500, false, true);
+    if (kpiIssues) animateNumber(kpiIssues, AppState.kpi.issuesOpen, 1500);
+  }
+
+  // Calculate attendance percentage
+  if (todayAttendance && todayAttendance.length > 0 && allStudents.length > 0) {
+    const presentCount = todayAttendance.filter(a => a.status === 'Present').length;
+    const attendancePercent = (presentCount / allStudents.length) * 100;
+    if (kpiAttendance) animateNumber(kpiAttendance, attendancePercent, 1500, true);
+  } else if (kpiAttendance) {
+    kpiAttendance.textContent = '0%';
+  }
+
+  // Render charts with real data
+  requestAnimationFrame(() => {
+    chartRenderInProgress = true;
+    initAdmissionsChart(allStudents);
+    initAttendanceChart(allStudents, todayAttendance);
+    chartRenderInProgress = false;
+  });
+}
+
+function initAdmissionsChart(students = []){
+  const ctx = qs('#chartAdmissions');
+  if (!ctx) return;
+  
+  try {
+    if (admissionsChart) {
+      admissionsChart.destroy();
+      admissionsChart = null;
+    }
+
+    // Group students by class to show distribution
+    const classDistribution = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      classDistribution[cls] = (classDistribution[cls] || 0) + 1;
+    });
+
+    const classes = Object.keys(classDistribution).sort();
+    const data = classes.map(cls => classDistribution[cls]);
+    const animate = !!(AppState.settings?.chartAnimation);
+
+    admissionsChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: classes,
+        datasets: [{
+          label: 'Students per Class',
+          data,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,0.1)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: animate ? { duration: 300 } : false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    const rangeSel = qs('#admissionsRange');
+    if (rangeSel) {
+      rangeSel.onchange = (e) => {
+        // For now, just redraw the same chart
+        initAdmissionsChart(students);
+      };
+    }
+  } catch (e) {
+    console.error('Error rendering admissions chart:', e);
+  }
+}
+
+function initAttendanceChart(students = [], attendanceData = []){
+  const ctx = qs('#chartAttendance');
+  if (!ctx) return;
+
+  try {
+    if (attendanceChart) {
+      attendanceChart.destroy();
+      attendanceChart = null;
+    }
+
+    // Group attendance by class
+    const classAttendance = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      if (!classAttendance[cls]) {
+        classAttendance[cls] = { present: 0, total: 0 };
+      }
+      classAttendance[cls].total++;
+    });
+
+    // Count present students by class
+    attendanceData.forEach(a => {
+      const student = students.find(s => s.id === a.student_id);
+      if (student) {
+        const cls = student.class_name || 'Unknown';
+        if (classAttendance[cls] && a.status === 'Present') {
+          classAttendance[cls].present++;
+        }
+      }
+    });
+
+    const classes = Object.keys(classAttendance).sort();
+    const data = classes.map(cls => 
+      classAttendance[cls].total > 0 
+        ? Math.round((classAttendance[cls].present / classAttendance[cls].total) * 100)
+        : 0
+    );
+    
+    const animate = !!(AppState.settings?.chartAnimation);
+
+    attendanceChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: classes,
+        datasets: [{
+          label: 'Attendance %',
+          data,
+          backgroundColor: '#10b981'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: animate ? { duration: 300 } : false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, max: 100 },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 10 } }
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Error rendering attendance chart:', e);
+  }
+}
+
+// ---------- Students View ----------
+function renderStudents(){
+  const filterClass=qs('#filterClass');
+  const filterSection=qs('#filterSection');
+  const filterStatus=qs('#filterStatus');
+  const searchInput=qs('#searchStudent');
+  const tbody=qs('#studentsBody');
+  const pagination=qs('#pagination');
+
+  if (!filterClass || !filterSection || !filterStatus || !searchInput || !tbody || !pagination) {
+    console.error('Missing required student view elements');
+    return;
+  }
+
+  function applyFilters(){
+    let rows=[...AppState.students];
+    const fc=filterClass.value;
+    const fs=filterSection.value;
+    const fstatus=filterStatus.value;
+    const q=(searchInput.value||'').trim().toLowerCase();
+
+    if(fc) rows=rows.filter(r=> r.class===fc);
+    if(fs) rows=rows.filter(r=> r.section===fs);
+    if(fstatus) rows=rows.filter(r=> r.status===fstatus);
+    if(q){
+      rows=rows.filter(r=> r.name.toLowerCase().includes(q)|| r.roll.toLowerCase().includes(q)|| r.phone.toLowerCase().includes(q));
+    }
+
+    AppState.pagination.students.filtered=rows;
+    const pageSize=AppState.pagination.students.pageSize;
+    AppState.pagination.students.totalPages=Math.max(1, Math.ceil(rows.length/pageSize));
+    renderStudentsTable(); renderStudentsPagination();
+  }
+
+  function estimateMonthlyFee(student){
+    // Use getFeesForStudentMonth for current month so admission date is considered
+    const month = monthOfToday();
+    const heads = getFeesForStudentMonth(student, month) || {};
+    return Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
+  }
+
+  function renderStudentsTable(){
+    const {page,pageSize,filtered}=AppState.pagination.students;
+    const start=(page-1)*pageSize;
+    const pageRows=filtered.slice(start,start+pageSize);
+    tbody.innerHTML=pageRows.map(r=> `
+      <tr>
+        <td><input type="checkbox" aria-label="Select row" /></td>
+        <td>${r.roll}</td>
+        <td>${r.name}</td>
+        <td>${r.class}</td>
+        <td>${r.section}</td>
+        <td>${r.phone}</td>
+        <td><span class="badge">${r.status}</span></td>
+        <td>${fmtINR(estimateMonthlyFee(r))}</td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost small" data-act="edit" data-roll="${r.roll}">Edit</button>
+          <button class="btn btn-ghost small" data-act="delete" data-roll="${r.roll}">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+    qsa('button[data-act="edit"]').forEach(btn=>{
+      btn.onclick=()=> openEditStudent(btn.getAttribute('data-roll'));
+    });
+    qsa('button[data-act="delete"]').forEach(btn=>{
+      btn.onclick=async ()=>{
+        const roll=btn.getAttribute('data-roll');
+        const student=AppState.students.find(s=> s.roll===roll);
+        if(!student) return;
+        if(!confirm(`Delete student ${student.name} (Roll: ${roll})? This action cannot be undone.`)) return;
+
+        const result = await deleteStudentFromBackend(student);
+        if (!result.ok) {
+          alert(`Failed to delete student from database: ${result.reason}`);
+          return;
+        }
+
+        AppState.students=AppState.students.filter(s=> s.roll!==roll);
+        // Remove local fee/receipt records for immediate UI consistency.
+        Object.keys(AppState.fees).forEach(key => {
+          if (key.startsWith(`${roll}|`)) delete AppState.fees[key];
+        });
+        AppState.receipts = AppState.receipts.filter(r => r.roll !== roll);
+        AppState.kpi.totalStudents=AppState.students.length;
+        AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+        saveState();
+
+        // Refresh synced payment list after backend cascade delete.
+        fetchPaymentsFromBackend().catch(() => {});
+        renderStudents();
+      };
+    });
+  }
+
+  function renderStudentsPagination(){
+    const {page,totalPages}=AppState.pagination.students;
+    let html='';
+    html+=`<button class="btn btn-ghost small" ${page<=1?'disabled':''} data-pg="prev">◀ Prev</button>`;
+    html+=`<span class="muted"> Page ${page} of ${totalPages} </span>`;
+    html+=`<button class="btn btn-ghost small" ${page>=totalPages?'disabled':''} data-pg="next">Next ▶</button>`;
+    pagination.innerHTML=html;
+    qsa('button[data-pg]').forEach(b=>{
+      b.onclick=()=>{
+        const act=b.getAttribute('data-pg');
+        if(act==='prev'&&AppState.pagination.students.page>1) AppState.pagination.students.page--;
+        if(act==='next'&&AppState.pagination.students.page<AppState.pagination.students.totalPages) AppState.pagination.students.page++;
+        renderStudentsTable(); renderStudentsPagination();
+      };
+    });
+  }
+
+  // Page size from settings
+  AppState.pagination.students.page=1;
+  AppState.pagination.students.pageSize = AppState.settings.studentsPageSize || 10;
+
+  applyFilters();
+  filterClass.onchange=applyFilters;
+  filterSection.onchange=applyFilters;
+  filterStatus.onchange=applyFilters;
+  searchInput.oninput=applyFilters;
+
+  const btnAddStudent = qs('#btnAddStudent');
+  if (btnAddStudent) btnAddStudent.onclick = ()=> openModal('#modalAddStudent');
+  const btnImportCSV = qs('#btnImportCSV');
+  if (btnImportCSV) btnImportCSV.onclick = ()=> openModal('#modalImportCSV');
+  const btnBulkExport = qs('#btnBulkExport');
+  if (btnBulkExport) btnBulkExport.onclick = exportStudentsCSV;
+  const btnBulkSMS = qs('#btnBulkSMS');
+  if (btnBulkSMS) btnBulkSMS.onclick = ()=> alert('SMS integration to be added (e.g., Twilio/Msg91).');
+}
+function openEditStudent(roll){ 
+  const student=AppState.students.find(s=> s.roll===roll);
+  if(!student) { alert('Student not found'); return; }
+  
+  // Set form to edit mode
+  const form=qs('#formAddStudent');
+  form.dataset.editRoll=roll;
+  
+  // Populate form with student data
+  qs('input[name="name"]', form).value=student.name;
+  qs('input[name="roll"]', form).value=student.roll;
+  qs('input[name="admission_date"]', form).value=student.admission_date || '';
+  qs('input[name="dob"]', form).value=student.dob || '';
+  qs('input[name="aadhar"]', form).value=student.aadhar || '';
+  qs('input[name="father_name"]', form).value=student.father_name || '';
+  qs('input[name="mother_name"]', form).value=student.mother_name || '';
+  qs('select[name="class"]', form).value=student.class;
+  qs('select[name="section"]', form).value=student.section;
+  qs('input[name="phone"]', form).value=student.phone;
+  qs('select[name="status"]', form).value=student.status;
+  
+  // Change modal title
+  const header=qs('#modalAddStudent .modal__header h3');
+  header.textContent='Edit Student';
+  
+  // Change submit button text
+  const submitBtn=qs('#modalAddStudent .modal__footer button[value="submit"]');
+  submitBtn.textContent='Update';
+  
+  openModal('#modalAddStudent');
+}
+
+// ---------- Fees View ----------
+function renderFees(){
+  // Update KPI labels and values based on user role
+  const feesKpiCollectedTitle = qs('#feesKpiCollectedTitle');
+  const feesKpiReceiptsTitle = qs('#feesKpiReceiptsTitle');
+  const feesKpiOverdueCard = qs('#feesKpiOverdueCard');
+  const feesKpiDueCard = qs('#feesKpiDueCard');
+  const feesKpiOutstandingTitle = qs('#feesKpiOutstandingTitle');
+  const feesKpiOutstandingCount = qs('#feesKpiOutstandingCount');
+  
+  if (isReceptionUser()) {
+    // Reception: Show today's data and student counts
+    if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (Today)';
+    if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (Today)';
+    
+    // Hide overdue KPI for reception
+    if (feesKpiOverdueCard) feesKpiOverdueCard.style.display = 'none';
+    
+    // Change Outstanding KPI to show "Students with Due Fees" and make it clickable
+    if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Students with Due Fees';
+    if (feesKpiDueCard) {
+      const feesKpiOutstanding = qs('#feesKpiOutstanding');
+      try {
+        const studentsWithDue = countStudentsWithDue();
+        if (feesKpiOutstanding) feesKpiOutstanding.textContent = String(studentsWithDue);
+        if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = studentsWithDue === 1 ? '1 student' : `${studentsWithDue} students`;
+        
+        // Make KPI card clickable to show student list
+        feesKpiDueCard.style.cursor = 'pointer';
+        feesKpiDueCard.onclick = (e) => {
+          e.stopPropagation();
+          showDueStudentsModal();
+        };
+      } catch (err) {
+        console.error('Error setting up due students KPI:', err);
+        if (feesKpiOutstanding) feesKpiOutstanding.textContent = '0';
+        if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = '0 students';
+      }
+    }
+    
+    // Show "Students Fully Paid" KPI for reception
+    const feesKpiFullyPaidCard = qs('#feesKpiFullyPaidCard');
+    if (feesKpiFullyPaidCard) {
+      feesKpiFullyPaidCard.style.display = '';
+      const feesKpiFullyPaid = qs('#feesKpiFullyPaid');
+      const feesKpiFullyPaidCount = qs('#feesKpiFullyPaidCount');
+      try {
+        const studentsFullyPaid = countStudentsFullyPaid();
+        if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = String(studentsFullyPaid);
+        if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = studentsFullyPaid === 1 ? '1 student' : `${studentsFullyPaid} students`;
+        
+        // Make KPI card clickable to show fully paid students list
+        feesKpiFullyPaidCard.style.cursor = 'pointer';
+        feesKpiFullyPaidCard.onclick = (e) => {
+          e.stopPropagation();
+          showFullyPaidStudentsModal();
+        };
+      } catch (err) {
+        console.error('Error calculating fully paid students:', err);
+        if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = '0';
+        if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = '0 students';
+      }
+    }
+  } else {
+    // Admin: Show monthly data and amounts
+    if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (This Month)';
+    if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (This Month)';
+    
+    // Show overdue KPI for admin
+    if (feesKpiOverdueCard) feesKpiOverdueCard.style.display = '';
+    
+    // Hide "Students Fully Paid" KPI for admin
+    const feesKpiFullyPaidCard = qs('#feesKpiFullyPaidCard');
+    if (feesKpiFullyPaidCard) feesKpiFullyPaidCard.style.display = 'none';
+    
+    // Show Outstanding in rupees for admin
+    if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Outstanding (This Month)';
+    const feesKpiOutstanding = qs('#feesKpiOutstanding');
+    if (feesKpiOutstanding) feesKpiOutstanding.textContent = fmtINR(sumOutstandingThisMonth());
+    
+    const feesKpiOverdue = qs('#feesKpiOverdue');
+    if (feesKpiOverdue) feesKpiOverdue.textContent = fmtINR(sumOverdue());
+  }
+  
+  const feesKpiCollected = qs('#feesKpiCollected');
+  if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
+  
+  const feesKpiReceipts = qs('#feesKpiReceipts');
+  if (feesKpiReceipts) feesKpiReceipts.textContent = String(countReceiptsThisMonth());
+
+  // Make "Collected" KPI clickable to show receipts list
+  // Setup first KPI card (Collected)
+  const firstKpiCard = feesKpiCollected?.closest('.kpi');
+  if (firstKpiCard && firstKpiCard.id !== 'feesKpiDueCard' && firstKpiCard.id !== 'feesKpiOverdueCard' && firstKpiCard.id !== 'feesKpiFullyPaidCard') {
+    firstKpiCard.style.cursor = 'pointer';
+    firstKpiCard.onclick = (e) => {
+      e.stopPropagation();
+      showReceiptsModal();
+    };
+  }
+
+  // Setup receipts KPI card
+  const receiptsKpiCard = feesKpiReceipts?.closest('.kpi');
+  if (receiptsKpiCard && receiptsKpiCard.id !== 'feesKpiDueCard' && receiptsKpiCard.id !== 'feesKpiOverdueCard' && receiptsKpiCard.id !== 'feesKpiFullyPaidCard') {
+    receiptsKpiCard.style.cursor = 'pointer';
+    receiptsKpiCard.onclick = (e) => {
+      e.stopPropagation();
+      showReceiptsModal();
+    };
+  }
+
+  const feesBtnCollect = qs('#feesBtnCollect');
+  if (feesBtnCollect) {
+    feesBtnCollect.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal('#modalRecordPayment');
+    };
+  }
+  
+  const feesBtnFindReceipt = qs('#feesBtnFindReceipt');
+  if (feesBtnFindReceipt) feesBtnFindReceipt.onclick = findReceiptByNumber;
+  
+  const feesBtnExport = qs('#feesBtnExport');
+  if (feesBtnExport) feesBtnExport.onclick = exportReceiptsCSV;
+  
+  const feesBtnPrintAllDue = qs('#feesBtnPrintAllDue');
+  if (feesBtnPrintAllDue) feesBtnPrintAllDue.onclick = ()=> printAllDueReceipts(false);
+  
+  const feesBtnPrintAllDueCompact = qs('#feesBtnPrintAllDueCompact');
+  if (feesBtnPrintAllDueCompact) feesBtnPrintAllDueCompact.onclick = ()=> printAllDueReceipts(true);
+  
+  const feesBtnHeads = qs('#feesBtnHeads');
+  if (feesBtnHeads) feesBtnHeads.onclick = ()=> openModal('#modalFeeHeads');
+  const feesBtnConcession = qs('#feesBtnConcession');
+  if (feesBtnConcession) feesBtnConcession.onclick = ()=> openModal('#modalConcession');
+  const feesBtnImport = qs('#feesBtnImport');
+  if (feesBtnImport) feesBtnImport.onclick = ()=> openModal('#modalFeesImport');
+  const feesBtnAging = qs('#feesBtnAging');
+  if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
+
+  renderRecentReceipts();
+  initQuickPaymentBox();
+}
+
+function sumReceiptsThisMonth(){
+  // Reception users see only today's receipts, admin sees full month
+  if (isReceptionUser()) {
+    const today = todayYYYYMMDD();
+    return AppState.receipts.filter(r=> (r.date||'') === today)
+      .reduce((sum,r)=> sum+Number(r.amount||0),0);
+  }
+  const m=monthOfToday();
+  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m)
+    .reduce((sum,r)=> sum+Number(r.amount||0),0);
+}
+function countReceiptsThisMonth(){
+  // Reception users see only today's receipts, admin sees full month
+  if (isReceptionUser()) {
+    const today = todayYYYYMMDD();
+    return AppState.receipts.filter(r=> (r.date||'') === today).length;
+  }
+  const m=monthOfToday();
+  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m).length;
+}
+function sumOutstandingThisMonth(){
+  const m=monthOfToday();
+  let totalDue=0,totalPaid=0,totalDiscount=0,totalLate=0;
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [,month]=key.split('|'); if(month!==m) return;
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    totalDue+=headsTotal; totalPaid+=Number(v.paid||0);
+    totalDiscount+=Number(v.discount||0); totalLate+=Number(v.lateFee||0);
+  });
+  return Math.max(0, totalDue+totalLate-totalDiscount-totalPaid);
+}
+function sumOverdue(){
+  const m=monthOfToday();
+  let total=0;
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [,month]=key.split('|'); if(month>=m) return;
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const bal=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    total+=bal;
+  });
+  return total;
+}
+function countStudentsWithDue(){
+  const m=monthOfToday();
+  const studentsWithDue = new Set();
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [roll,month]=key.split('|'); 
+    if(month>m) return; // Skip future months
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const balance=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    if(balance>0) studentsWithDue.add(roll);
+  });
+  return studentsWithDue.size;
+}
+function countStudentsFullyPaid(){
+  const m=monthOfToday();
+  const allStudentRolls = new Set(AppState.students.map(s => s.roll));
+  const studentsWithDue = new Set();
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [roll,month]=key.split('|');
+    if(month>m) return; // Skip future months
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const balance=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    if(balance>0) studentsWithDue.add(roll);
+  });
+  // Students fully paid = all students - students with due
+  return allStudentRolls.size - studentsWithDue.size;
+}
+// Show modal with students who have due fees
+function showDueStudentsModal() {
+  const m = monthOfToday();
+  const dueStudents = [];
+  
+  // Calculate due amount for each student
+  AppState.students.forEach(s => {
+    let totalDue = 0;
+    let dueMonths = [];
+    
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return; // Skip other students and future months
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      
+      if (balance > 0) {
+        totalDue += balance;
+        dueMonths.push(month);
+      }
+    });
+    
+    if (totalDue > 0) {
+      dueStudents.push({
+        roll: s.roll,
+        name: s.name,
+        class: s.class,
+        section: s.section,
+        dueMonths: dueMonths.length,
+        dueAmount: totalDue
+      });
+    }
+  });
+  
+  // Sort by due amount (highest first)
+  dueStudents.sort((a, b) => b.dueAmount - a.dueAmount);
+  
+  // Populate modal
+  const tbody = qs('#dueStudentsBody');
+  const meta = qs('#dueStudentsMeta');
+  
+  if (meta) {
+    meta.textContent = `Total: ${dueStudents.length} student${dueStudents.length === 1 ? '' : 's'} with due fees`;
+  }
+  
+  if (tbody) {
+    if (dueStudents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No students with due fees</td></tr>';
+    } else {
+      tbody.innerHTML = dueStudents.map(s => `
+        <tr>
+          <td>${s.roll}</td>
+          <td>${s.name}</td>
+          <td>${s.class}-${s.section}</td>
+          <td>${s.dueMonths}</td>
+          <td>${fmtINR(s.dueAmount)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+  
+  // Open the modal
+  openModal('#modalDueStudents');
+  
+  // Add search functionality
+  const searchInput = qs('#dueStudentsSearch');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.oninput = () => filterDueStudents(dueStudents);
+  }
+}
+
+// Filter due students by search term
+function filterDueStudents(allStudents) {
+  const searchInput = qs('#dueStudentsSearch');
+  const tbody = qs('#dueStudentsBody');
+  if (!searchInput || !tbody) return;
+  
+  const query = searchInput.value.toLowerCase();
+  const filtered = allStudents.filter(s => 
+    s.name.toLowerCase().includes(query) || 
+    s.roll.toLowerCase().includes(query)
+  );
+  
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">No students match search</td></tr>';
+  } else {
+    tbody.innerHTML = filtered.map(s => `
+      <tr>
+        <td>${s.roll}</td>
+        <td>${s.name}</td>
+        <td>${s.class}-${s.section}</td>
+        <td>${s.dueMonths}</td>
+        <td>${fmtINR(s.dueAmount)}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+// Show modal with students who are fully paid
+function showFullyPaidStudentsModal() {
+  const m = monthOfToday();
+  const fullyPaidStudents = [];
+  const studentsWithDue = new Set();
+  
+  // First, identify students with due fees
+  Object.entries(AppState.fees).forEach(([key, v]) => {
+    const [roll, month] = key.split('|');
+    if (month > m) return; // Skip future months
+    
+    const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+    const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+    
+    if (balance > 0) {
+      studentsWithDue.add(roll);
+    }
+  });
+  
+  // Now collect fully paid students with their last payment info
+  AppState.students.forEach(s => {
+    if (studentsWithDue.has(s.roll)) return; // Skip students with due fees
+    
+    // Find the latest month paid for this student
+    let lastPaidMonth = '';
+    let lastPaymentDate = '';
+    
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return;
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      
+      if (balance === 0 && Number(v.paid || 0) > 0 && (!lastPaidMonth || month > lastPaidMonth)) {
+        lastPaidMonth = month;
+      }
+    });
+    
+    // Find the latest receipt date for this student
+    AppState.receipts.forEach(r => {
+      if (r.roll === s.roll && (!lastPaymentDate || r.date > lastPaymentDate)) {
+        lastPaymentDate = r.date;
+      }
+    });
+    
+    fullyPaidStudents.push({
+      roll: s.roll,
+      name: s.name,
+      class: s.class,
+      section: s.section,
+      paidTillMonth: formatMonthLabel(lastPaidMonth),
+      lastPayment: lastPaymentDate || '—'
+    });
+  });
+  
+  // Sort alphabetically by name
+  fullyPaidStudents.sort((a, b) => a.name.localeCompare(b.name));
+  
+  // Populate modal
+  const tbody = qs('#fullyPaidStudentsBody');
+  const meta = qs('#fullyPaidStudentsMeta');
+  
+  if (meta) {
+    meta.textContent = `Total: ${fullyPaidStudents.length} student${fullyPaidStudents.length === 1 ? '' : 's'} fully paid`;
+  }
+  
+  if (tbody) {
+    if (fullyPaidStudents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No students fully paid</td></tr>';
+    } else {
+      tbody.innerHTML = fullyPaidStudents.map(s => `
+        <tr>
+          <td>${s.roll}</td>
+          <td>${s.name}</td>
+          <td>${s.class}-${s.section}</td>
+          <td>${s.paidTillMonth}</td>
+          <td>${s.lastPayment}</td>
+        </tr>
+      `).join('');
+    }
+  }
+  
+  // Open the modal
+  openModal('#modalFullyPaidStudents');
+  
+  // Add search functionality
+  const searchInput = qs('#fullyPaidStudentsSearch');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.oninput = () => filterFullyPaidStudents(fullyPaidStudents);
+  }
+}
+
+// Filter fully paid students by search term
+function filterFullyPaidStudents(allStudents) {
+  const searchInput = qs('#fullyPaidStudentsSearch');
+  const tbody = qs('#fullyPaidStudentsBody');
+  if (!searchInput || !tbody) return;
+  
+  const query = searchInput.value.toLowerCase();
+  const filtered = allStudents.filter(s => 
+    s.name.toLowerCase().includes(query) || 
+    s.roll.toLowerCase().includes(query)
+  );
+  
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">No students match search</td></tr>';
+  } else {
+    tbody.innerHTML = filtered.map(s => `
+      <tr>
+        <td>${s.roll}</td>
+        <td>${s.name}</td>
+        <td>${s.class}-${s.section}</td>
+        <td>${s.paidTillMonth}</td>
+        <td>${s.lastPayment}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+// Show modal with receipts
+function showReceiptsModal() {
+  const today = todayYYYYMMDD();
+  let receipts = [...AppState.receipts];
+  
+  if (isReceptionUser()) {
+    receipts = receipts.filter(r => (r.date || '') === today);
+  }
+  
+  receipts = receipts.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  
+  // Use the existing receipts modal or create a simple display
+  // For now, we'll show an alert with receipt count or open a focused view
+  // Since there's no dedicated receipts modal, we'll just show the count
+  alert(`Total Receipts: ${receipts.length}\n\nReceipt details are shown in the "Recent Receipts" table below.`);
+}
+
+function renderRecentReceipts(filterByMonth=false){
+  const tbody=qs('#feesReceiptsBody');
+  // Reception users see only today's receipts
+  let filteredReceipts = [...AppState.receipts];
+  const today = todayYYYYMMDD();
+  const currentMonthStr = currentMonth();
+  
+  if (filterByMonth) {
+    // Filter by current month
+    filteredReceipts = filteredReceipts.filter(r => {
+      const receiptMonth = getMonthFromDate(r.date || '');
+      return receiptMonth === currentMonthStr;
+    });
+  } else if (isReceptionUser()) {
+    filteredReceipts = filteredReceipts.filter(r=> (r.date||'') === today);
+  }
+  const rows=filteredReceipts.sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
+  
+  // Update card header title based on user role and filter
+  const receiptCardHeader = qs('#feesReceiptsTable')?.closest('.card')?.querySelector('.card__header h3');
+  if (receiptCardHeader) {
+    if (filterByMonth) {
+      const monthLabel = formatMonthLabel(currentMonthStr);
+      receiptCardHeader.textContent = `Receipts (${monthLabel})`;
+    } else if (isReceptionUser()) {
+      receiptCardHeader.textContent = 'Recent Receipts (Today)';
+    } else {
+      receiptCardHeader.textContent = 'Recent Receipts';
+    }
+  }
+  
+  tbody.innerHTML=rows.map(r=> `
+    <tr>
+      <td>${r.no}</td>
+      <td>${r.date}</td>
+      <td>${r.roll}</td>
+      <td>${r.name}</td>
+      <td>${r.method}</td>
+      <td>${fmtINR(r.amount)}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
+        <button class="btn btn-ghost small" data-act="a4" data-no="${r.no}" title="A4 Printable Receipt">📑 A4</button>
+        <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
+      </td>
+    </tr>
+  `).join('');
+  
+  // Render GRID VIEW
+  const gridContainer = qs('#receiptsGridView');
+  gridContainer.innerHTML = rows.map(r => `
+    <div class="receipt-box">
+      <div class="receipt-box__header">
+        <div class="receipt-box__no">Receipt #${r.no}</div>
+        <div class="receipt-box__date">${r.date}</div>
+      </div>
+      <div class="receipt-box__details">
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Student:</span>
+          <span class="receipt-box__value">${r.name}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Admission No.:</span>
+          <span class="receipt-box__value">${r.roll}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Amount:</span>
+          <span class="receipt-box__value fw-bold" style="color: #0a6f2e;">${fmtINR(r.amount)}</span>
+        </div>
+        <div class="receipt-box__row">
+          <span class="receipt-box__label">Payment Method:</span>
+          <span class="receipt-box__value">${r.method}</span>
+        </div>
+      </div>
+      <div class="receipt-box__actions">
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+      </div>
+    </div>
+  `).join('');
+  
+  // Render LIST VIEW
+  const listContainer = qs('#receiptsListView');
+  listContainer.innerHTML = rows.map(r => `
+    <div class="receipt-list-item">
+      <div class="receipt-list-item__main">
+        <div class="receipt-list-item__header">
+          <span class="receipt-list-item__title">Receipt #${r.no}</span>
+          <span class="receipt-list-item__amount" style="color: #0a6f2e; font-weight: bold;">${fmtINR(r.amount)}</span>
+        </div>
+        <div class="receipt-list-item__meta">
+          <span>${r.name} (${r.roll})</span>
+          <span>${r.date}</span>
+        </div>
+      </div>
+      <div class="receipt-list-item__actions">
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+      </div>
+    </div>
+  `).join('');
+  qsa('button[data-act="print"]').forEach(b=>{
+    b.onclick=()=> printReceipt(b.getAttribute('data-no'));
+  });
+  qsa('button[data-act="a4"]').forEach(b=>{
+    b.onclick=()=> printReceiptA4(b.getAttribute('data-no'));
+  });
+  qsa('button[data-act="pdf"]').forEach(b=>{
+    b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
+  });
+  qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
+  qs('#feesBtnThisMonthReceipts').onclick=()=> showThisMonthReceiptsModal();
+  qs('#feesBtnRecordPayment').onclick=()=> openModal('#modalRecordPayment');
+  
+  // Wire up view mode toggles
+  qsa('.receipt-view-btn').forEach(btn => {
+    btn.onclick = () => switchReceiptView(btn.getAttribute('data-receipt-view'));
+  });
+}
+
+function switchReceiptView(viewMode){
+  // Update active button
+  qsa('.receipt-view-btn').forEach(btn => btn.classList.remove('active'));
+  qs(`.receipt-view-btn[data-receipt-view="${viewMode}"]`)?.classList.add('active');
+  
+  // Hide all views
+  qsa('.receipt-view-container').forEach(container => container.classList.add('d-none'));
+  
+  // Show selected view
+  const viewMap = {
+    'table': '#receiptsTableView',
+    'grid': '#receiptsGridView',
+    'list': '#receiptsListView'
+  };
+  qs(viewMap[viewMode])?.classList.remove('d-none');
+}
+
+function showThisMonthReceiptsModal(){
+  const currentMonthStr = currentMonth();
+  let filteredReceipts = [...AppState.receipts].filter(r => {
+    const receiptMonth = getMonthFromDate(r.date || '');
+    return receiptMonth === currentMonthStr;
+  });
+  
+  filteredReceipts.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  
+  const container = qs('#receiptsBoxContainer');
+  if (!container) return;
+  
+  if (filteredReceipts.length === 0) {
+    container.innerHTML = '<div class="muted">No receipts found for this month.</div>';
+  } else {
+    container.innerHTML = filteredReceipts.map(r => `
+      <div class="receipt-box">
+        <div class="receipt-box__header">
+          <div class="receipt-box__no">Receipt #${r.no}</div>
+          <div class="receipt-box__date">${r.date}</div>
+        </div>
+        <div class="receipt-box__details">
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Student:</span>
+            <span class="receipt-box__value">${r.name}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Admission No.:</span>
+            <span class="receipt-box__value">${r.roll}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Amount:</span>
+            <span class="receipt-box__value fw-bold" style="color: #0a6f2e;">${fmtINR(r.amount)}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Payment Method:</span>
+            <span class="receipt-box__value">${r.method}</span>
+          </div>
+          ${r.ref ? `<div class="receipt-box__row">
+            <span class="receipt-box__label">Reference No.:</span>
+            <span class="receipt-box__value">${r.ref}</span>
+          </div>` : ''}
+        </div>
+        <div class="receipt-box__actions">
+          <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+          <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
+          <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  openModal('#modalThisMonthReceipts');
+}
+
+// Quick Payment Box Handlers
+function initQuickPaymentBox(){
+  const searchInput = qs('#qpStudentSearch');
+  const amountInput = qs('#qpAmount');
+  const methodSelect = qs('#qpMethod');
+  const refInput = qs('#qpRef');
+  const clearBtn = qs('#qpBtnClear');
+  const payBtn = qs('#qpBtnPay');
+  const dropdown = qs('#qpStudentList');
+  const badge = qs('#qpBadgeStatus');
+
+  // Student search with dropdown
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        dropdown.classList.add('d-none');
+        return;
+      }
+
+      const matches = AppState.students.filter(s => 
+        s.roll.toString().includes(query) || 
+        (s.name || '').toLowerCase().includes(query) ||
+        (s.phone || '').includes(query)
+      ).slice(0, 5);
+
+      if (matches.length === 0) {
+        dropdown.classList.add('d-none');
+      } else {
+        dropdown.innerHTML = matches.map(s => `
+          <div class="dropdown-item" data-roll="${s.roll}" data-name="${s.name}">
+            <strong>${s.roll}</strong> - ${s.name} (${s.class})
+          </div>
+        `).join('');
+        dropdown.classList.remove('d-none');
+
+        qsa('#qpStudentList .dropdown-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const roll = item.getAttribute('data-roll');
+            const name = item.getAttribute('data-name');
+            searchInput.value = roll;
+            dropdown.classList.add('d-none');
+            amountInput.focus();
+          });
+        });
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && !dropdown.classList.contains('d-none')) {
+        qsa('#qpStudentList .dropdown-item')[0]?.focus();
+      }
+    });
+  }
+
+  // Clear button
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      searchInput.value = '';
+      amountInput.value = '';
+      methodSelect.value = 'Cash';
+      refInput.value = '';
+      dropdown.classList.add('d-none');
+      badge.textContent = '';
+      badge.className = 'badge';
+    };
+  }
+
+  // Record Payment button - process payment directly
+  if (payBtn) {
+    payBtn.onclick = async () => {
+      const roll = searchInput.value.trim();
+      const amount = parseFloat(amountInput.value) || 0;
+      const method = methodSelect.value;
+      const ref = refInput.value.trim();
+
+      // Validation
+      if (!roll) {
+        badge.textContent = '❌ Select Student';
+        badge.className = 'badge error-badge';
+        searchInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
+
+      const student = AppState.students.find(s => s.roll.toString() === roll);
+      if (!student) {
+        badge.textContent = '❌ Student Not Found';
+        badge.className = 'badge error-badge';
+        searchInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
+
+      if (amount <= 0) {
+        badge.textContent = '❌ Enter Amount';
+        badge.className = 'badge error-badge';
+        amountInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
+
+      // Validate student ID exists
+      if (!student.id) {
+        badge.textContent = '❌ Student data error';
+        badge.className = 'badge error-badge';
+        console.error('Student object missing id:', student);
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
+
+      // Prepare payment data - mapped to match /api/payments endpoint
+      const paymentData = {
+        student_id: student.id,
+        amount: amount,
+        payment_date: todayYYYYMMDD(),
+        payment_method: method,
+        transaction_id: ref || null,
+        purpose: 'Monthly Fees',
+        status: 'Completed',
+        remarks: `Quick payment via fees portal`,
+        discount: 0,
+        late_fee: 0
+      };
+
+      console.log('Sending payment data:', paymentData);
+
+      // Also prepare receipt object for frontend display
+      const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
+      const receipt = {
+        no: receiptNo.toString(),
+        date: todayYYYYMMDD(),
+        time: formatNowTime12h(),
+        roll: roll,
+        name: student.name,
+        amount: amount,
+        method: method,
+        ref: ref || null,
+        heads: { 'Cash': amount },
+        discount: 0,
+        latefee: 0,
+        status: 'completed'
+      };
+
+      // Show processing status
+      payBtn.disabled = true;
+      payBtn.textContent = '⏳ Processing...';
+
+      try {
+        // Save to backend using configured API base URL
+        const response = await fetchWithTimeout(API_URL + '/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paymentData)
+        }, 8000);
+
+        console.log('Response status:', response.status);
+        const responseText = await response.text();
+        console.log('Response body:', responseText);
+
+        if (!response.ok) {
+          let errorMsg = 'Failed to save payment';
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMsg = errorData.error || errorMsg;
+          } catch (e) {
+            errorMsg = `Server error (${response.status}): ${responseText.substring(0, 100)}`;
+          }
+          throw new Error(errorMsg);
+        }
+
+        // Parse JSON response only when available.
+        let result = null;
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json') && responseText) {
+          try { result = JSON.parse(responseText); } catch (_) { result = null; }
+        }
+
+        // Update AppState
+        AppState.receipts.push(receipt);
+        
+        // Show success feedback
+        badge.textContent = '✅ Payment Recorded';
+        badge.className = 'badge success-badge';
+        payBtn.textContent = '💵 Record Payment';
+        payBtn.disabled = false;
+
+        // Clear form
+        clearBtn.click();
+
+        // Re-render receipts
+        renderRecentReceipts();
+        updateFeeKpis();
+
+        // Auto-clear success message
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'badge';
+        }, 3000);
+      } catch (error) {
+        console.error('Payment error:', error);
+        badge.textContent = '❌ Error: ' + error.message;
+        badge.className = 'badge error-badge';
+        payBtn.textContent = '💵 Record Payment';
+        payBtn.disabled = false;
+
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'badge';
+        }, 4000);
+      }
+    };
+  }
+}
+
+// ---------- CSV Export (Core) ----------
+function exportStudentsCSV(){
+  const header=['roll','admission_date','name','dob','aadhar','father_name','mother_name','class','section','phone','status'];
+  const rows=AppState.students.map(s=> [s.roll,s.admission_date||'',s.name,s.dob||'',s.aadhar||'',s.father_name||'',s.mother_name||'',s.class,s.section,s.phone,s.status]);
+  const csv=arrayToCSV([header,...rows]);
+  downloadFile('students.csv',csv);
+}
+function exportReceiptsCSV(){
+  const header=['no','date','roll','name','method','amount','ref'];
+  const rows=AppState.receipts.map(r=> [r.no,r.date,r.roll,r.name,r.method,r.amount,r.ref||'']);
+  const csv=arrayToCSV([header,...rows]);
+  downloadFile('receipts.csv',csv);
+}
+
+// ---------- Modals (Core) ----------
+function openModal(sel){
+  const dlg=qs(sel);
+  if (!dlg) { console.error('Modal not found:', sel); return false; }
+  if (typeof dlg.showModal!=='function'){ alert('Your browser does not support <dialog>.'); return false;}
+  dlg.showModal();
+
+  // Add click handlers to all cancel and close buttons to close the dialog
+  const cancelButtons = dlg.querySelectorAll('button[value="cancel"], button[type="button"][value="cancel"], .icon-btn[value="cancel"]');
+  cancelButtons.forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      dlg.close();
+    };
+  });
+
+  if(sel==='#modalAddStudent')     initAddStudentModal();
+  if(sel==='#modalImportCSV')      initImportCSVModal();
+  if(sel==='#modalRecordPayment')  { 
+    if (!dlg.dataset.initialized) { 
+      initRecordPaymentModal(); 
+      dlg.dataset.initialized = 'true'; 
+    }
+    // Reset form when opening
+    const form = qs('#formRecordPayment');
+    if (form) form.reset();
+    const rpStatus = qs('#rpStatus');
+    if (rpStatus) rpStatus.textContent = '';
+    const rpError = qs('#rpError');
+    if (rpError) rpError.style.display = 'none';
+    const rpHeadsWrap = qs('#rpHeads');
+    if (rpHeadsWrap) rpHeadsWrap.innerHTML = '';
+    const rpMonth = qs('#rpMonth');
+    if (rpMonth) rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+    const rpStudentSearch = qs('#rpStudentSearch');
+    if (rpStudentSearch) rpStudentSearch.value = '';
+    const rpStudentList = qs('#rpStudentList');
+    if (rpStudentList) rpStudentList.style.display = 'none';
+  }
+  if(sel==='#modalFeeHeads')       initFeeHeadsModal();
+  if(sel==='#modalLateRules')      initLateRulesModal();
+  if(sel==='#modalConcession')     initConcessionModal();
+  if(sel==='#modalAddTeacher')     initAddTeacherModal();
+  if(sel==='#modalCreateClass')    initCreateClassModal();
+
+  return true;
+}
+
+function initAddStudentModal(){
+  const form=qs('#formAddStudent');
+  const isEditMode=form.dataset.editRoll;
+  
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    const data=Object.fromEntries(new FormData(form).entries());
+    const student={
+      roll:data.roll.trim(),
+      admission_date:data.admission_date?.trim() || null,
+      name:data.name.trim(),
+      dob:data.dob.trim() || null,
+      aadhar:data.aadhar.trim() || null,
+      father_name:data.father_name.trim() || null,
+      mother_name:data.mother_name.trim() || null,
+      class:data.class,
+      section:data.section,
+      phone:data.phone.trim(),
+      status:data.status
+    };
+    
+    if(isEditMode){
+      // Update existing student
+      const idx=AppState.students.findIndex(s=> s.roll===form.dataset.editRoll);
+      if(idx===-1){ alert('Student not found.'); return; }
+      
+      // Check if admission no. changed and if new one already exists
+      if(student.roll!==form.dataset.editRoll && AppState.students.some(s=> s.roll===student.roll)){
+        alert('New admission no. already exists.'); return;
+      }
+      
+      AppState.students[idx]=student;
+    } else {
+      // Add new student
+      if(AppState.students.some(s=> s.roll===student.roll)){
+        alert('Admission no. already exists.'); return;
+      }
+      AppState.students.push(student);
+    }
+    
+    AppState.kpi.totalStudents=AppState.students.length;
+    saveState();
+    
+    // Reset modal to add mode
+    delete form.dataset.editRoll;
+    qs('#modalAddStudent .modal__header h3').textContent='Add Student';
+    qs('#modalAddStudent .modal__footer button[value="submit"]').textContent='Save';
+    
+    form.parentElement.close();
+    if(AppState.view==='students') renderStudents();
+  };
+}
+
+function initImportCSVModal(){
+  const form=qs('#formImportCSV');
+  const fileInput=form.querySelector('input[type="file"]');
+  form.onsubmit=async (e)=>{
+    e.preventDefault();
+    const file=fileInput.files?.[0];
+    if(!file){ alert('Please select a CSV file.'); return; }
+    const text=await file.text();
+    const rows=text.trim().split(/\r?\n/).map(line=>
+      line.split(',').map(cell=> cell.replace(/^"|"$/g,'').replace(/""/g,'"'))
+    );
+    const [header,...dataRows]=rows;
+    const idx=Object.fromEntries(header.map((h,i)=> [h.trim().toLowerCase(), i]));
+    const required=['roll','name','class','section','phone','status'];
+    if(!required.every(r=> idx[r]!==undefined)){
+      alert('Invalid CSV header. Expected: '+required.join(', ')); return;
+    }
+    const newStudents=dataRows.map(r=> ({
+      roll:r[idx['roll']].trim(),
+      admission_date:r[idx['admission_date']]?.trim() || null,
+      name:r[idx['name']].trim(),
+      dob:r[idx['dob']]?.trim() || null,
+      aadhar:r[idx['aadhar']]?.trim() || null,
+      father_name:r[idx['father_name']]?.trim() || null,
+      mother_name:r[idx['mother_name']]?.trim() || null,
+      class:r[idx['class']].trim(),
+      section:r[idx['section']].trim(),
+      phone:r[idx['phone']].trim(),
+      status:r[idx['status']].trim()
+    }));
+    const rolls=new Set(AppState.students.map(s=> s.roll));
+    newStudents.forEach(s=>{ if(!rolls.has(s.roll)) AppState.students.push(s); });
+    AppState.kpi.totalStudents=AppState.students.length;
+    saveState(); form.parentElement.close();
+    if(AppState.view==='students') renderStudents();
+  };
+}
+
+// === Record Payment with Auto Late Fee ===
+function initRecordPaymentModal(){
+  const form=qs('#formRecordPayment');
+  const search=qs('#rpStudentSearch');
+  const list=qs('#rpStudentList');
+  const rpRoll=qs('#rpRoll');
+  const rpMonth=qs('#rpMonth');
+  const rpName=qs('#rpName');
+  const rpClass=qs('#rpClass');
+  const rpMethod=qs('#rpMethod');
+  const rpRef=qs('#rpRef');
+  const rpHeadsWrap=qs('#rpHeads');
+  const rpDiscount=qs('#rpDiscount');
+  const rpLateFee=qs('#rpLateFee');
+  const rpSubtotal=qs('#rpSubtotal');
+  const rpTotalDue=qs('#rpTotalDue');
+  const rpPayNow=qs('#rpPayNow');
+  const rpError=qs('#rpError');
+  const rpStatus=qs('#rpStatus');
+
+  const safeAmount = (val) => {
+    const n = Number(val);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+  };
+
+  // Month picker can be absent in newer modal markup. Resolve month safely.
+  const resolvePaymentMonth = () => {
+    if (rpMonth && rpMonth.value) return rpMonth.value;
+
+    const selectedMonths = qsa('#rpUnpaidMonthsList input[type="checkbox"]:checked')
+      .map(inp => (inp.value || inp.getAttribute('data-month') || '').trim())
+      .filter(Boolean);
+    if (selectedMonths.length) return selectedMonths[0];
+
+    return AppState.settings.defaultFeesMonth || monthOfToday();
+  };
+
+  // set default month from settings or today when legacy field exists
+  if (rpMonth) rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+
+  // add recalc button once
+  if(!qs('#rpLateFeeRecalc')){
+    const recalcBtn=document.createElement('button');
+    recalcBtn.id='rpLateFeeRecalc';
+    recalcBtn.type='button';
+    recalcBtn.className='btn btn-ghost small';
+    recalcBtn.style.marginLeft='6px';
+    recalcBtn.textContent='↻ Recalculate';
+    rpLateFee.parentElement.appendChild(recalcBtn);
+    recalcBtn.onclick=()=> autoCalcLateFee();
+  }
+
+  // Wire discounts/late fee/pay-now inputs to update totals immediately
+  if (rpDiscount) rpDiscount.oninput = () => updateTotals();
+  if (rpLateFee) rpLateFee.oninput = () => updateTotals();
+  if (rpPayNow) rpPayNow.oninput = () => validatePayNow();
+
+  qs('#rpBtnExact').onclick = () => {
+    const calc = getCalcState();
+    rpPayNow.value = String(calc.outstanding);
+    validatePayNow();
+  };
+  qs('#rpBtnHalf').onclick = () => {
+    const calc = getCalcState();
+    rpPayNow.value = String(Math.round(calc.outstanding / 2));
+    validatePayNow();
+  };
+  qs('#rpBtnClear').onclick = () => {
+    rpPayNow.value = '0';
+    validatePayNow();
+  };
+
+  // Search dropdown (safe: handle missing fields) and keyboard shortcuts
+  search.oninput = () => {
+    const q = (search.value || '').trim().toLowerCase();
+    if (!q) { list.style.display = 'none'; return; }
+    const matches = AppState.students.filter(s =>
+      ((s.roll || '') + '').toLowerCase().includes(q) ||
+      ((s.name || '') + '').toLowerCase().includes(q) ||
+      ((s.phone || '') + '').toLowerCase().includes(q)
+    ).slice(0, 8);
+    list.innerHTML = matches.map(s => ` <button type="button" class="dropdown__item" data-roll="${s.roll}">${s.roll || ''} · ${s.name || ''} · ${s.class || ''}-${s.section || ''}</button>`).join('');
+    list.style.display = matches.length ? 'block' : 'none';
+    qsa('#rpStudentList .dropdown__item').forEach(btn => {
+      btn.onclick = () => { rpRoll.value = btn.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; };
+    });
+  };
+
+  // Open list with ArrowDown and select with Enter (when focused on search)
+  search.onkeydown = (e) => {
+    if (e.key === 'ArrowDown') {
+      const first = list.querySelector('.dropdown__item');
+      if (first) { first.focus(); }
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      const first = list.querySelector('.dropdown__item');
+      if (first) { rpRoll.value = first.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; }
+      e.preventDefault();
+    }
+  };
+
+  rpRoll.onchange=()=>{ fillStudentInfo(); };
+  if (rpMonth) {
+    rpMonth.onchange=function(){
+      const selected = this.value;
+      if (selected) {
+        qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => {
+          cb.checked = cb.getAttribute('data-month') === selected;
+        });
+      }
+      loadHeads(); autoCalcLateFee();
+    };
+  }
+
+  // Helper: Get all months with fees for a student, sorted newest first
+  function getUnpaidMonthsForStudent(roll) {
+    if (!roll) return [];
+    const months = [];
+    const today = new Date();
+    const currentMonth = monthOfToday(); // YYYY-MM format
+
+    Object.keys(AppState.fees).forEach(key => {
+      const [feeRoll, month] = key.split('|');
+      if (feeRoll === roll) {
+        const fee = AppState.fees[key];
+        const subtotal = Object.values(fee.heads || {}).reduce((a, b) => a + b, 0);
+        const totalDue = Math.max(0, subtotal + (fee.lateFee || 0) - (fee.discount || 0));
+        const paid = fee.paid || 0;
+
+        let status = 'paid';
+        if (paid === 0) status = 'unpaid';
+        else if (paid < totalDue) status = 'partial';
+
+        months.push({
+          month,
+          totalDue,
+          paid,
+          outstanding: Math.max(0, totalDue - paid),
+          status
+        });
+      }
+    });
+
+    // Sort newest first
+    months.sort((a, b) => b.month.localeCompare(a.month));
+    return months;
+  }
+
+  // Helper: Populate the unpaid months list with checkboxes
+  function populateUnpaidMonthsList(roll) {
+    const monthsList = qs('#rpUnpaidMonthsList');
+    if (!monthsList) return;
+
+    const months = getUnpaidMonthsForStudent(roll);
+    if (months.length === 0) {
+      monthsList.innerHTML = '<p style="grid-column: 1 / -1; opacity: 0.6;">No months with fee data.</p>';
+      return;
+    }
+
+    monthsList.innerHTML = months.map(m => {
+      const badgeClass = m.status === 'unpaid' ? 'badge-unpaid' : m.status === 'partial' ? 'badge-partial' : 'badge-paid';
+      const label = formatMonthLabel(m.month); // e.g., "March 2025"
+      const checkbox = `<input type="checkbox" data-month="${m.month}" class="month-checkbox" ${m.status !== 'paid' ? 'checked' : ''} />`;
+      const statusBadge = `<span class="month-status-badge ${badgeClass}">${m.status.toUpperCase()}</span>`;
+      const outstandingText = m.outstanding > 0 ? ` (₹${m.outstanding})` : '';
+
+      return `
+        <label class="month-item month-${m.status}">
+          ${checkbox}
+          <span class="month-label">${label}${outstandingText}</span>
+          ${statusBadge}
+        </label>
+      `;
+    }).join('');
+
+    // Wire checkbox change handlers to sync with month picker
+    qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => {
+      cb.onchange = function() {
+        if (this.checked && rpMonth) {
+          const month = this.getAttribute('data-month');
+          rpMonth.value = month;
+          // Uncheck other months if wpMonth exists (treat it as single-select)
+          if (rpMonth.value !== '') {
+            qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(other => {
+              if (other !== this) other.checked = false;
+            });
+          }
+        }
+        loadHeads(); autoCalcLateFee();
+      };
+    });
+
+    // Auto-select first unpaid month if no month picker exists
+    if (!rpMonth) {
+      const firstUnpaid = months.find(m => m.status === 'unpaid');
+      if (firstUnpaid) {
+        const firstCheckbox = qs(`#rpUnpaidMonthsList input[data-month="${firstUnpaid.month}"]`);
+        if (firstCheckbox) firstCheckbox.checked = true;
+      }
+    }
+  }
+
+  // Wire unpaid months action buttons
+  if (qs('#rpBtnSelectAll')) {
+    qs('#rpBtnSelectAll').onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+      loadHeads(); // Reload heads for first selected month
+    };
+  }
+
+  if (qs('#rpBtnClearMonths')) {
+    qs('#rpBtnClearMonths').onclick = () => {
+      qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+    };
+  }
+
+  if (qs('#rpBtnMarkPrev')) {
+    qs('#rpBtnMarkPrev').onclick = () => {
+      const roll = rpRoll.value.trim();
+      if (!roll) return;
+      const firstChecked = qs('#rpUnpaidMonthsList input[type="checkbox"]:checked');
+      if (firstChecked) {
+        const month = firstChecked.getAttribute('data-month');
+        if (month) {
+          // Uncheck all, then check only this one
+          qsa('#rpUnpaidMonthsList input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+          firstChecked.checked = true;
+          loadHeads();
+        }
+      }
+    };
+  }
+
+  function fillStudentInfo(){
+    const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
+    if(!s){ rpName.value=''; rpClass.value=''; rpHeadsWrap.innerHTML=''; qs('#rpUnpaidMonthsList').innerHTML=''; return; }
+    rpName.value=s.name; rpClass.value=s.class; 
+    populateUnpaidMonthsList(rpRoll.value.trim());
+    loadHeads(); autoCalcLateFee();
+  }
+
+  function loadHeads(){
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
+    if(!roll||!month) return;
+    const key=`${roll}|${month}`;
+    let fee=AppState.fees[key];
+
+    if(!fee){
+      const s=AppState.students.find(x=> x.roll===roll);
+
+      // Use getFeesForStudentMonth to dynamically include/exclude Miscellaneous and handle admission_date
+      let defHeads = {...(getFeesForStudentMonth(s, month) || { Tuition:800 })};
+
+      // include Transport head from Transport assignment if active
+      const a = AppState.transport.assignments.find(x => x.roll===roll && x.status==='active');
+      if (a) defHeads = { ...defHeads, Transport: Number(a.fee || 0) };
+
+      fee = AppState.fees[key] = { heads: defHeads, paid:0, discount:0, lateFee:0 };
+    }
+
+    rpHeadsWrap.innerHTML=Object.entries(fee.heads).map(([head,amt])=>`
+      <div class="grid-2">
+        <label><span>${head} (₹)</span><input type="number" min="0" step="1" data-head="${head}" value="${amt}"/></label>
+        <label><span>Include</span><input type="checkbox" data-include="${head}" checked/></label>
+      </div>`).join('');
+
+    qsa('#rpHeads input[type="number"]').forEach(inp=> inp.oninput=()=>{ updateTotals(); autoCalcLateFee(); });
+    qsa('#rpHeads input[type="checkbox"]').forEach(inp=> inp.onchange=()=>{ updateTotals(); autoCalcLateFee(); });
+
+    rpDiscount.value=String(fee.discount||0);
+    rpLateFee.value=String(fee.lateFee||0);
+    updateTotals();
+  }
+
+  function getCalcState(){
+    const amounts = qsa('#rpHeads input[type="number"]').map(inp => {
+      const head = inp.getAttribute('data-head');
+      const includeInp = qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`);
+      const include = includeInp ? includeInp.checked : true;
+      return include ? safeAmount(inp.value) : 0;
+    });
+
+    const subtotal = amounts.reduce((a,b)=> a+b,0);
+    const discount = safeAmount(rpDiscount.value);
+    const lateFee = safeAmount(rpLateFee.value);
+    const totalDue = Math.max(0, subtotal + lateFee - discount);
+
+    const roll = rpRoll.value.trim();
+    const month = resolvePaymentMonth();
+    const key = roll && month ? `${roll}|${month}` : '';
+    const paidSoFar = key ? safeAmount(AppState.fees[key]?.paid || 0) : 0;
+    const outstanding = Math.max(0, totalDue - paidSoFar);
+
+    return { subtotal, discount, lateFee, totalDue, paidSoFar, outstanding };
+  }
+
+  function updateTotals(){
+    const calc = getCalcState();
+    const { subtotal, discount, lateFee, totalDue, paidSoFar, outstanding } = calc;
+
+    rpSubtotal.textContent=fmtINR(subtotal);
+    rpTotalDue.textContent=fmtINR(totalDue);
+
+    rpPayNow.max = String(outstanding);
+    const enteredPay = safeAmount(rpPayNow.value);
+    if (enteredPay > outstanding) rpPayNow.value = String(outstanding);
+
+    const remainingAfterPay = Math.max(0, outstanding - safeAmount(rpPayNow.value));
+    if (rpStatus) {
+      rpStatus.textContent = `Due: ${fmtINR(totalDue)} | Paid: ${fmtINR(paidSoFar)} | Outstanding: ${fmtINR(outstanding)} | After this payment: ${fmtINR(remainingAfterPay)}`;
+    }
+
+    if (discount > subtotal + lateFee) {
+      rpError.textContent = 'Discount cannot exceed subtotal + late fee.';
+      rpError.style.display = 'block';
+    }
+
+    validatePayNow();
+  }
+
+  function validatePayNow(){
+    rpError.style.display='none';
+    const pay=safeAmount(rpPayNow.value);
+    const calc = getCalcState();
+
+    if(pay<0){ rpError.textContent='Amount cannot be negative.'; rpError.style.display='block'; return false; }
+    if (calc.discount > calc.subtotal + calc.lateFee) {
+      rpError.textContent='Discount cannot exceed subtotal + late fee.';
+      rpError.style.display='block';
+      return false;
+    }
+    if (pay > calc.outstanding) {
+      rpError.textContent=`Pay Now cannot exceed outstanding amount (${fmtINR(calc.outstanding)}).`;
+      rpError.style.display='block';
+      return false;
+    }
+
+    if (rpStatus) {
+      const remainingAfterPay = Math.max(0, calc.outstanding - pay);
+      rpStatus.textContent = `Due: ${fmtINR(calc.totalDue)} | Paid: ${fmtINR(calc.paidSoFar)} | Outstanding: ${fmtINR(calc.outstanding)} | After this payment: ${fmtINR(remainingAfterPay)}`;
+    }
+    return true;
+  }
+
+  function autoCalcLateFee(){
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
+    if(!roll||!month) return;
+    const autoFee=computeLateFee(roll,month,new Date());
+    const current=Number(rpLateFee.value||0);
+    if(current!==autoFee){ rpLateFee.value=String(autoFee); updateTotals(); }
+  }
+
+  qs('#rpSaveNoPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(false)) return; form.parentElement.close(); renderFees(); };
+  qs('#rpSaveAndPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); renderFees(); };
+
+  function savePayment(printAfter){
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
+    const s=AppState.students.find(x=> x.roll===roll);
+    if(!s){ rpError.textContent='Invalid roll.'; rpError.style.display='block'; return false; }
+    if(!month){ rpError.textContent='Please select a month.'; rpError.style.display='block'; return false; }
+
+    const heads={};
+    qsa('#rpHeads input[type="number"]').forEach(inp=>{
+      const head=inp.getAttribute('data-head');
+      const include=qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`).checked;
+      heads[head]=include? Number(inp.value||0):0;
+    });
+
+    const discount=safeAmount(rpDiscount.value);
+    const lateFee=safeAmount(rpLateFee.value);
+    const payNow=safeAmount(rpPayNow.value);
+    if(payNow<0){ rpError.textContent='Pay Now cannot be negative.'; rpError.style.display='block'; return false; }
+
+    const key=`${roll}|${month}`;
+    const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
+    const netDue=Math.max(0, subtotal+lateFee-discount);
+
+    const paidAlready=safeAmount(AppState.fees[key]?.paid || 0);
+    const outstandingBefore=Math.max(0, netDue - paidAlready);
+    if (discount > subtotal + lateFee) {
+      rpError.textContent='Discount cannot exceed subtotal + late fee.';
+      rpError.style.display='block';
+      return false;
+    }
+    if (payNow > outstandingBefore) {
+      rpError.textContent=`Pay Now cannot exceed outstanding amount (${fmtINR(outstandingBefore)}).`;
+      rpError.style.display='block';
+      return false;
+    }
+
+    AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0 };
+    AppState.fees[key].heads=heads;
+    AppState.fees[key].discount=discount;
+    AppState.fees[key].lateFee=lateFee;
+    AppState.fees[key].paid=(AppState.fees[key].paid||0)+payNow;
+
+    if(payNow>0){
+      const recNo='R-'+String(AppState.receipts.length+1).padStart(4,'0');
+      AppState.fees[key].lastReceipt=recNo;
+      AppState.receipts.push({
+        no:recNo, date:todayYYYYMMDD(), roll, name:s.name, method:rpMethod.value,
+        time: formatNowTime12h(),
+        amount:payNow, ref:(rpRef.value||'').trim()
+      });
+
+      // Persist payment to backend DB in parallel (non-blocking for UI)
+      syncPaymentToBackend({
+        studentId: s.id,
+        amount: payNow,
+        paymentDate: todayYYYYMMDD(),
+        method: rpMethod.value,
+        ref: (rpRef.value || '').trim(),
+        purpose: `School Fee (${month})`,
+        discount,
+        lateFee
+      }).then((result) => {
+        if (!result.ok) {
+          rpStatus.textContent = 'Saved locally. Backend sync pending (student id or network issue).';
+        }
+      });
+
+      if(printAfter) printReceipt(recNo);
+    }
+
+    // Update KPI collected month if same month
+    if (monthOfToday() === month) AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+
+    saveState();
+    rpStatus.textContent=`Saved. Balance now: ${fmtINR(Math.max(0, netDue-(AppState.fees[key].paid||0)))}`;
+    return true;
+  }
+
+  if(rpRoll.value) fillStudentInfo(); else rpHeadsWrap.innerHTML='';
+  autoCalcLateFee();
+}
+
+function initFeeHeadsModal(){
+  const form=qs('#formFeeHeads');
+  const wrap=qs('#fhEditor');
+  wrap.innerHTML=Object.entries(AppState.feeHeadsByClass).map(([klass,heads])=>`
+    <div class="card" style="margin:8px 0;">
+      <div class="card__header"><h4>${klass}</h4></div>
+      <div style="padding:8px;">
+        ${Object.entries(heads).map(([h,amt])=>`
+          <div class="grid-2">
+            <label><span>${h} (₹)</span><input type="number" min="0" step="1" data-k="${klass}" data-h="${h}" value="${amt}"/></label>
+            <button class="btn btn-ghost small" type="button" data-k="${klass}" data-del="${h}">Delete Head</button>
+          </div>
+        `).join('')}
+        <button class="btn btn-ghost small" type="button" data-add="${klass}">+ Add Head</button>
+      </div>
+    </div>
+  `).join('');
+
+  qsa('#fhEditor input[type="number"]').forEach(inp=>{
+    inp.oninput=()=>{ const k=inp.getAttribute('data-k'); const h=inp.getAttribute('data-h'); AppState.feeHeadsByClass[k][h]=Number(inp.value||0); };
+  });
+  qsa('#fhEditor button[data-del]').forEach(btn=>{
+    btn.onclick=()=>{ const k=btn.getAttribute('data-k'); const h=btn.getAttribute('data-del'); delete AppState.feeHeadsByClass[k][h]; initFeeHeadsModal(); };
+  });
+  qsa('#fhEditor button[data-add]').forEach(btn=>{
+    btn.onclick=()=>{ const k=btn.getAttribute('data-add'); const h=prompt('Head name? (e.g., Tuition)'); const amt=Number(prompt('Monthly amount (₹)?')||0); if(!h) return; AppState.feeHeadsByClass[k][h]=amt; initFeeHeadsModal(); };
+  });
+
+  form.onsubmit=(e)=>{ e.preventDefault(); saveState(); form.parentElement.close(); };
+  qs('#feesBtnLateRules').onclick=(e)=>{ e.preventDefault(); openModal('#modalLateRules'); };
+}
+
+function initLateRulesModal(){
+  qs('#lfCutoffDay').value=AppState.lateFeeRules.cutoffDay;
+  qs('#lfGraceDays').value=AppState.lateFeeRules.graceDays;
+  qs('#lfCap').value=AppState.lateFeeRules.cap;
+  qs('#lfStartAfter').value=AppState.lateFeeRules.startAfter;
+  qs('#lfSkipSat').checked=AppState.lateFeeRules.skipSat;
+  qs('#lfSkipSun').checked=AppState.lateFeeRules.skipSun;
+  qs('#lfHolidays').value=(AppState.lateFeeRules.holidays||[]).join(',');
+  qs('#lfShiftRule').value=AppState.lateFeeRules.shiftRule;
+
+  const wrap=qs('#lfSlabsWrap');
+  wrap.innerHTML=(AppState.lateFeeRules.slabs||[]).map((s,idx)=>`
+    <div class="grid-2">
+      <div><strong>${s.from}–${s.to||'∞'} days</strong></div>
+      <div>₹ ${s.perDay}/day <button class="btn btn-ghost small" data-del="${idx}">Remove</button></div>
+    </div>
+  `).join('');
+  qsa('#lfSlabsWrap button[data-del]').forEach(b=>{
+    b.onclick=()=>{ const i=Number(b.getAttribute('data-del')); AppState.lateFeeRules.slabs.splice(i,1); initLateRulesModal(); };
+  });
+
+  qs('#lfAddSlab').onclick=()=>{
+    const from=Number(prompt('From day (>=1)?')||1);
+    const to=prompt('To day (leave blank for open-ended)');
+    const perDay=Number(prompt('Per day amount (₹)?')||0);
+    AppState.lateFeeRules.slabs.push({from, to: to? Number(to): null, perDay});
+    initLateRulesModal();
+  };
+
+  qs('#lfApplyTuition').checked=!!AppState.lateFeeRules.applyToHeads.Tuition;
+  qs('#lfApplyTransport').checked=!!AppState.lateFeeRules.applyToHeads.Transport;
+  qs('#lfApplyLab').checked=!!AppState.lateFeeRules.applyToHeads.Lab;
+  qs('#lfApplyActivity').checked=!!AppState.lateFeeRules.applyToHeads.Activity;
+  qs('#lfApplyMiscellaneous').checked=!!AppState.lateFeeRules.applyToHeads.Miscellaneous;
+
+  const form=qs('#formLateRules');
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    AppState.lateFeeRules.cutoffDay=Number(qs('#lfCutoffDay').value||1);
+    AppState.lateFeeRules.graceDays=Number(qs('#lfGraceDays').value||0);
+    AppState.lateFeeRules.cap=Number(qs('#lfCap').value||0);
+    AppState.lateFeeRules.startAfter=Number(qs('#lfStartAfter').value||0);
+    AppState.lateFeeRules.skipSat=qs('#lfSkipSat').checked;
+    AppState.lateFeeRules.skipSun=qs('#lfSkipSun').checked;
+    AppState.lateFeeRules.holidays=(qs('#lfHolidays').value||'').split(',').map(x=> x.trim()).filter(Boolean);
+    AppState.lateFeeRules.shiftRule=qs('#lfShiftRule').value;
+    AppState.lateFeeRules.applyToHeads={
+      Tuition: qs('#lfApplyTuition').checked,
+      Transport: qs('#lfApplyTransport').checked,
+      Lab: qs('#lfApplyLab').checked,
+      Activity: qs('#lfApplyActivity').checked,
+      Miscellaneous: qs('#lfApplyMiscellaneous').checked
+    };
+    try{
+      const overrides=JSON.parse(qs('#lfClassOverrides').value||'{}');
+      AppState.lateFeeRules.classOverrides=overrides;
+    } catch{
+      alert('Invalid JSON in per-class overrides.'); return;
+    }
+    saveState(); form.parentElement.close();
+  };
+}
+
+function initConcessionModal(){
+  const form=qs('#formConcession');
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    const roll=qs('#ccRoll').value.trim();
+    const type=qs('#ccType').value;
+    const value=Number(qs('#ccValue').value||0);
+    const note=qs('#ccNote').value.trim();
+    const s=AppState.students.find(x=> x.roll===roll);
+    if(!s){ alert('Invalid roll'); return; }
+    s.concession={type,value,note};
+    saveState();
+    form.parentElement.close();
+    alert('Concession saved for '+s.name);
+  };
+}
+
+// ---------- Print Receipt ----------
+function printReceipt(no){
+  const r=AppState.receipts.find(x=> x.no===no);
+  if(!r){ alert('Receipt not found'); return; }
+  const receiptTime = getReceiptDisplayTime(r);
+
+  // Offer choice for thermal or regular printer
+  const choice = confirm(
+    '🖨️ Print Options:\n\n' +
+    'OK → Thermal Printer (ESC/POS Format)\n' +
+    'Cancel → Regular Printer (Browser Print)\n\n' +
+    'Choose Thermal for petrol pump style thermal printers.'
+  );
+  
+  if (choice) {
+    // Thermal printer
+    printThermalReceipt(
+      r.no,
+      r.name,
+      r.roll,
+      r.amount,
+      r.method,
+      'School Fee',
+      receiptTime
+    );
+  } else {
+    // Regular browser print
+    const root=qs('#receiptPrintRoot');
+    const sch = AppState.settings.school || {};
+    const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
+    const tagline     = sch.tagline || '';
+    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+
+    root.innerHTML=`
+      <div class="receipt">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <hr />
+        <div><strong>Receipt No:</strong> ${r.no}</div>
+        <div><strong>Date:</strong> ${r.date}</div>
+        <div><strong>Time:</strong> ${receiptTime}</div>
+        <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
+        <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
+        <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
+        <hr />
+        <div class="muted">This is a system-generated receipt.</div>
+      </div>`;
+    root.style.display='block';
+    window.print();
+    setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
+  }
+}
+
+function printReceiptA4(no){
+  const r = AppState.receipts.find(x => x.no === no);
+  if (!r) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || '';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logoUrl = sch.logo || 'assets/logo.png';
+  const receiptTime = getReceiptDisplayTime(r);
+  const amount = (r.amount || 0).toLocaleString(AppState.settings.locale || 'en-IN');
+
+  const w = window.open('', '_blank', 'width=900,height=1200');
+  if (!w) {
+    alert('Please allow popups to print A4 receipt.');
+    return;
+  }
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Receipt ${r.no}</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: #1f2937; }
+    .page { width: 100%; min-height: calc(297mm - 24mm); border: 1px solid #d1d5db; padding: 14mm; }
+    .header { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #1d4ed8; padding-bottom: 10px; }
+    .logo { width: 70px; height: 70px; object-fit: contain; }
+    .school h1 { margin: 0; font-size: 24px; color: #1d4ed8; }
+    .school .tagline { margin: 2px 0 0; font-size: 14px; color: #374151; }
+    .school .meta { margin: 6px 0 0; font-size: 12px; color: #6b7280; line-height: 1.5; }
+    .title { text-align: center; margin: 16px 0 12px; font-size: 22px; letter-spacing: 1px; color: #1d4ed8; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin-top: 8px; }
+    .row { display: flex; justify-content: space-between; border-bottom: 1px dotted #cbd5e1; padding-bottom: 6px; }
+    .label { font-weight: 600; color: #374151; }
+    .value { color: #111827; text-align: right; }
+    .amount-box { margin: 20px 0; border: 2px solid #93c5fd; background: #eff6ff; border-radius: 10px; padding: 14px; }
+    .amount-row { display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: #1e3a8a; }
+    .note { margin-top: 14px; padding: 10px; border: 1px dashed #9ca3af; border-radius: 8px; background: #f9fafb; font-size: 12px; color: #4b5563; }
+    .signatures { display: flex; justify-content: space-between; margin-top: 42px; gap: 24px; }
+    .sign-box { width: 45%; text-align: center; }
+    .sign-line { border-top: 1px solid #111827; margin-top: 30px; padding-top: 6px; font-size: 12px; color: #4b5563; }
+    .footer { margin-top: 24px; text-align: center; font-size: 11px; color: #6b7280; }
+    @media print {
+      .page { border: none; padding: 0; min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <img class="logo" src="${logoUrl}" alt="School Logo" onerror="this.style.display='none'" />
+      <div class="school">
+        <h1>${headerName}</h1>
+        ${tagline ? `<div class="tagline">${tagline}</div>` : ''}
+        <div class="meta">
+          ${address ? `${address}<br/>` : ''}
+          ${phone ? `Phone: ${phone}<br/>` : ''}
+          ${email ? `Email: ${email}` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="title">FEE RECEIPT</div>
+
+    <div class="grid">
+      <div class="row"><span class="label">Receipt No</span><span class="value">${r.no}</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">${r.date}</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">${receiptTime}</span></div>
+      <div class="row"><span class="label">Payment Method</span><span class="value">${r.method}</span></div>
+      <div class="row"><span class="label">Student Name</span><span class="value">${r.name}</span></div>
+      <div class="row"><span class="label">Admission No</span><span class="value">${r.roll}</span></div>
+      ${r.ref ? `<div class="row"><span class="label">Reference No</span><span class="value">${r.ref}</span></div>` : ''}
+    </div>
+
+    <div class="amount-box">
+      <div class="amount-row">
+        <span>Amount Received</span>
+        <span>Rs ${amount}</span>
+      </div>
+    </div>
+
+    <div class="note">
+      Received with thanks towards school fee payment. This is a computer-generated receipt.
+    </div>
+
+    <div class="signatures">
+      <div class="sign-box"><div class="sign-line">Parent/Guardian Signature</div></div>
+      <div class="sign-box"><div class="sign-line">Authorized Signatory</div></div>
+    </div>
+
+    <div class="footer">
+      Generated from School Admin Portal
+    </div>
+  </div>
+  <script>
+    window.onload = function(){
+      setTimeout(function(){ window.print(); }, 200);
+    };
+  </script>
+</body>
+</html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+// Find Receipt by Number
+function findReceiptByNumber() {
+  const input = prompt('Enter Receipt Number or Student Roll/Admission Number:');
+  if (!input) return;
+  
+  const searchTerm = input.trim();
+  // Try to find by receipt number first
+  let receipt = AppState.receipts.find(r => r.no === searchTerm);
+  
+  // If not found, search by roll or admission number (get latest receipt)
+  if (!receipt) {
+    const matchingReceipts = AppState.receipts.filter(r => 
+      r.roll === searchTerm || r.admission === searchTerm
+    ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    
+    if (matchingReceipts.length > 0) {
+      receipt = matchingReceipts[0];
+    }
+  }
+  
+  if (receipt) {
+    printReceipt(receipt.no);
+  } else {
+    alert('No receipt found for: ' + searchTerm);
+  }
+}
+
+// Print All Due Receipts
+function printAllDueReceipts(compact = false) {
+  const m = monthOfToday();
+  const dueStudents = [];
+  
+  // Calculate outstanding balance for each student
+  AppState.students.forEach(s => {
+    let totalDue = 0;
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return;
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      totalDue += balance;
+    });
+    
+    if (totalDue > 0) {
+      dueStudents.push({
+        roll: s.roll,
+        name: s.name,
+        class: s.class,
+        section: s.section,
+        phone: s.phone,
+        due: totalDue
+      });
+    }
+  });
+  
+  if (dueStudents.length === 0) {
+    alert('No students with outstanding dues found.');
+    return;
+  }
+  
+  // Sort by due amount descending
+  dueStudents.sort((a, b) => b.due - a.due);
+  
+  const root = qs('#receiptPrintRoot');
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || '';
+  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  
+  if (compact) {
+    // Compact format - table only
+    root.innerHTML = `
+      <div class="receipt" style="width: 100%; max-width: none;">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <h3>Outstanding Dues Report (Compact)</h3>
+        <p>Date: ${new Date().toLocaleDateString()}</p>
+        <table style="width:100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #000;">
+              <th style="text-align:left; padding:4px;">Roll</th>
+              <th style="text-align:left; padding:4px;">Name</th>
+              <th style="text-align:left; padding:4px;">Class</th>
+              <th style="text-align:left; padding:4px;">Phone</th>
+              <th style="text-align:right; padding:4px;">Due Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dueStudents.map(s => `
+              <tr style="border-bottom: 1px solid #ddd;">
+                <td style="padding:4px;">${s.roll}</td>
+                <td style="padding:4px;">${s.name}</td>
+                <td style="padding:4px;">${s.class}-${s.section}</td>
+                <td style="padding:4px;">${s.phone}</td>
+                <td style="text-align:right; padding:4px;">${fmtINR(s.due)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top: 2px solid #000; font-weight: bold;">
+              <td colspan="4" style="text-align:right; padding:8px;">Total Outstanding:</td>
+              <td style="text-align:right; padding:8px;">${fmtINR(dueStudents.reduce((sum, s) => sum + s.due, 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="muted" style="margin-top:10px;">Total Students: ${dueStudents.length}</div>
+      </div>
+    `;
+  } else {
+    // Detailed format with more spacing
+    root.innerHTML = `
+      <div class="receipt" style="width: 100%; max-width: none;">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <hr />
+        <h3>Outstanding Dues Report (Detailed)</h3>
+        <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Total Students with Dues:</strong> ${dueStudents.length}</p>
+        <hr />
+        <table style="width:100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 2px solid #000; background: #f0f0f0;">
+              <th style="text-align:left; padding:8px;">Roll No</th>
+              <th style="text-align:left; padding:8px;">Student Name</th>
+              <th style="text-align:left; padding:8px;">Class</th>
+              <th style="text-align:left; padding:8px;">Contact Phone</th>
+              <th style="text-align:right; padding:8px;">Due Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dueStudents.map((s, idx) => `
+              <tr style="border-bottom: 1px solid #ddd; ${idx % 2 === 0 ? 'background: #f9f9f9;' : ''}">
+                <td style="padding:8px;">${s.roll}</td>
+                <td style="padding:8px;">${s.name}</td>
+                <td style="padding:8px;">${s.class}-${s.section}</td>
+                <td style="padding:8px;">${s.phone}</td>
+                <td style="text-align:right; padding:8px; font-weight:bold;">${fmtINR(s.due)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top: 3px solid #000; background: #f0f0f0; font-weight: bold; font-size: 14px;">
+              <td colspan="4" style="text-align:right; padding:12px;">TOTAL OUTSTANDING:</td>
+              <td style="text-align:right; padding:12px;">${fmtINR(dueStudents.reduce((sum, s) => sum + s.due, 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <hr />
+        <div class="muted">This is a system-generated report.</div>
+      </div>
+    `;
+  }
+  
+  root.style.display = 'block';
+  window.print();
+  setTimeout(() => {
+    root.style.display = 'none';
+    root.innerHTML = '';
+  }, 500);
+}
+
+// Generate Receipt PDF with Logo
+function generateReceiptPDF(receiptNo) {
+  const receipt = AppState.receipts.find(x => x.no === receiptNo);
+  if (!receipt) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || 'Admin Portal';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logoUrl = sch.logo || 'assets/logo.png';
+  const amount = (receipt.amount || 0).toLocaleString(AppState.settings.locale || 'en-IN');
+  const receiptTime = getReceiptDisplayTime(receipt);
+  const now = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+
+  // Build HTML string for PDF
+  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>';
+  html += 'body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#333}';
+  html += '.receipt-container{max-width:600px;margin:0 auto;border:1px solid #ddd;border-radius:8px;padding:30px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.1)}';
+  html += '.receipt-header{text-align:center;margin-bottom:30px;border-bottom:2px solid #2563eb;padding-bottom:20px}';
+  html += '.logo-section{display:flex;align-items:center;justify-content:center;margin-bottom:12px}';
+  html += '.logo-section img{max-width:60px;max-height:60px;margin-right:12px}';
+  html += '.school-info{text-align:center}';
+  html += '.school-name{font-size:20px;font-weight:bold;color:#2563eb;margin:0}';
+  html += '.school-tagline{font-size:13px;color:#666;margin:4px 0 0 0}';
+  html += '.school-address{font-size:11px;color:#999;margin-top:4px;line-height:1.4}';
+  html += '.receipt-title{text-align:center;font-size:18px;font-weight:bold;color:#2563eb;margin:20px 0}';
+  html += '.receipt-body{margin:20px 0}';
+  html += '.receipt-row{display:flex;justify-content:space-between;margin:12px 0;font-size:14px;border-bottom:1px dotted #ddd;padding-bottom:8px}';
+  html += '.receipt-row-label{font-weight:600;color:#333;flex:0 0 40%}';
+  html += '.receipt-row-value{text-align:right;color:#555;flex:1}';
+  html += '.amount-section{background:#f9fafb;border-radius:6px;padding:15px;margin:20px 0;border:1px solid #e5e7eb}';
+  html += '.amount-row{display:flex;justify-content:space-between;font-size:15px;margin:10px 0}';
+  html += '.amount-row-label{font-weight:600;color:#333}';
+  html += '.amount-row-value{text-align:right;font-weight:600;color:#2563eb}';
+  html += '.total-row{display:flex;justify-content:space-between;font-size:18px;font-weight:bold;margin-top:15px;padding-top:15px;border-top:2px solid #2563eb;color:#2563eb}';
+  html += '.collection-note{background:#e0f2fe;border:2px solid #0284c7;border-radius:6px;padding:12px;margin:20px 0;text-align:center;font-weight:600;color:#0284c7;font-size:12px}';
+  html += '.receipt-footer{text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #ddd;font-size:11px;color:#999;line-height:1.6}';
+  html += '.timestamp{margin-top:20px;font-size:10px;color:#ccc;text-align:center}';
+  html += '</style></head><body>';
+  html += '<div class="receipt-container">';
+  html += '<div class="receipt-header"><div class="logo-section">';
+  html += '<img src="' + logoUrl + '" alt="School Logo" onerror="this.style.display=\'none\'">';
+  html += '<div class="school-info">';
+  html += '<p class="school-name">' + headerName + '</p>';
+  html += '<p class="school-tagline">' + tagline + '</p>';
+  html += '<div class="school-address">';
+  if (address) html += address + '<br>';
+  if (phone) html += '📞 ' + phone + '<br>';
+  if (email) html += '✉️ ' + email;
+  html += '</div></div></div></div>';
+  html += '<div class="receipt-title">FEE RECEIPT</div>';
+  html += '<div class="receipt-body">';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Receipt No:</span><span class="receipt-row-value"><strong>' + receipt.no + '</strong></span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Date:</span><span class="receipt-row-value">' + receipt.date + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Time:</span><span class="receipt-row-value">' + receiptTime + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Student Name:</span><span class="receipt-row-value"><strong>' + receipt.name + '</strong></span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Admission No:</span><span class="receipt-row-value">' + receipt.roll + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Payment Method:</span><span class="receipt-row-value">' + receipt.method + '</span></div>';
+  if (receipt.ref) html += '<div class="receipt-row"><span class="receipt-row-label">Reference:</span><span class="receipt-row-value">' + receipt.ref + '</span></div>';
+  html += '</div>';
+  html += '<div class="amount-section">';
+  html += '<div class="amount-row"><span class="amount-row-label">Amount Paid</span><span class="amount-row-value">₹ ' + amount + '</span></div>';
+  html += '<div class="total-row"><span>Total</span><span>₹ ' + amount + '</span></div>';
+  html += '</div>';
+  html += '<div class="collection-note">💳 Payment Collected at Cash Counter</div>';
+  html += '<div class="receipt-footer">';
+  html += '<p>✓ Payment received and recorded in system</p>';
+  html += '<p>This is a system-generated receipt. No signature required.</p>';
+  html += '<p style="margin:8px 0 0 0;">For queries, contact the school office</p>';
+  html += '<div class="timestamp">Generated on ' + now + '</div>';
+  html += '</div></div></body></html>';
+
+  const options = {
+    margin: [10, 10, 10, 10],
+    filename: 'receipt_' + receipt.no + '_' + receipt.date + '.pdf',
+    image: { type: 'png', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+  };
+
+  html2pdf().set(options).from(html, 'string').save();
+}
+
+// ---------- Exams View ----------
+function renderExams(){
+  const classFilter = qs('#examFilterClass')?.value || '';
+  const subjectFilter = qs('#examFilterSubject')?.value || '';
+  const searchQuery = qs('#examSearch')?.value?.toLowerCase() || '';
+
+  // Filter exams
+  let filtered = AppState.exams.filter(e => {
+    const matchClass = !classFilter || e.class === classFilter;
+    const matchSubject = !subjectFilter || e.subject === subjectFilter;
+    const matchSearch = !searchQuery || e.name.toLowerCase().includes(searchQuery);
+    return matchClass && matchSubject && matchSearch;
+  });
+
+  // Update KPIs
+  const kpiTotal = qs('#examKpiTotal');
+  if (kpiTotal) kpiTotal.textContent = String(AppState.exams.length);
+
+  const avgScores = [];
+  filtered.forEach(exam => {
+    const examMarks = Object.entries(AppState.marks)
+      .filter(([key]) => key.startsWith(exam.id + '|'))
+      .map(([, val]) => val.obtainedMarks);
+    if (examMarks.length > 0) {
+      const avg = examMarks.reduce((a, b) => a + b, 0) / examMarks.length;
+      avgScores.push((avg / exam.totalMarks) * 100);
+    }
+  });
+  const kpiAvgScore = qs('#examKpiAvgScore');
+  if (kpiAvgScore) kpiAvgScore.textContent = avgScores.length > 0 ? String(Math.round(avgScores.reduce((a, b) => a + b, 0) / avgScores.length)) + '%' : '0%';
+
+  // Update filters
+  const classes = [...new Set(AppState.exams.map(e => e.class))].sort();
+  const classSel = qs('#examFilterClass');
+  if (classSel) {
+    const current = classSel.value;
+    classSel.innerHTML = '<option value="">All Classes</option>';
+    classes.forEach(c => classSel.innerHTML += `<option value="${c}">${c}</option>`);
+    classSel.value = current;
+  }
+
+  const subjects = [...new Set(AppState.exams.map(e => e.subject))].sort();
+  const subjectSel = qs('#examFilterSubject');
+  if (subjectSel) {
+    const current = subjectSel.value;
+    subjectSel.innerHTML = '<option value="">All Subjects</option>';
+    subjects.forEach(s => subjectSel.innerHTML += `<option value="${s}">${s}</option>`);
+    subjectSel.value = current;
+  }
+
+  // Render table
+  const tbody = qs('#examsTableBody');
+  if (tbody) {
+    tbody.innerHTML = filtered.map(exam => {
+      const examMarks = Object.entries(AppState.marks)
+        .filter(([key]) => key.startsWith(exam.id + '|'))
+        .map(([, val]) => val.obtainedMarks);
+      const marksEntered = examMarks.length;
+      const avgScore = marksEntered > 0 ? ((examMarks.reduce((a, b) => a + b, 0) / marksEntered) / exam.totalMarks * 100).toFixed(1) + '%' : '-';
+      
+      return `
+        <tr>
+          <td>${exam.name}</td>
+          <td>${exam.class}</td>
+          <td>${exam.subject}</td>
+          <td>${exam.date}</td>
+          <td>${exam.totalMarks}</td>
+          <td>${marksEntered}/${AppState.students.filter(s => s.class === exam.class).length}</td>
+          <td>${avgScore}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost small" data-act="enterMarks" data-id="${exam.id}">Enter Marks</button>
+            <button class="btn btn-ghost small" data-act="delExam" data-id="${exam.id}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('button[data-act="enterMarks"]').forEach(btn => {
+      btn.onclick = () => {
+        if (openModal('#modalEnterMarks')) initEnterMarksModal(btn.getAttribute('data-id'));
+      };
+    });
+
+    qsa('button[data-act="delExam"]').forEach(btn => {
+      btn.onclick = () => {
+        const examId = btn.getAttribute('data-id');
+        const exam = AppState.exams.find(e => e.id === examId);
+        if (!exam) return;
+        if (!confirm(`Delete exam "${exam.name}"? This will also delete all marks for this exam.`)) return;
+        AppState.exams = AppState.exams.filter(e => e.id !== examId);
+        Object.keys(AppState.marks).forEach(key => {
+          if (key.startsWith(examId + '|')) delete AppState.marks[key];
+        });
+        saveState();
+        renderExams();
+      };
+    });
+  }
+
+  // Bind filter and search
+  const bindFilterChange = () => renderExams();
+  qs('#examFilterClass')?.addEventListener('change', bindFilterChange);
+  qs('#examFilterSubject')?.addEventListener('change', bindFilterChange);
+  qs('#examSearch')?.addEventListener('input', bindFilterChange);
+
+  // Bind buttons
+  if (qs('#examBtnCreate')) qs('#examBtnCreate').onclick = () => {
+    if (openModal('#modalCreateExam')) initCreateExamModal();
+  };
+
+  if (qs('#examBtnExport')) qs('#examBtnExport').onclick = exportExamsCSV;
+}
+
+function initCreateExamModal(){
+  const form = qs('#formCreateExam');
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const examId = 'exam_' + Date.now();
+    const exam = {
+      id: examId,
+      name: qs('#examName').value.trim(),
+      date: qs('#examDate').value,
+      class: qs('#examClass').value,
+      subject: qs('#examSubject').value.trim(),
+      totalMarks: Number(qs('#examTotalMarks').value),
+      passingMarks: Number(qs('#examPassingMarks').value)
+    };
+    AppState.exams.push(exam);
+    saveState();
+    form.parentElement.close();
+    if (AppState.view === 'exams') renderExams();
+  };
+}
+
+function initEnterMarksModal(examId){
+  const exam = AppState.exams.find(e => e.id === examId);
+  if (!exam) return;
+
+  const form = qs('#formEnterMarks');
+  form.dataset.examId = examId;
+
+  // Show exam info
+  const examInfo = qs('#marksExamInfo');
+  if (examInfo) examInfo.textContent = `Exam: ${exam.name} | Class: ${exam.class} | Subject: ${exam.subject} | Total: ${exam.totalMarks}`;
+
+  // Get students in this class
+  const classStudents = AppState.students.filter(s => s.class === exam.class);
+
+  // Render marks table
+  const tbody = qs('#marksTableBody');
+  if (tbody) {
+    tbody.innerHTML = classStudents.map(student => {
+      const key = `${examId}|${student.roll}`;
+      const marks = AppState.marks[key] || { obtainedMarks: 0 };
+      const grade = getGrade(marks.obtainedMarks, exam.totalMarks, exam.passingMarks);
+      return `
+        <tr>
+          <td>${student.roll}</td>
+          <td>${student.name}</td>
+          <td><input type="number" min="0" max="${exam.totalMarks}" step="0.5" class="mark-input" data-roll="${student.roll}" value="${marks.obtainedMarks || ''}" style="width:80px;" /></td>
+          <td><span class="badge" id="grade-${student.roll}">${grade}</span></td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('.mark-input').forEach(inp => {
+      inp.oninput = () => {
+        const grade = getGrade(Number(inp.value) || 0, exam.totalMarks, exam.passingMarks);
+        qs(`#grade-${inp.getAttribute('data-roll')}`).textContent = grade;
+      };
+    });
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    qsa('.mark-input').forEach(inp => {
+      const roll = inp.getAttribute('data-roll');
+      const marks = Number(inp.value);
+      const key = `${examId}|${roll}`;
+      if (marks >= 0) {
+        const grade = getGrade(marks, exam.totalMarks, exam.passingMarks);
+        AppState.marks[key] = { obtainedMarks: marks, grade };
+      }
+    });
+    saveState();
+    form.parentElement.close();
+    if (AppState.view === 'exams') renderExams();
+  };
+}
+
+function getGrade(obtainedMarks, totalMarks, passingMarks){
+  const percentage = (obtainedMarks / totalMarks) * 100;
+  if (percentage >= 90) return 'A+';
+  if (percentage >= 80) return 'A';
+  if (percentage >= 70) return 'B+';
+  if (percentage >= 60) return 'B';
+  if (percentage >= 50) return 'C';
+  if (percentage >= passingMarks) return 'D';
+  return 'F';
+}
+
+function exportExamsCSV(){
+  const header = ['id', 'name', 'date', 'class', 'subject', 'totalMarks', 'passingMarks'];
+  const rows = AppState.exams.map(e => [e.id, e.name, e.date, e.class, e.subject, e.totalMarks, e.passingMarks]);
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('exams.csv', csv);
+}
+
+// ---------- Teachers View ----------
+function renderTeachers(){
+  renderTeachersTable();
+  setupTeacherAttendance();
+  renderSalaryPayments();
+  setupTeacherButtons();
+}
+
+function renderTeachersTable(){
+  const tbody = qs('#teachersTableBody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = AppState.teachers.map(t => `
+    <tr>
+      <td>${t.name}</td>
+      <td>${t.phone}</td>
+      <td>${t.email || '-'}</td>
+      <td>${t.subjects}</td>
+      <td>${t.joinDate}</td>
+      <td>${fmtINR(t.salary)}</td>
+      <td><span class="badge">${t.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editTeacher" data-id="${t.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delTeacher" data-id="${t.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editTeacher"]').forEach(btn => {
+    btn.onclick = () => openEditTeacher(btn.getAttribute('data-id'));
+  });
+
+  qsa('button[data-act="delTeacher"]').forEach(btn => {
+    btn.onclick = () => {
+      const teacherId = btn.getAttribute('data-id');
+      const teacher = AppState.teachers.find(t => t.id === teacherId);
+      if (!teacher) return;
+      if (!confirm(`Delete teacher ${teacher.name}? This cannot be undone.`)) return;
+      AppState.teachers = AppState.teachers.filter(t => t.id !== teacherId);
+      saveState();
+      renderTeachers();
+    };
+  });
+}
+
+function setupTeacherAttendance(){
+  const datePicker = qs('#attDatePicker');
+  if (datePicker && !datePicker.value) datePicker.value = todayYYYYMMDD();
+
+  AttendanceMonthState.teacher = getMonthFromDate(datePicker?.value) || currentMonth();
+
+  if (qs('#attBtnLoad')) qs('#attBtnLoad').onclick = () => {
+    loadAttendanceForDate(datePicker.value);
+    AttendanceMonthState.teacher = getMonthFromDate(datePicker.value) || AttendanceMonthState.teacher || currentMonth();
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
+  if (qs('#attBtnMarkAll')) qs('#attBtnMarkAll').onclick = () => {
+    qsa('select.att-status').forEach(sel => sel.value = 'present');
+  };
+  if (qs('#attBtnSave')) qs('#attBtnSave').onclick = () => saveAttendance(datePicker.value);
+
+  if (datePicker) {
+    datePicker.onchange = () => {
+      AttendanceMonthState.teacher = getMonthFromDate(datePicker.value) || AttendanceMonthState.teacher || currentMonth();
+      loadAttendanceForDate(datePicker.value);
+      renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+    };
+  }
+
+  if (qs('#attMonthPrev')) qs('#attMonthPrev').onclick = () => {
+    AttendanceMonthState.teacher = shiftYearMonth(AttendanceMonthState.teacher || currentMonth(), -1);
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
+  if (qs('#attMonthNext')) qs('#attMonthNext').onclick = () => {
+    AttendanceMonthState.teacher = shiftYearMonth(AttendanceMonthState.teacher || currentMonth(), 1);
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
+  if (qs('#attBtnMonthLoad')) qs('#attBtnMonthLoad').onclick = () => {
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher || currentMonth());
+  };
+  if (qs('#attBtnMonthPrint')) qs('#attBtnMonthPrint').onclick = () => {
+    printMonthlyAttendance('Teachers', AttendanceMonthState.teacher || currentMonth(), '#attendanceMonthTableBody');
+  };
+  if (qs('#attBtnDayWisePrint')) qs('#attBtnDayWisePrint').onclick = () => {
+    printTeacherDayWiseAttendance(AttendanceMonthState.teacher || currentMonth());
+  };
+
+  loadAttendanceForDate(datePicker.value);
+  renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+}
+
+function loadAttendanceForDate(date){
+  const tbody = qs('#attendanceTableBody');
+  if (!tbody) return;
+
+  const isSunday = (() => {
+    const dt = new Date(date);
+    return !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
+  })();
+
+  // On Sundays, default all teachers to leave unless a record already exists.
+  if (isSunday) {
+    AppState.teachers.forEach(t => {
+      const key = `${t.id}|${date}`;
+      if (!AppState.teacherAttendance[key]) {
+        AppState.teacherAttendance[key] = { status: 'leave', remarks: 'Sunday' };
+      }
+    });
+    saveState();
+  }
+
+  tbody.innerHTML = AppState.teachers.map(t => {
+    const key = `${t.id}|${date}`;
+    const att = AppState.teacherAttendance[key] || { status: 'absent', remarks: '' };
+    return `
+      <tr>
+        <td>${t.name}</td>
+        <td>
+          <select class="att-status" data-id="${t.id}">
+            <option value="present" ${att.status === 'present' ? 'selected' : ''}>Present</option>
+            <option value="absent" ${att.status === 'absent' ? 'selected' : ''}>Absent</option>
+            <option value="leave" ${att.status === 'leave' ? 'selected' : ''}>Leave</option>
+          </select>
+        </td>
+        <td>
+          <input type="text" class="att-remarks" data-id="${t.id}" value="${att.remarks || ''}" placeholder="Medical, etc." style="width:150px;" />
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function saveAttendance(date){
+  const datePicker = qs('#attDatePicker');
+  qsa('select.att-status').forEach(sel => {
+    const teacherId = sel.getAttribute('data-id');
+    const status = sel.value;
+    const remarks = qs(`.att-remarks[data-id="${teacherId}"]`)?.value || '';
+    const key = `${teacherId}|${date}`;
+    AppState.teacherAttendance[key] = { status, remarks };
+  });
+  saveState();
+  alert('Attendance saved for ' + date);
+
+  if (AttendanceMonthState.teacher === getMonthFromDate(date)) {
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  }
+}
+
+function getMonthFromDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr.slice(0, 7) : null;
+}
+
+function shiftYearMonth(yearMonth, monthDelta) {
+  if (!/^\d{4}-\d{2}$/.test(yearMonth || '')) return currentMonth();
+  const [year, month] = yearMonth.split('-').map(Number);
+  const dt = new Date(year, month - 1 + Number(monthDelta || 0), 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function renderTeacherMonthlyAttendance(month) {
+  const monthDisplay = qs('#attMonthDisplay');
+  const tbody = qs('#attendanceMonthTableBody');
+  if (monthDisplay) monthDisplay.textContent = formatMonthLabel(month || currentMonth());
+  if (!tbody) return;
+
+  if (!Array.isArray(AppState.teachers) || AppState.teachers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No teachers found.</td></tr>';
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+
+  tbody.innerHTML = AppState.teachers.map(t => {
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+    let markedDays = 0;
+
+    for (let d = 1; d <= totalDays; d++) {
+      const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = `${t.id}|${date}`;
+      const record = AppState.teacherAttendance[key];
+      const isSunday = new Date(date).getDay() === 0;
+
+      let status = null;
+      if (record && record.status) {
+        status = record.status;
+      } else if (isSunday) {
+        status = 'leave';
+      }
+
+      if (!status) continue;
+      markedDays += 1;
+      if (status === 'present') present += 1;
+      else if (status === 'absent') absent += 1;
+      else leave += 1;
+    }
+
+    const presentPct = markedDays > 0 ? ((present / markedDays) * 100).toFixed(1) : '0.0';
+    return `
+      <tr>
+        <td>${t.name}</td>
+        <td>${present}</td>
+        <td>${absent}</td>
+        <td>${leave}</td>
+        <td>${markedDays}</td>
+        <td>${presentPct}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function printMonthlyAttendance(title, month, tableBodySelector) {
+  const tbody = qs(tableBodySelector);
+  if (!tbody || !tbody.innerHTML.trim()) {
+    alert('No monthly attendance data available to print.');
+    return;
+  }
+
+  const monthLabel = formatMonthLabel(month || currentMonth());
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+  const reportBase = String(title || 'Teacher').toLowerCase().includes('staff') ? 'Staff' : 'Teacher';
+  const headingTitle = escapedText(`${reportBase} Attendance Chart:-`);
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${schoolName} - ${headingTitle} (${monthLabel})</title>
+        <style>
+          body { font-family: "Times New Roman", serif; padding: 18px 24px; }
+          .sheet-header { text-align: center; margin-bottom: 16px; }
+          .school-name {
+            margin: 0;
+            font-size: 56px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 14px 0 0; color: #111; font-size: 40px; font-weight: 700; }
+          .report-title { margin: 18px 0 6px; font-size: 44px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0 0 8px; color: #111; font-size: 26px; font-weight: 600; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #888; padding: 8px; text-align: left; font-size: 14px; }
+          th { background: #f3f3f3; }
+          @media print {
+            .school-name { font-size: 40px; }
+            .school-tagline { font-size: 30px; }
+            .report-title { font-size: 32px; }
+            .report-meta { font-size: 20px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">${headingTitle}</h2>
+          <p class="report-meta">${monthLabel}</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Present</th>
+              <th>Absent</th>
+              <th>Leave</th>
+              <th>Marked Days</th>
+              <th>Present %</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tbody.innerHTML}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function printTeacherDayWiseAttendance(month) {
+  if (!Array.isArray(AppState.teachers) || AppState.teachers.length === 0) {
+    alert('No teachers available to print.');
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+  const monthLabel = formatMonthLabel(targetMonth);
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+
+  const daySheets = [];
+  for (let d = 1; d <= totalDays; d++) {
+    const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dayDate = new Date(date);
+    const dayName = dayDate.toLocaleDateString('en-IN', { weekday: 'long' });
+    const displayDate = dayDate.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const isSunday = dayDate.getDay() === 0;
+
+    const rows = AppState.teachers.map((teacher, index) => {
+      const record = AppState.teacherAttendance[`${teacher.id}|${date}`];
+      const status = (record?.status || (isSunday ? 'leave' : 'absent')).toLowerCase();
+      const remarks = record?.remarks || (isSunday ? 'Sunday' : '');
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapedText(teacher.name || '-')}</td>
+          <td class="status-${status}">${escapedText(statusLabel)}</td>
+          <td>${escapedText(remarks || '-')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    daySheets.push(`
+      <section class="day-sheet">
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">Teacher Day-wise Attendance</h2>
+          <p class="report-meta">${escapedText(`${displayDate} (${dayName})`)}</p>
+          <p class="report-submeta">${escapedText(monthLabel)}</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px;">S.No.</th>
+              <th>Teacher Name</th>
+              <th style="width:130px;">Status</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>
+    `);
+  }
+
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${schoolName} - Teacher Day-wise Attendance (${escapedText(monthLabel)})</title>
+        <style>
+          body { font-family: "Times New Roman", serif; margin: 0; }
+          .day-sheet {
+            padding: 16px 20px;
+            page-break-after: always;
+            break-after: page;
+          }
+          .day-sheet:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .sheet-header { text-align: center; margin-bottom: 14px; }
+          .school-name {
+            margin: 0;
+            font-size: 42px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 10px 0 0; color: #111; font-size: 26px; font-weight: 700; }
+          .report-title { margin: 14px 0 4px; font-size: 30px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0; color: #111; font-size: 20px; font-weight: 700; }
+          .report-submeta { margin: 4px 0 0; color: #333; font-size: 15px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #888; padding: 7px; text-align: left; font-size: 13px; }
+          th { background: #f3f3f3; }
+          .status-present { color: #0a6f2e; font-weight: 700; }
+          .status-absent { color: #b71c1c; font-weight: 700; }
+          .status-leave { color: #0f5f8f; font-weight: 700; }
+          @media print {
+            .day-sheet { padding: 10mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${daySheets.join('')}
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function printStaffDayWiseAttendance(month) {
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    alert('No staff available to print.');
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+  const monthLabel = formatMonthLabel(targetMonth);
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+
+  const daySheets = [];
+  for (let d = 1; d <= totalDays; d++) {
+    const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dayDate = new Date(date);
+    const dayName = dayDate.toLocaleDateString('en-IN', { weekday: 'long' });
+    const displayDate = dayDate.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const isSunday = dayDate.getDay() === 0;
+
+    const rows = staffList.map((staff, index) => {
+      const staffId = String(staff.id || `staff_${index}`);
+      const record = AppState.staffAttendance[`${staffId}|${date}`];
+      const status = (record?.status || (isSunday ? 'leave' : 'absent')).toLowerCase();
+      const remarks = record?.remarks || (isSunday ? 'Sunday' : '');
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapedText(staff.name || '-')}</td>
+          <td class="status-${status}">${escapedText(statusLabel)}</td>
+          <td>${escapedText(remarks || '-')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    daySheets.push(`
+      <section class="day-sheet">
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">Staff Day-wise Attendance</h2>
+          <p class="report-meta">${escapedText(`${displayDate} (${dayName})`)}</p>
+          <p class="report-submeta">${escapedText(monthLabel)}</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px;">S.No.</th>
+              <th>Staff Name</th>
+              <th style="width:130px;">Status</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>
+    `);
+  }
+
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${schoolName} - Staff Day-wise Attendance (${escapedText(monthLabel)})</title>
+        <style>
+          body { font-family: "Times New Roman", serif; margin: 0; }
+          .day-sheet {
+            padding: 16px 20px;
+            page-break-after: always;
+            break-after: page;
+          }
+          .day-sheet:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .sheet-header { text-align: center; margin-bottom: 14px; }
+          .school-name {
+            margin: 0;
+            font-size: 42px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 10px 0 0; color: #111; font-size: 26px; font-weight: 700; }
+          .report-title { margin: 14px 0 4px; font-size: 30px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0; color: #111; font-size: 20px; font-weight: 700; }
+          .report-submeta { margin: 4px 0 0; color: #333; font-size: 15px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #888; padding: 7px; text-align: left; font-size: 13px; }
+          th { background: #f3f3f3; }
+          .status-present { color: #0a6f2e; font-weight: 700; }
+          .status-absent { color: #b71c1c; font-weight: 700; }
+          .status-leave { color: #0f5f8f; font-weight: 700; }
+          @media print {
+            .day-sheet { padding: 10mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${daySheets.join('')}
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function renderSalaryPayments(){
+  const tbody = qs('#salaryTableBody');
+  if (!tbody) return;
+
+  const payments = AppState.salaryPayments.sort((a, b) => new Date(b.date) - new Date(a.date));
+  tbody.innerHTML = payments.slice(0, 50).map(p => {
+    const teacher = AppState.teachers.find(t => t.id === p.teacherId);
+    return `
+      <tr>
+        <td>${teacher?.name || 'Unknown'}</td>
+        <td>${p.month}</td>
+        <td>${fmtINR(p.amount)}</td>
+        <td>${p.date}</td>
+        <td><span class="badge">${p.status}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  const monthInput = qs('#salaryMonth');
+  if (monthInput && !monthInput.value) monthInput.value = currentMonth();
+
+  if (qs('#salaryBtnProcess')) qs('#salaryBtnProcess').onclick = () => processMonthlySalary(monthInput.value);
+}
+
+function processMonthlySalary(month){
+  if (!month) { alert('Please select a month'); return; }
+  let count = 0;
+  AppState.teachers.forEach(t => {
+    if (t.status === 'active') {
+      const exists = AppState.salaryPayments.some(p => p.teacherId === t.id && p.month === month);
+      if (!exists) {
+        AppState.salaryPayments.push({
+          id: 'sal_' + Date.now() + '_' + count++,
+          teacherId: t.id,
+          month: month,
+          amount: t.salary,
+          date: todayYYYYMMDD(),
+          status: 'paid'
+        });
+      }
+    }
+  });
+  saveState();
+  renderSalaryPayments();
+  alert(`Salary processed for ${count} teachers in ${month}`);
+}
+
+function openEditTeacher(teacherId){
+  const teacher = AppState.teachers.find(t => t.id === teacherId);
+  if (!teacher) return;
+
+  const form = qs('#formAddTeacher');
+  form.dataset.editId = teacherId;
+
+  qs('#teacherName').value = teacher.name;
+  qs('#teacherPhone').value = teacher.phone;
+  qs('#teacherEmail').value = teacher.email || '';
+  qs('#teacherSubjects').value = teacher.subjects;
+  qs('#teacherJoinDate').value = teacher.joinDate;
+  qs('#teacherSalary').value = teacher.salary;
+  qs('#teacherStatus').value = teacher.status;
+
+  const header = qs('#modalAddTeacher .modal__header h3');
+  header.textContent = 'Edit Teacher';
+  const submitBtn = qs('#modalAddTeacher .modal__footer button[value="submit"]');
+  submitBtn.textContent = 'Update';
+
+  openModal('#modalAddTeacher');
+}
+
+function setupTeacherButtons(){
+  // Tab switching
+  qsa('#view-teachers [data-tab]').forEach(btn => {
+    btn.onclick = () => {
+      qsa('#view-teachers [data-tab]').forEach(b => b.classList.remove('active'));
+      qsa('#view-teachers .tab-content').forEach(c => c.classList.add('d-none'));
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-tab');
+      const panel = qs(`#${tabId}`);
+      if (panel) panel.classList.remove('d-none');
+    };
+  });
+
+  if (qs('#teacherBtnAdd')) qs('#teacherBtnAdd').onclick = () => {
+    delete qs('#formAddTeacher').dataset.editId;
+    qs('#modalAddTeacher .modal__header h3').textContent = 'Add Teacher';
+    qs('#modalAddTeacher .modal__footer button[value="submit"]').textContent = 'Save';
+    qs('#formAddTeacher').reset();
+    openModal('#modalAddTeacher');
+  };
+
+  if (qs('#teacherBtnExport')) qs('#teacherBtnExport').onclick = exportTeachersCSV;
+}
+
+function initAddTeacherModal(){
+  const form = qs('#formAddTeacher');
+  const isEditMode = form.dataset.editId;
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const teacher = {
+      name: qs('#teacherName').value.trim(),
+      phone: qs('#teacherPhone').value.trim(),
+      email: qs('#teacherEmail').value.trim(),
+      subjects: qs('#teacherSubjects').value.trim(),
+      joinDate: qs('#teacherJoinDate').value,
+      salary: Number(qs('#teacherSalary').value),
+      status: qs('#teacherStatus').value
+    };
+
+    if (isEditMode) {
+      const idx = AppState.teachers.findIndex(t => t.id === form.dataset.editId);
+      if (idx === -1) { alert('Teacher not found'); return; }
+      AppState.teachers[idx] = { ...AppState.teachers[idx], ...teacher };
+    } else {
+      teacher.id = 'teacher_' + Date.now();
+      AppState.teachers.push(teacher);
+    }
+
+    saveState();
+    delete form.dataset.editId;
+    form.parentElement.close();
+    if (AppState.view === 'teachers') renderTeachers();
+  };
+}
+
+function exportTeachersCSV(){
+  const header = ['id', 'name', 'phone', 'email', 'subjects', 'joinDate', 'salary', 'status'];
+  const rows = AppState.teachers.map(t => [t.id, t.name, t.phone, t.email || '', t.subjects, t.joinDate, t.salary, t.status]);
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('teachers.csv', csv);
+}
+
+// ---------- Staff Attendance ----------
+function renderStaff() {
+  setupStaffTabs();
+  setupStaffAttendance();
+}
+
+function setupStaffTabs() {
+  const tabButtons = qsa('#view-staff [data-staff-tab]');
+  const tabPanels = qsa('#view-staff .tab-content');
+  if (!tabButtons.length || !tabPanels.length) return;
+
+  tabButtons.forEach(btn => {
+    btn.onclick = () => {
+      tabButtons.forEach(b => b.classList.remove('active'));
+      tabPanels.forEach(p => p.classList.add('d-none'));
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-staff-tab');
+      const panel = qs(`#${tabId}`);
+      if (panel) panel.classList.remove('d-none');
+    };
+  });
+}
+
+function setupStaffAttendance() {
+  const datePicker = qs('#staffAttDatePicker');
+  if (!datePicker) return;
+  if (!datePicker.value) datePicker.value = todayYYYYMMDD();
+
+  AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || currentMonth();
+
+  if (qs('#staffAttBtnLoad')) qs('#staffAttBtnLoad').onclick = () => {
+    loadStaffAttendanceForDate(datePicker.value);
+    AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || AttendanceMonthState.staff || currentMonth();
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
+  if (qs('#staffAttBtnMarkAll')) qs('#staffAttBtnMarkAll').onclick = () => {
+    qsa('select.staff-att-status').forEach(sel => { sel.value = 'present'; });
+  };
+  if (qs('#staffAttBtnSave')) qs('#staffAttBtnSave').onclick = () => saveStaffAttendance(datePicker.value);
+
+  if (datePicker) {
+    datePicker.onchange = () => {
+      AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || AttendanceMonthState.staff || currentMonth();
+      loadStaffAttendanceForDate(datePicker.value);
+      renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+    };
+  }
+
+  if (qs('#staffAttMonthPrev')) qs('#staffAttMonthPrev').onclick = () => {
+    AttendanceMonthState.staff = shiftYearMonth(AttendanceMonthState.staff || currentMonth(), -1);
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
+  if (qs('#staffAttMonthNext')) qs('#staffAttMonthNext').onclick = () => {
+    AttendanceMonthState.staff = shiftYearMonth(AttendanceMonthState.staff || currentMonth(), 1);
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
+  if (qs('#staffAttBtnMonthLoad')) qs('#staffAttBtnMonthLoad').onclick = () => {
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff || currentMonth());
+  };
+  if (qs('#staffAttBtnMonthPrint')) qs('#staffAttBtnMonthPrint').onclick = () => {
+    printMonthlyAttendance('Staff', AttendanceMonthState.staff || currentMonth(), '#staffAttendanceMonthTableBody');
+  };
+  if (qs('#staffAttBtnDayWisePrint')) qs('#staffAttBtnDayWisePrint').onclick = () => {
+    printStaffDayWiseAttendance(AttendanceMonthState.staff || currentMonth());
+  };
+
+  loadStaffAttendanceForDate(datePicker.value);
+  renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+}
+
+function loadStaffAttendanceForDate(date) {
+  const tbody = qs('#staffAttendanceTableBody');
+  if (!tbody) return;
+
+  const isSunday = (() => {
+    const dt = new Date(date);
+    return !Number.isNaN(dt.getTime()) && dt.getDay() === 0;
+  })();
+
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="muted">No staff records found.</td></tr>';
+    return;
+  }
+
+  // On Sundays, default all staff to leave unless a record already exists.
+  if (isSunday) {
+    staffList.forEach((staff, idx) => {
+      const staffId = String(staff.id || `staff_${idx}`);
+      const key = `${staffId}|${date}`;
+      if (!AppState.staffAttendance[key]) {
+        AppState.staffAttendance[key] = { status: 'leave', remarks: 'Sunday' };
+      }
+    });
+    saveState();
+  }
+
+  tbody.innerHTML = staffList.map((staff, idx) => {
+    const staffId = String(staff.id || `staff_${idx}`);
+    const key = `${staffId}|${date}`;
+    const att = AppState.staffAttendance[key] || { status: 'absent', remarks: '' };
+    return `
+      <tr>
+        <td>${staff.name || '-'}</td>
+        <td>
+          <select class="staff-att-status" data-id="${staffId}">
+            <option value="present" ${att.status === 'present' ? 'selected' : ''}>Present</option>
+            <option value="absent" ${att.status === 'absent' ? 'selected' : ''}>Absent</option>
+            <option value="leave" ${att.status === 'leave' ? 'selected' : ''}>Leave</option>
+          </select>
+        </td>
+        <td>
+          <input type="text" class="staff-att-remarks" data-id="${staffId}" value="${att.remarks || ''}" placeholder="Medical, etc." style="width:150px;" />
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function saveStaffAttendance(date) {
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    alert('No staff records found to save attendance.');
+    return;
+  }
+
+  qsa('select.staff-att-status').forEach(sel => {
+    const staffId = sel.getAttribute('data-id');
+    const status = sel.value;
+    const remarks = qs(`.staff-att-remarks[data-id="${staffId}"]`)?.value || '';
+    const key = `${staffId}|${date}`;
+    AppState.staffAttendance[key] = { status, remarks };
+  });
+
+  saveState();
+  alert('Staff attendance saved for ' + date);
+
+  if (AttendanceMonthState.staff === getMonthFromDate(date)) {
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  }
+}
+
+function renderStaffMonthlyAttendance(month) {
+  const monthDisplay = qs('#staffAttMonthDisplay');
+  const tbody = qs('#staffAttendanceMonthTableBody');
+  if (monthDisplay) monthDisplay.textContent = formatMonthLabel(month || currentMonth());
+  if (!tbody) return;
+
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No staff found.</td></tr>';
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+
+  tbody.innerHTML = staffList.map((staff, idx) => {
+    const staffId = String(staff.id || `staff_${idx}`);
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+    let markedDays = 0;
+
+    for (let d = 1; d <= totalDays; d++) {
+      const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = `${staffId}|${date}`;
+      const record = AppState.staffAttendance[key];
+      const isSunday = new Date(date).getDay() === 0;
+
+      let status = null;
+      if (record && record.status) {
+        status = record.status;
+      } else if (isSunday) {
+        status = 'leave';
+      }
+
+      if (!status) continue;
+      markedDays += 1;
+      if (status === 'present') present += 1;
+      else if (status === 'absent') absent += 1;
+      else leave += 1;
+    }
+
+    const presentPct = markedDays > 0 ? ((present / markedDays) * 100).toFixed(1) : '0.0';
+    return `
+      <tr>
+        <td>${staff.name || '-'}</td>
+        <td>${present}</td>
+        <td>${absent}</td>
+        <td>${leave}</td>
+        <td>${markedDays}</td>
+        <td>${presentPct}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function currentMonth(){
+  return new Date().toISOString().slice(0, 7);
+}
+
+// ---------- Classes View ----------
+function renderClasses(){
+  renderClassesTable();
+  setupClassButtons();
+}
+
+function renderClassesTable(){
+  const classFilter = qs('#classFilterGrade')?.value || '';
+  const teacherFilter = qs('#classFilterTeacher')?.value || '';
+  const searchQuery = qs('#classSearch')?.value?.toLowerCase() || '';
+
+  // Filter classes
+  let filtered = AppState.classes.filter(c => {
+    const matchClass = !classFilter || c.class === classFilter;
+    const matchTeacher = !teacherFilter || c.classTeacherId === teacherFilter;
+    const matchSearch = !searchQuery || `${c.class}-${c.section}`.toLowerCase().includes(searchQuery);
+    return matchClass && matchTeacher && matchSearch;
+  });
+
+  // Update filters
+  const grades = [...new Set(AppState.classes.map(c => c.class))].sort();
+  const gradeSel = qs('#classFilterGrade');
+  if (gradeSel) {
+    const current = gradeSel.value;
+    gradeSel.innerHTML = '<option value="">All Grades</option>';
+    grades.forEach(g => gradeSel.innerHTML += `<option value="${g}">${g}</option>`);
+    gradeSel.value = current;
+  }
+
+  const teachers = [...new Set(AppState.classes.map(c => c.classTeacherId))].filter(Boolean);
+  const teacherSel = qs('#classFilterTeacher');
+  if (teacherSel) {
+    const current = teacherSel.value;
+    teacherSel.innerHTML = '<option value="">All Teachers</option>';
+    teachers.forEach(tId => {
+      const teacher = AppState.teachers.find(t => t.id === tId);
+      if (teacher) teacherSel.innerHTML += `<option value="${tId}">${teacher.name}</option>`;
+    });
+    teacherSel.value = current;
+  }
+
+  // Render table
+  const tbody = qs('#classesTableBody');
+  if (tbody) {
+    tbody.innerHTML = filtered.map(cls => {
+      const classTeacher = AppState.teachers.find(t => t.id === cls.classTeacherId);
+      const classStudents = AppState.students.filter(s => s.class === cls.class && s.section === cls.section).length;
+      const subjectCount = Object.keys(cls.subjects || {}).length;
+      
+      return `
+        <tr>
+          <td>${cls.class}</td>
+          <td>${cls.section}</td>
+          <td>${classTeacher?.name || '-'}</td>
+          <td>${classStudents}</td>
+          <td>${subjectCount} subjects</td>
+          <td>${cls.capacity}</td>
+          <td><span class="badge">${cls.status}</span></td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost small" data-act="editClass" data-id="${cls.id}">Edit</button>
+            <button class="btn btn-ghost small" data-act="delClass" data-id="${cls.id}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('button[data-act="editClass"]').forEach(btn => {
+      btn.onclick = () => openEditClass(btn.getAttribute('data-id'));
+    });
+
+    qsa('button[data-act="delClass"]').forEach(btn => {
+      btn.onclick = () => {
+        const classId = btn.getAttribute('data-id');
+        const cls = AppState.classes.find(c => c.id === classId);
+        if (!cls) return;
+        if (!confirm(`Delete ${cls.class}-${cls.section}? This cannot be undone.`)) return;
+        AppState.classes = AppState.classes.filter(c => c.id !== classId);
+        saveState();
+        renderClasses();
+      };
+    });
+  }
+
+  // Bind filter and search
+  const bindFilterChange = () => renderClasses();
+  qs('#classFilterGrade')?.addEventListener('change', bindFilterChange);
+  qs('#classFilterTeacher')?.addEventListener('change', bindFilterChange);
+  qs('#classSearch')?.addEventListener('input', bindFilterChange);
+}
+
+function setupClassButtons(){
+  if (qs('#classBtnCreate')) qs('#classBtnCreate').onclick = () => {
+    delete qs('#formCreateClass').dataset.editId;
+    qs('#modalCreateClass .modal__header h3').textContent = 'Create Class';
+    qs('#modalCreateClass .modal__footer button[value="submit"]').textContent = 'Create';
+    qs('#formCreateClass').reset();
+    initClassSubjectsForm();
+    openModal('#modalCreateClass');
+  };
+
+  if (qs('#classBtnExport')) qs('#classBtnExport').onclick = exportClassesCSV;
+}
+
+function initClassSubjectsForm(){
+  const wrap = qs('#classSubjectsWrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="grid-2" style="gap:8px;">
+      <input type="text" class="subject-name" placeholder="Subject name" />
+      <select class="subject-teacher">
+        <option value="">Select Teacher</option>
+      </select>
+    </div>
+  `;
+  populateSubjectTeacherSelects();
+
+  if (qs('#classBtnAddSubject')) {
+    qs('#classBtnAddSubject').onclick = (e) => {
+      e.preventDefault();
+      const newRow = document.createElement('div');
+      newRow.className = 'grid-2';
+      newRow.style.gap = '8px';
+      newRow.innerHTML = `
+        <input type="text" class="subject-name" placeholder="Subject name" />
+        <select class="subject-teacher">
+          <option value="">Select Teacher</option>
+        </select>
+      `;
+      wrap.appendChild(newRow);
+      populateSubjectTeacherSelects();
+    };
+  }
+}
+
+function populateSubjectTeacherSelects(){
+  qsa('.subject-teacher').forEach(sel => {
+    const currentValue = sel.value;
+    sel.innerHTML = '<option value="">Select Teacher</option>';
+    AppState.teachers.forEach(t => {
+      sel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+    });
+    sel.value = currentValue;
+  });
+}
+
+function openEditClass(classId){
+  const cls = AppState.classes.find(c => c.id === classId);
+  if (!cls) return;
+
+  const form = qs('#formCreateClass');
+  form.dataset.editId = classId;
+
+  qs('#className').value = cls.class;
+  qs('#classSection').value = cls.section;
+  qs('#classTeacher').value = cls.classTeacherId || '';
+  qs('#classCapacity').value = cls.capacity;
+  qs('#classStatus').value = cls.status;
+
+  // Populate class teacher select
+  const teacherSel = qs('#classTeacher');
+  teacherSel.innerHTML = '';
+  AppState.teachers.forEach(t => {
+    teacherSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+  });
+  teacherSel.value = cls.classTeacherId || '';
+
+  // Populate subjects
+  const wrap = qs('#classSubjectsWrap');
+  wrap.innerHTML = Object.entries(cls.subjects || {}).map(([subject, teacherId]) => `
+    <div class="grid-2" style="gap:8px;">
+      <input type="text" class="subject-name" value="${subject}" placeholder="Subject name" />
+      <select class="subject-teacher" value="${teacherId}">
+        <option value="">Select Teacher</option>
+      </select>
+    </div>
+  `).join('');
+  populateSubjectTeacherSelects();
+
+  const header = qs('#modalCreateClass .modal__header h3');
+  header.textContent = 'Edit Class';
+  const submitBtn = qs('#modalCreateClass .modal__footer button[value="submit"]');
+  submitBtn.textContent = 'Update';
+
+  openModal('#modalCreateClass');
+}
+
+function initCreateClassModal(){
+  const form = qs('#formCreateClass');
+  const isEditMode = form.dataset.editId;
+
+  // Populate class teacher select
+  const teacherSel = qs('#classTeacher');
+  if (!teacherSel.querySelector('option:not(:first-child)')) {
+    AppState.teachers.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      teacherSel.appendChild(opt);
+    });
+  }
+
+  // Setup add subject button and init form
+  if (!form.dataset.subjectsInitialized) {
+    initClassSubjectsForm();
+    form.dataset.subjectsInitialized = 'true';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+
+    // Collect subjects
+    const subjects = {};
+    qsa('#classSubjectsWrap .grid-2').forEach(row => {
+      const subject = row.querySelector('.subject-name').value.trim();
+      const teacherId = row.querySelector('.subject-teacher').value;
+      if (subject && teacherId) {
+        subjects[subject] = teacherId;
+      }
+    });
+
+    const cls = {
+      class: qs('#className').value,
+      section: qs('#classSection').value,
+      classTeacherId: qs('#classTeacher').value,
+      capacity: Number(qs('#classCapacity').value),
+      subjects: subjects,
+      status: qs('#classStatus').value
+    };
+
+    if (isEditMode) {
+      const idx = AppState.classes.findIndex(c => c.id === form.dataset.editId);
+      if (idx === -1) { alert('Class not found'); return; }
+      AppState.classes[idx] = { ...AppState.classes[idx], ...cls };
+    } else {
+      cls.id = 'class_' + Date.now();
+      AppState.classes.push(cls);
+    }
+
+    saveState();
+    delete form.dataset.editId;
+    form.parentElement.close();
+    if (AppState.view === 'classes') renderClasses();
+  };
+}
+
+function exportClassesCSV(){
+  const header = ['class', 'section', 'classTeacher', 'capacity', 'subjects', 'status'];
+  const rows = AppState.classes.map(c => {
+    const teacher = AppState.teachers.find(t => t.id === c.classTeacherId);
+    const subjectsStr = Object.keys(c.subjects || {}).join('; ');
+    return [c.class, c.section, teacher?.name || '', c.capacity, subjectsStr, c.status];
+  });
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('classes.csv', csv);
+}
+
+// ---------- Transport View ----------
+function renderTransport() {
+  // KPIs
+  const trKpiRoutes = qs('#trKpiRoutes');
+  if (trKpiRoutes) trKpiRoutes.textContent = String(AppState.transport.routes.length);
+  const trKpiVehicles = qs('#trKpiVehicles');
+  if (trKpiVehicles) trKpiVehicles.textContent = String(AppState.transport.vehicles.length);
+  const trKpiAssigned = qs('#trKpiAssigned');
+  if (trKpiAssigned) trKpiAssigned.textContent = String(AppState.transport.assignments.length);
+  const feesEl = qs('#trKpiFeesMonth');
+  if (feesEl) feesEl.textContent = fmtINR(AppState.transport.assignments.reduce((sum,a)=> sum + Number(a.fee||0), 0));
+
+  // Filters
+  const routeSel = qs('#trFilterRoute');
+  if (routeSel) {
+    routeSel.innerHTML = `<option value="">All Routes</option>` +
+      AppState.transport.routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  }
+
+  // Buttons
+  const bind = (id, fn) => { const el = qs(id); if (el) el.onclick = fn; };
+  bind('#trBtnAssign',      () => { if (openModal('#modalTrAssign'))  initTrAssignModal(); });
+  bind('#trBtnAddRoute',    () => { if (openModal('#modalTrRoute'))   initTrRouteModal(); });
+  bind('#trBtnAddVehicle',  () => { if (openModal('#modalTrVehicle')) initTrVehicleModal(); });
+  bind('#trBtnImport',      () => { if (openModal('#modalTrImport'))  initTrImportModal(); });
+  bind('#trBtnExport',      () => { if (openModal('#modalTrExport'))  initTrExportModal(); });
+  bind('#trBtnRoutesCSV',   exportRoutesCSV);
+  bind('#trBtnVehiclesCSV', exportVehiclesCSV);
+  bind('#trBtnAssignmentsCSV', exportAssignmentsCSV);
+  bind('#trBtnOpenMap',     () => alert('Route visualization feature is coming soon. For now, please refer to the stops listed in the Assignments table.'));
+
+  // Filters/search triggers
+  const rerenderAll = () => { renderTrRoutesTable(); renderTrVehiclesTable(); renderTrAssignTable(); };
+  const trSearch = qs('#trSearch');
+  const trFilterRoute = qs('#trFilterRoute');
+  const trFilterStatus = qs('#trFilterStatus');
+  if (trSearch) trSearch.oninput = renderTrAssignTable;
+  if (trFilterRoute) trFilterRoute.onchange = rerenderAll;
+  if (trFilterStatus) trFilterStatus.onchange = rerenderAll;
+
+  // Tables
+  renderTrRoutesTable();
+  renderTrVehiclesTable();
+  renderTrAssignTable();
+}
+
+function renderTrRoutesTable() {
+  const body = qs('#trRoutesBody'); if (!body) return;
+  const status = qs('#trFilterStatus')?.value || '';
+  const rows = AppState.transport.routes.filter(r => !status || r.status === status);
+
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${r.name}</td>
+      <td>${(r.stops||[]).join(', ')}</td>
+      <td>${r.pickup || '-'}</td>
+      <td>${r.drop || '-'}</td>
+      <td><span class="badge">${r.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editRoute" data-id="${r.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delRoute" data-id="${r.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editRoute"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalTrRoute')) initTrRouteModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delRoute"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete route?')) return;
+      AppState.transport.routes = AppState.transport.routes.filter(x => x.id !== id);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+function renderTrVehiclesTable() {
+  const body = qs('#trVehiclesBody'); if (!body) return;
+  const status = qs('#trFilterStatus')?.value || '';
+  const routeId = qs('#trFilterRoute')?.value || '';
+  const nameById = id => (AppState.transport.routes.find(r => r.id === id)?.name || '');
+
+  const rows = AppState.transport.vehicles.filter(v =>
+    (!status || v.status === status) && (!routeId || v.routeId === routeId));
+
+  body.innerHTML = rows.map(v => `
+    <tr>
+      <td>${v.label}</td>
+      <td>${v.reg}</td>
+      <td>${v.capacity}</td>
+      <td>${v.driverName}</td>
+      <td>${v.driverPhone}</td>
+      <td>${nameById(v.routeId)}</td>
+      <td><span class="badge">${v.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editVehicle" data-id="${v.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delVehicle" data-id="${v.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editVehicle"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalTrVehicle')) initTrVehicleModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delVehicle"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete vehicle?')) return;
+      AppState.transport.vehicles = AppState.transport.vehicles.filter(x => x.id !== id);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+function renderTrAssignTable() {
+  const body = qs('#trAssignBody'); if (!body) return;
+  const q = (qs('#trSearch')?.value || '').toLowerCase();
+  const routeId = qs('#trFilterRoute')?.value || '';
+  const status = qs('#trFilterStatus')?.value || '';
+  const routeName = id => (AppState.transport.routes.find(r => r.id === id)?.name || '');
+  const student = roll => AppState.students.find(s => s.roll === roll) || {};
+
+  let rows = [...AppState.transport.assignments];
+  rows = rows.filter(a => (!routeId || a.routeId === routeId) && (!status || a.status === status));
+  if (q) {
+    rows = rows.filter(a => {
+      const s = student(a.roll);
+      return (s.name||'').toLowerCase().includes(q) ||
+             (s.roll||'').toLowerCase().includes(q) ||
+             (a.stop||'').toLowerCase().includes(q) ||
+             (routeName(a.routeId).toLowerCase().includes(q));
+    });
+  }
+
+  body.innerHTML = rows.map(a => {
+    const s = student(a.roll);
+    return `
+      <tr>
+        <td>${s.roll || a.roll}</td>
+        <td>${s.name || '-'}</td>
+        <td>${s.class || '-'}</td>
+        <td>${s.phone || '-'}</td>
+        <td>${routeName(a.routeId)}</td>
+        <td>${a.stop}</td>
+        <td>${fmtINR(a.fee)}</td>
+        <td><span class="badge">${a.status}</span></td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost small" data-act="editAssign" data-roll="${a.roll}">Edit</button>
+          <button class="btn btn-ghost small" data-act="delAssign" data-roll="${a.roll}">Remove</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  qsa('button[data-act="editAssign"]').forEach(b => {
+    b.onclick = () => {
+      const roll = b.getAttribute('data-roll');
+      if (openModal('#modalTrAssign')) initTrAssignModal(roll);
+    };
+  });
+  qsa('button[data-act="delAssign"]').forEach(b => {
+    b.onclick = () => {
+      const roll = b.getAttribute('data-roll');
+      if (!confirm('Remove assignment?')) return;
+      AppState.transport.assignments = AppState.transport.assignments.filter(x => x.roll !== roll);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+// --- Transport Modals ---
+function initTrAssignModal(editRoll) {
+  const form    = qs('#formTrAssign');
+  const rollEl  = qs('#trAssignRoll');
+  const routeEl = qs('#trAssignRoute');
+  const stopEl  = qs('#trAssignStop');
+  const feeEl   = qs('#trAssignFee');
+  const statusEl= qs('#trAssignStatus');
+
+  // Routes
+  routeEl.innerHTML = AppState.transport.routes
+    .map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  if (!routeEl.value && AppState.transport.routes.length) {
+    routeEl.value = AppState.transport.routes[0].id;
+  }
+
+  function syncStops() {
+    const r = AppState.transport.routes.find(x => x.id === routeEl.value);
+    const stops = (r?.stops || []);
+    stopEl.innerHTML = stops.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (!stopEl.value && stops.length) stopEl.value = stops[0];
+  }
+  routeEl.onchange = syncStops;
+  syncStops();
+
+  // Edit vs new
+  if (editRoll) {
+    const a = AppState.transport.assignments.find(x => x.roll === editRoll);
+    rollEl.value = editRoll; rollEl.disabled = true;
+    if (a?.routeId) { routeEl.value = a.routeId; syncStops(); }
+    if (a?.stop) stopEl.value = a.stop;
+    feeEl.value = a?.fee ?? 0;
+    statusEl.value = a?.status ?? 'active';
+  } else {
+    rollEl.disabled = false; rollEl.value = '';
+    feeEl.value = 0; statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const roll = rollEl.value.trim();
+    if (!roll) { alert('Roll required'); return; }
+    if (!AppState.students.some(s => s.roll === roll)) { alert('Invalid roll'); return; }
+
+    const data = {
+      roll,
+      routeId: routeEl.value,
+      stop: stopEl.value,
+      fee: Number(feeEl.value || 0),
+      status: statusEl.value || 'active'
+    };
+
+    const idx = AppState.transport.assignments.findIndex(x => x.roll === roll);
+    if (idx >= 0) AppState.transport.assignments[idx] = data;
+    else AppState.transport.assignments.push(data);
+
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrRouteModal(editId) {
+  const form = qs('#formTrRoute');
+  const idEl = qs('#trRouteId');
+  const nameEl = qs('#trRouteName');
+  const pickEl = qs('#trRoutePickup');
+  const dropEl = qs('#trRouteDrop');
+  const stopsEl = qs('#trRouteStops');
+  const statusEl = qs('#trRouteStatus');
+
+  if (editId) {
+    const r = AppState.transport.routes.find(x => x.id === editId);
+    if (r) {
+      idEl.value = r.id; idEl.disabled = true;
+      nameEl.value = r.name;
+      pickEl.value = r.pickup || '';
+      dropEl.value = r.drop || '';
+      stopsEl.value = (r.stops || []).join(', ');
+      statusEl.value = r.status || 'active';
+    }
+  } else {
+    idEl.disabled = false; idEl.value = '';
+    nameEl.value = ''; pickEl.value = ''; dropEl.value = '';
+    stopsEl.value = ''; statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const data = {
+      id: idEl.value.trim(),
+      name: nameEl.value.trim(),
+      pickup: pickEl.value,
+      drop: dropEl.value,
+      stops: (stopsEl.value || '').split(',').map(x => x.trim()).filter(Boolean),
+      status: statusEl.value
+    };
+    if (!data.id || !data.name) { alert('Route ID and name are required'); return; }
+    const idx = AppState.transport.routes.findIndex(x => x.id === data.id);
+    if (idx >= 0) AppState.transport.routes[idx] = data;
+    else AppState.transport.routes.push(data);
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrVehicleModal(editId) {
+  const form = qs('#formTrVehicle');
+  const idEl = qs('#trVehicleId');
+  const labelEl = qs('#trVehicleLabel');
+  const regEl = qs('#trVehicleReg');
+  const capEl = qs('#trVehicleCap');
+  const dNameEl = qs('#trDriverName');
+  const dPhoneEl = qs('#trDriverPhone');
+  const routeEl = qs('#trVehicleRoute');
+  const statusEl = qs('#trVehicleStatus');
+
+  routeEl.innerHTML = `<option value="">(none)</option>` +
+    AppState.transport.routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+  if (editId) {
+    const v = AppState.transport.vehicles.find(x => x.id === editId);
+    if (v) {
+      idEl.value = v.id; idEl.disabled = true;
+      labelEl.value = v.label; regEl.value = v.reg; capEl.value = v.capacity;
+      dNameEl.value = v.driverName; dPhoneEl.value = v.driverPhone;
+      routeEl.value = v.routeId || ''; statusEl.value = v.status || 'active';
+    }
+  } else {
+    idEl.disabled = false; idEl.value = '';
+    labelEl.value = ''; regEl.value = ''; capEl.value = 40;
+    dNameEl.value = ''; dPhoneEl.value = ''; routeEl.value = '';
+    statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const data = {
+      id: idEl.value.trim(),
+      label: labelEl.value.trim(),
+      reg: regEl.value.trim(),
+      capacity: Number(capEl.value || 0),
+      driverName: dNameEl.value.trim(),
+      driverPhone: dPhoneEl.value.trim(),
+      routeId: routeEl.value || '',
+      status: statusEl.value
+    };
+    if (!data.id || !data.label || !data.reg) { alert('Vehicle ID, label, reg no. required'); return; }
+    const idx = AppState.transport.vehicles.findIndex(x => x.id === data.id);
+    if (idx >= 0) AppState.transport.vehicles[idx] = data;
+    else AppState.transport.vehicles.push(data);
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+// Transport Import / Export
+function initTrImportModal() {
+  const form = qs('#formTrImport');
+  const fileInput = qs('#trImportFile');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const file = fileInput.files?.[0];
+    if (!file) { alert('Select a CSV file'); return; }
+    const text = await file.text();
+    const rows = text.trim().split(/\r?\n/).map(line =>
+      line.split(',').map(cell => cell.replace(/^"|"$/g,'').replace(/""/g,'"'))
+    );
+    const [header, ...dataRows] = rows;
+    const hmap = Object.fromEntries(header.map((h,i)=> [h.trim().toLowerCase(), i]));
+
+    if (hmap['routeid'] && hmap['name']) {
+      // Routes
+      dataRows.forEach(r => {
+        const id = r[hmap['routeid']].trim();
+        const name = r[hmap['name']].trim();
+        const pickup = r[hmap['pickup']] || '';
+        const drop = r[hmap['drop']] || '';
+        const stops = (r[hmap['stops']] || '').split('|').map(x=>x.trim()).filter(Boolean);
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.routes.findIndex(x => x.id === id);
+        const obj = { id, name, pickup, drop, stops, status };
+        if (idx >= 0) AppState.transport.routes[idx] = obj; else AppState.transport.routes.push(obj);
+      });
+    } else if (hmap['vehicleid'] && hmap['reg']) {
+      // Vehicles
+      dataRows.forEach(r => {
+        const id = r[hmap['vehicleid']].trim();
+        const label = r[hmap['label']]?.trim() || id;
+        const reg = r[hmap['reg']].trim();
+        const capacity = Number(r[hmap['capacity']] || 0);
+        const driverName = r[hmap['drivername']] || '';
+        const driverPhone = r[hmap['driverphone']] || '';
+        const routeId = r[hmap['routeid']] || '';
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.vehicles.findIndex(x => x.id === id);
+        const obj = { id, label, reg, capacity, driverName, driverPhone, routeId, status };
+        if (idx >= 0) AppState.transport.vehicles[idx] = obj; else AppState.transport.vehicles.push(obj);
+      });
+    } else if (hmap['roll'] && hmap['routeid'] && hmap['stop']) {
+      // Assignments
+      dataRows.forEach(r => {
+        const roll = r[hmap['roll']].trim();
+        const routeId = r[hmap['routeid']].trim();
+        const stop = r[hmap['stop']].trim();
+        const fee = Number(r[hmap['fee']] || 0);
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.assignments.findIndex(x => x.roll === roll);
+        const obj = { roll, routeId, stop, fee, status };
+        if (idx >= 0) AppState.transport.assignments[idx] = obj; else AppState.transport.assignments.push(obj);
+      });
+    } else {
+      alert('Unknown CSV template. Expected routes/vehicles/assignments headers.');
+      return;
+    }
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrExportModal() {
+  const form = qs('#formTrExport');
+  const chkRoutes = qs('#exportRoutes');
+  const chkVehicles = qs('#exportVehicles');
+  const chkAssignments = qs('#exportAssignments');
+  form.onsubmit = (e)=>{
+    e.preventDefault();
+    if (chkRoutes?.checked)      exportRoutesCSV();
+    if (chkVehicles?.checked)    exportVehiclesCSV();
+    if (chkAssignments?.checked) exportAssignmentsCSV();
+    form.parentElement.close();
+  };
+}
+
+function exportRoutesCSV() {
+  const header = ['routeId','name','pickup','drop','stops','status'];
+  const rows = AppState.transport.routes.map(r =>
+    [r.id, r.name, r.pickup||'', r.drop||'', (r.stops||[]).join('|'), r.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_routes.csv', csv);
+}
+function exportVehiclesCSV() {
+  const header = ['vehicleId','label','reg','capacity','driverName','driverPhone','routeId','status'];
+  const rows = AppState.transport.vehicles.map(v =>
+    [v.id, v.label, v.reg, v.capacity, v.driverName, v.driverPhone, v.routeId||'', v.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_vehicles.csv', csv);
+}
+function exportAssignmentsCSV() {
+  const header = ['roll','routeId','stop','fee','status'];
+  const rows = AppState.transport.assignments.map(a =>
+    [a.roll, a.routeId, a.stop, a.fee, a.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_assignments.csv', csv);
+}
+
+// ---------- Settings ----------
+function renderSettings() {
+  // Grabs
+  const setTheme = qs('#setTheme');
+  const setCurrency = qs('#setCurrency');
+  const setLocale = qs('#setLocale');
+  const setStudentsPageSize = qs('#setStudentsPageSize');
+  const setDefaultFeesMonth = qs('#setDefaultFeesMonth');
+  const setChartAnimation = qs('#setChartAnimation');
+  const setApiBaseUrl = qs('#setApiBaseUrl');
+  const settingsTestApiBtn = qs('#settingsTestApiBtn');
+  const settingsClearApiBtn = qs('#settingsClearApiBtn');
+  const settingsApiStatus = qs('#settingsApiStatus');
+
+  const saveBtn = qs('#settingsSaveBtn');
+  const exportBtn = qs('#settingsExportBackupBtn');
+  const importInput = qs('#settingsImportBackupInput');
+  const resetBtn = qs('#settingsResetBtn');
+
+  // School profile fields
+  const setSchoolName    = qs('#setSchoolName');
+  const setSchoolTagline = qs('#setSchoolTagline');
+  const setSchoolAddress = qs('#setSchoolAddress');
+  const setSchoolPhone   = qs('#setSchoolPhone');
+  const setSchoolEmail   = qs('#setSchoolEmail');
+  const setSchoolLogo    = qs('#setSchoolLogo');
+
+  if (!setTheme || !setCurrency || !setLocale || !setStudentsPageSize || !setChartAnimation) {
+    console.error('Missing required settings elements');
+    return;
+  }
+
+  // Load current values into controls
+  setTheme.value = AppState.settings.theme || 'system';
+  setCurrency.value = AppState.settings.currency || '₹';
+  setLocale.value = AppState.settings.locale || 'en-IN';
+  setStudentsPageSize.value = AppState.settings.studentsPageSize || 10;
+  setChartAnimation.checked = !!AppState.settings.chartAnimation;
+
+  if (setDefaultFeesMonth && AppState.settings.defaultFeesMonth) {
+    setDefaultFeesMonth.value = AppState.settings.defaultFeesMonth;
+  } else {
+    setDefaultFeesMonth.value = '';
+  }
+
+  const normalizeApiUrl = (raw) => {
+    let v = String(raw || '').trim().replace(/\/+$/, '');
+    if (!v) return '';
+    if (!/\/api$/i.test(v)) v += '/api';
+    return v;
+  };
+
+  const updateApiStatus = (msg, kind) => {
+    if (!settingsApiStatus) return;
+    settingsApiStatus.textContent = msg;
+    settingsApiStatus.className = 'muted';
+    settingsApiStatus.style.color = '';
+    if (kind === 'ok') settingsApiStatus.style.color = '#1f8b4c';
+    if (kind === 'bad') settingsApiStatus.style.color = '#c0392b';
+  };
+
+  const savedOverride = localStorage.getItem('API_URL_OVERRIDE') || '';
+  if (setApiBaseUrl) setApiBaseUrl.value = savedOverride;
+  updateApiStatus(savedOverride
+    ? `Current override: ${savedOverride}`
+    : `Using default API: ${API_URL}`,
+    savedOverride ? 'ok' : '');
+
+  const sch = AppState.settings.school || {};
+  if (setSchoolName) setSchoolName.value    = sch.name    || '';
+  if (setSchoolTagline) setSchoolTagline.value = sch.tagline || '';
+  if (setSchoolAddress) setSchoolAddress.value = sch.address || '';
+  if (setSchoolPhone) setSchoolPhone.value   = sch.phone   || '';
+  if (setSchoolEmail) setSchoolEmail.value   = sch.email   || '';
+  if (setSchoolLogo) setSchoolLogo.value    = sch.logo    || '';
+
+  // Save settings handler
+  if (saveBtn) saveBtn.onclick = () => {
+    const pageSize = Math.max(5, Number(setStudentsPageSize.value || 10));
+    AppState.settings.theme = setTheme.value;
+    AppState.settings.currency = (setCurrency.value || '₹').trim();
+    AppState.settings.locale = setLocale.value || 'en-IN';
+    AppState.settings.studentsPageSize = pageSize;
+    AppState.settings.defaultFeesMonth = setDefaultFeesMonth?.value || null;
+    AppState.settings.chartAnimation = !!setChartAnimation.checked;
+
+    // API override save
+    const normalizedApi = normalizeApiUrl(setApiBaseUrl?.value || '');
+    if (normalizedApi) {
+      localStorage.setItem('API_URL_OVERRIDE', normalizedApi);
+      API_URL = normalizedApi;
+      if (setApiBaseUrl) setApiBaseUrl.value = normalizedApi;
+      updateApiStatus(`API override saved: ${normalizedApi}`, 'ok');
+    } else {
+      localStorage.removeItem('API_URL_OVERRIDE');
+      API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+      updateApiStatus(`API override cleared. Using default: ${API_URL}`, '');
+    }
+
+    // School profile
+    AppState.settings.school = {
+      name:    (setSchoolName?.value || '').trim(),
+      tagline: (setSchoolTagline?.value || '').trim(),
+      address: (setSchoolAddress?.value || '').trim(),
+      phone:   (setSchoolPhone?.value || '').trim(),
+      email:   (setSchoolEmail?.value || '').trim(),
+      logo:    (setSchoolLogo?.value || '').trim()
+    };
+
+    // Apply immediately
+    applyThemeFromSettings();
+    applySchoolBranding();
+
+    // Apply student page size immediately if view open
+    if (AppState.view === 'students') {
+      AppState.pagination.students.page = 1;
+      AppState.pagination.students.pageSize = pageSize;
+      renderStudents();
+    }
+
+    // Rebuild dashboard charts if open (for animation toggle)
+    if (AppState.view === 'dashboard') renderDashboard();
+
+    saveState();
+    alert('Settings saved.');
+  };
+
+  if (settingsTestApiBtn) {
+    settingsTestApiBtn.onclick = async () => {
+      const normalizedApi = normalizeApiUrl(setApiBaseUrl?.value || API_URL);
+      if (!normalizedApi) {
+        updateApiStatus('Enter API URL first (example: http://localhost:5000/api).', 'bad');
+        return;
+      }
+
+      const healthUrl = normalizedApi.replace(/\/api$/i, '') + '/health';
+      settingsTestApiBtn.disabled = true;
+      updateApiStatus(`Checking ${healthUrl} ...`, '');
+      try {
+        const response = await fetchWithTimeout(healthUrl, { method: 'GET', cache: 'no-store' }, 6000);
+        if (response && response.ok) {
+          updateApiStatus(`API reachable: ${normalizedApi}`, 'ok');
+        } else {
+          updateApiStatus(`API not reachable (HTTP ${response?.status || 'no response'}).`, 'bad');
+        }
+      } catch (e) {
+        updateApiStatus(`API not reachable: ${e?.message || 'request failed'}`, 'bad');
+      } finally {
+        settingsTestApiBtn.disabled = false;
+      }
+    };
+  }
+
+  if (settingsClearApiBtn) {
+    settingsClearApiBtn.onclick = () => {
+      localStorage.removeItem('API_URL_OVERRIDE');
+      if (setApiBaseUrl) setApiBaseUrl.value = '';
+      API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+      updateApiStatus(`Override cleared. Active API: ${API_URL}`, '');
+    };
+  }
+
+  // Export backup (as JSON)
+  if (exportBtn) exportBtn.onclick = () => {
+    const now = new Date();
+    const stamp = now.toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const payload = {
+      version: '1.0.0',
+      exportedAt: now.toISOString(),
+      state: AppState
+    };
+    const json = JSON.stringify(payload, null, 2);
+    downloadFile(`khushi_portal_backup_${stamp}.json`, json, 'application/json');
+  };
+
+  // Import backup (JSON)
+  if (importInput) importInput.onchange = async () => {
+    const file = importInput.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload?.state) {
+        alert('Invalid backup file.');
+        return;
+      }
+      Object.assign(AppState, payload.state);
+      saveState();
+      applyThemeFromSettings();
+      applySchoolBranding();
+      switchView(AppState.view || 'dashboard');
+      alert('Backup imported successfully.');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to import backup.');
+    } finally {
+      importInput.value = '';
+    }
+  };
+
+  // Reset data (danger)
+  if (resetBtn) resetBtn.onclick = () => {
+    if (!confirm('This will clear all app data (localStorage). Continue?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    // Re-seed & reload
+    seedDemoData();
+    saveState();
+    applyThemeFromSettings();
+    applySchoolBranding();
+    switchView('dashboard');
+    alert('App data has been reset.');
+  };
+}
+
+// ---------- Notices ----------
+function renderNotices() {
+  // KPIs
+  const noticeKpiTotal = qs('#noticeKpiTotal');
+  if (noticeKpiTotal) noticeKpiTotal.textContent = String(AppState.notices.length);
+  const noticeKpiActive = qs('#noticeKpiActive');
+  if (noticeKpiActive) noticeKpiActive.textContent = String(AppState.notices.filter(n => n.status === 'active').length);
+  const noticeKpiHighPriority = qs('#noticeKpiHighPriority');
+  if (noticeKpiHighPriority) noticeKpiHighPriority.textContent = String(AppState.notices.filter(n => n.priority === 'high').length);
+
+  // Filters
+  const statusSel = qs('#noticeFilterStatus');
+  const prioritySel = qs('#noticeFilterPriority');
+  const audienceSel = qs('#noticeFilterAudience');
+  const searchInput = qs('#noticeSearch');
+
+  // Buttons
+  const bind = (id, fn) => { const el = qs(id); if (el) el.onclick = fn; };
+  bind('#noticeBtnCreate', () => { if (openModal('#modalCreateNotice')) initNoticeModal(); });
+  bind('#noticeBtnExport', exportNoticesCSV);
+
+  // Filters/search triggers
+  const renderTable = () => renderNoticesTable();
+  if (searchInput) searchInput.oninput = renderTable;
+  if (statusSel) statusSel.onchange = renderTable;
+  if (prioritySel) prioritySel.onchange = renderTable;
+  if (audienceSel) audienceSel.onchange = renderTable;
+
+  // Tables
+  renderNoticesTable();
+}
+
+function renderNoticesTable() {
+  const body = qs('#noticesTableBody');
+  if (!body) return;
+
+  const status = qs('#noticeFilterStatus')?.value || '';
+  const priority = qs('#noticeFilterPriority')?.value || '';
+  const audience = qs('#noticeFilterAudience')?.value || '';
+  const searchTerm = (qs('#noticeSearch')?.value || '').toLowerCase();
+
+  let rows = [...AppState.notices];
+  rows = rows.filter(n => (!status || n.status === status) && 
+                          (!priority || n.priority === priority) && 
+                          (!audience || n.audience === audience) &&
+                          (!searchTerm || n.title.toLowerCase().includes(searchTerm) || n.description.toLowerCase().includes(searchTerm)));
+
+  body.innerHTML = rows.map(n => `
+    <tr>
+      <td><strong>${escapedText(n.title)}</strong></td>
+      <td>${escapedText(n.description.substring(0, 50))}${n.description.length > 50 ? '...' : ''}</td>
+      <td>${escapedText(n.author)}</td>
+      <td>${n.date || '-'}</td>
+      <td><span class="badge ${n.priority === 'high' ? 'danger' : n.priority === 'low' ? 'info' : ''}">${n.priority}</span></td>
+      <td>${n.audience}</td>
+      <td><span class="badge">${n.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editNotice" data-id="${n.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delNotice" data-id="${n.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editNotice"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalCreateNotice')) initNoticeModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delNotice"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete notice?')) return;
+      AppState.notices = AppState.notices.filter(x => x.id !== id);
+      saveState();
+      renderNotices();
+    };
+  });
+}
+
+function initNoticeModal(noticeId = null) {
+  const form = qs('#formCreateNotice');
+  const modal = qs('#modalCreateNotice');
+  if (!form) return;
+
+  const titleInput = qs('#noticeTitle');
+  const descInput = qs('#noticeDescription');
+  const authorInput = qs('#noticeAuthor');
+  const dateInput = qs('#noticeDate');
+  const priorityInput = qs('#noticePriority');
+  const audienceInput = qs('#noticeAudience');
+  const statusInput = qs('#noticeStatus');
+  const header = modal?.querySelector('.modal__header h3');
+
+  if (noticeId) {
+    // Edit mode
+    const notice = AppState.notices.find(n => n.id === noticeId);
+    if (!notice) return;
+
+    if (header) header.textContent = 'Edit Notice';
+    if (titleInput) titleInput.value = notice.title;
+    if (descInput) descInput.value = notice.description;
+    if (authorInput) authorInput.value = notice.author;
+    if (dateInput) dateInput.value = notice.date;
+    if (priorityInput) priorityInput.value = notice.priority;
+    if (audienceInput) audienceInput.value = notice.audience;
+    if (statusInput) statusInput.value = notice.status;
+    form.dataset.noticeId = noticeId;
+  } else {
+    // Create mode
+    if (header) header.textContent = 'Create Notice';
+    if (dateInput) dateInput.value = todayYYYYMMDD();
+    form.reset();
+    form.dataset.noticeId = '';
+  }
+
+  // Handle form submission
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const title = titleInput?.value.trim();
+    const description = descInput?.value.trim();
+    const author = authorInput?.value.trim();
+    const date = dateInput?.value;
+    const priority = priorityInput?.value || 'medium';
+    const audience = audienceInput?.value || 'all';
+    const status = statusInput?.value || 'active';
+
+    if (!title || !description || !author || !date) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    if (form.dataset.noticeId) {
+      // Update existing notice
+      const notice = AppState.notices.find(n => n.id === form.dataset.noticeId);
+      if (notice) {
+        notice.title = title;
+        notice.description = description;
+        notice.author = author;
+        notice.date = date;
+        notice.priority = priority;
+        notice.audience = audience;
+        notice.status = status;
+      }
+    } else {
+      // Create new notice
+      const newNotice = {
+        id: 'notice-' + Date.now(),
+        title,
+        description,
+        author,
+        date,
+        priority,
+        audience,
+        status
+      };
+      AppState.notices.push(newNotice);
+    }
+
+    saveState();
+    renderNotices();
+    modal?.close();
+  };
+}
+
+function exportNoticesCSV() {
+  const rows = [];
+  rows.push(['Title', 'Description', 'Author', 'Date', 'Priority', 'Audience', 'Status']);
+  AppState.notices.forEach(n => {
+    rows.push([n.title, n.description, n.author, n.date, n.priority, n.audience, n.status]);
+  });
+  const csv = arrayToCSV(rows);
+  downloadFile('notices_export.csv', csv);
+}
+
+function escapedText(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ---------- Quick Actions ----------
+function initQuickAdd(){
+  const btnQuickAdd = qs('#btnQuickAdd');
+  if (btnQuickAdd) {
+    btnQuickAdd.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal('#modalAddStudent');
+    };
+  }
+}
+
+function initFeePaymentButton(){
+  const btnFeePayment = qs('#btnFeePayment');
+  if (btnFeePayment) {
+    btnFeePayment.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Ensure Fees view is active before opening payment modal.
+      if (AppState.view !== 'fees') {
+        switchView('fees');
+        setTimeout(() => openModal('#modalRecordPayment'), 80);
+        return;
+      }
+
+      openModal('#modalRecordPayment');
+    };
+  }
+}
+
+function initNotifications(){
+  const btnNotifications = qs('#btnNotifications');
+  if (btnNotifications) {
+    btnNotifications.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      alert('No new notifications.');
+    };
+  }
+}
+
+// ---------- Init ----------
+function init(){
+  console.log('🚀 Initializing School Admin Portal...');
+  
+  try {
+    // Initialize authentication FIRST (this sets up basic button handlers)
+    console.log('[init] initializeAuth');
+    initializeAuth();
+    
+    // attach login handlers only if login page is still present
+    if (document.getElementById('loginPage')) {
+      console.log('[init] initLoginHandlers');
+      initLoginHandlers();
+    }
+    
+    // Load state (including data fetch)
+    console.log('[init] loadState');
+    loadState();
+    
+    // Display today's date in header
+    console.log('[init] displayTodayDate');
+    displayTodayDate();
+    
+    // Theme setup
+    console.log('[init] applyThemeFromSettings');
+    applyThemeFromSettings();
+    console.log('[init] applySchoolBranding');
+    applySchoolBranding();
+    console.log('[init] initThemeToggle');
+    initThemeToggle();
+    
+    // Role-based initialization
+    if (isAuthenticated()) {
+      const role = getUserRole();
+      console.log('✅ User authenticated as:', role);
+      
+      if (role === 'admin') {
+        console.log('📊 Initializing Admin Portal...');
+        try {
+          initSidebarNavigation();
+        } catch (e) {
+          console.error('⚠️ Sidebar init error:', e);
+        }
+        
+        try {
+          initQuickAdd();
+        } catch (e) {
+          console.error('⚠️ Quick add init error:', e);
+        }
+
+        try {
+          initNotifications();
+        } catch (e) {
+          console.error('⚠️ Notifications init error:', e);
+        }
+        
+        // Initialize modals with error handling
+        try {
+          initAddStudentModal();
+          initImportCSVModal();
+          // Note: initRecordPaymentModal is called by openModal when needed
+          initFeeHeadsModal();
+          initLateRulesModal();
+          initConcessionModal();
+          console.log('✅ Modals initialized');
+        } catch (e) {
+          console.warn('⚠️ Modal initialization warning:', e.message);
+        }
+      }
+
+      try {
+        initFeePaymentButton();
+      } catch (e) {
+        console.error('⚠️ Fee payment button init error:', e);
+      }
+      
+      try {
+        switchRole(role);
+        
+        // Add panel role logging for debugging
+        const panelRole = getPanelRole();
+        console.log('🔐 User Role:', role);
+        console.log('📋 Panel Role:', panelRole);
+        console.log('🎭 Is Reception?', isReceptionUser());
+        
+      } catch (e) {
+        console.error('⚠️ switchRole error:', e);
+      }
+      
+      // Ensure dashboard loads on initial page load
+      if (role === 'admin') {
+        setTimeout(() => {
+          if (AppState.view === 'dashboard') {
+            renderDashboard();
+          }
+        }, 100);
+      }
+      
+      console.log('✅ Portal ready!');
+    }
+  } catch (e) {
+    console.error('❌ Initialization error:', e);
+    console.error('Stack:', e.stack);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    console.log('DOMContentLoaded event fired');
+    init();
+  } catch (err) {
+    console.error('Fatal error during initialization:', err);
+    console.error('Error message:', err.message);
+    console.error('Stack:', err.stack);
+    // Try to make basic buttons clickable as fallback
+    document.querySelectorAll('button').forEach(btn => {
+      if (!btn.onclick && !btn.addEventListener) {
+        btn.onclick = function() { alert('Button clicked'); };
+      }
+    });
+  }
+});
