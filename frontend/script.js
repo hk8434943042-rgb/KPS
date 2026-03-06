@@ -2821,7 +2821,61 @@ function renderRecentReceipts(filterByMonth=false){
     b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
   });
   qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
-  qs('#feesBtnThisMonthReceipts').onclick=()=> renderRecentReceipts(true);
+  qs('#feesBtnThisMonthReceipts').onclick=()=> showThisMonthReceiptsModal();
+}
+
+function showThisMonthReceiptsModal(){
+  const currentMonthStr = currentMonth();
+  let filteredReceipts = [...AppState.receipts].filter(r => {
+    const receiptMonth = getMonthFromDate(r.date || '');
+    return receiptMonth === currentMonthStr;
+  });
+  
+  filteredReceipts.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  
+  const container = qs('#receiptsBoxContainer');
+  if (!container) return;
+  
+  if (filteredReceipts.length === 0) {
+    container.innerHTML = '<div class="muted">No receipts found for this month.</div>';
+  } else {
+    container.innerHTML = filteredReceipts.map(r => `
+      <div class="receipt-box">
+        <div class="receipt-box__header">
+          <div class="receipt-box__no">Receipt #${r.no}</div>
+          <div class="receipt-box__date">${r.date}</div>
+        </div>
+        <div class="receipt-box__details">
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Student:</span>
+            <span class="receipt-box__value">${r.name}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Admission No.:</span>
+            <span class="receipt-box__value">${r.roll}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Amount:</span>
+            <span class="receipt-box__value fw-bold" style="color: #0a6f2e;">${fmtINR(r.amount)}</span>
+          </div>
+          <div class="receipt-box__row">
+            <span class="receipt-box__label">Payment Method:</span>
+            <span class="receipt-box__value">${r.method}</span>
+          </div>
+          ${r.ref ? `<div class="receipt-box__row">
+            <span class="receipt-box__label">Reference No.:</span>
+            <span class="receipt-box__value">${r.ref}</span>
+          </div>` : ''}
+        </div>
+        <div class="receipt-box__actions">
+          <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
+          <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  openModal('#modalThisMonthReceipts');
 }
 
 // ---------- CSV Export (Core) ----------

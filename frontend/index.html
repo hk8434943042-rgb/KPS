@@ -458,6 +458,24 @@
         </div>
       </section>
       
+      <!-- MODAL: This Month's Receipts -->
+      <dialog class="modal" id="modalThisMonthReceipts">
+        <form method="dialog" class="modal__content">
+          <header class="modal__header">
+            <h3>Receipts (This Month)</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="receiptsBoxContainer" class="receipts-box-container">
+              <!-- Receipt boxes will be injected here -->
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Close</button>
+          </footer>
+        </form>
+      </dialog>
+
       <!-- MODAL: Record Payment -->
       <dialog class="modal" id="modalRecordPayment">
         <form method="dialog" class="modal__content" id="formRecordPayment">
@@ -2640,7 +2658,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-receipts-thismonth-filter-1"></script>
+  <script src="script.js?v=20260306-receipts-modal-box-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
