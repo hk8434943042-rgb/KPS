@@ -3024,38 +3024,103 @@ function initQuickPaymentBox(){
     };
   }
 
-  // Record Payment button - open modal with pre-filled data
+  // Record Payment button - process payment directly
   if (payBtn) {
-    payBtn.onclick = () => {
+    payBtn.onclick = async () => {
       const roll = searchInput.value.trim();
       const amount = parseFloat(amountInput.value) || 0;
       const method = methodSelect.value;
       const ref = refInput.value.trim();
 
+      // Validation
       if (!roll) {
-        alert('Please select a student');
+        badge.textContent = '❌ Select Student';
+        badge.className = 'badge error-badge';
         searchInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
         return;
       }
 
-      // Find student for validation
       const student = AppState.students.find(s => s.roll.toString() === roll);
       if (!student) {
-        alert('Student not found');
+        badge.textContent = '❌ Student Not Found';
+        badge.className = 'badge error-badge';
         searchInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
         return;
       }
 
-      // Pre-fill the Record Payment modal
-      qs('#rpRoll').value = roll;
-      qs('#rpName').value = student.name || '';
-      qs('#rpClass').value = student.class || '';
-      if (amount > 0) qs('#rpPayNow').value = amount;
-      qs('#rpMethod').value = method;
-      if (ref) qs('#rpRef').value = ref;
+      if (amount <= 0) {
+        badge.textContent = '❌ Enter Amount';
+        badge.className = 'badge error-badge';
+        amountInput.focus();
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
 
-      // Open the Record Payment modal
-      openModal('#modalRecordPayment');
+      // Prepare receipt data
+      const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
+      const receipt = {
+        no: receiptNo.toString(),
+        date: todayYYYYMMDD(),
+        roll: roll,
+        name: student.name,
+        amount: amount,
+        method: method,
+        ref: ref || null,
+        heads: { 'Cash': amount }, // Store in heads object
+        discount: 0,
+        latefee: 0,
+        status: 'completed'
+      };
+
+      // Show processing status
+      payBtn.disabled = true;
+      payBtn.textContent = '⏳ Processing...';
+
+      try {
+        // Save to backend
+        const response = await fetch('/api/receipts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(receipt)
+        });
+
+        if (!response.ok) throw new Error('Failed to save receipt');
+
+        // Update AppState
+        AppState.receipts.push(receipt);
+        
+        // Show success feedback
+        badge.textContent = '✅ Payment Recorded';
+        badge.className = 'badge success-badge';
+        payBtn.textContent = '💵 Record Payment';
+        payBtn.disabled = false;
+
+        // Clear form
+        clearBtn.click();
+
+        // Re-render receipts
+        renderRecentReceipts();
+        updateFeeKpis();
+
+        // Auto-clear success message
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'badge';
+        }, 3000);
+      } catch (error) {
+        console.error('Payment error:', error);
+        badge.textContent = '❌ Error: ' + error.message;
+        badge.className = 'badge error-badge';
+        payBtn.textContent = '💵 Record Payment';
+        payBtn.disabled = false;
+
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'badge';
+        }, 4000);
+      }
     };
   }
 }
