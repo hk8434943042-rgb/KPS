@@ -4022,6 +4022,9 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
   }
 
   const monthLabel = formatMonthLabel(month || currentMonth());
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley Sheikhpura');
+  const headingTitle = escapedText(`${title} Monthly Attendance`);
   const popup = window.open('', '_blank');
   if (!popup) {
     alert('Unable to open print window. Please allow popups and try again.');
@@ -4031,19 +4034,26 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
   popup.document.write(`
     <html>
       <head>
-        <title>${title} Monthly Attendance - ${monthLabel}</title>
+        <title>${schoolName} - ${headingTitle} (${monthLabel})</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 16px; }
-          h2 { margin: 0 0 6px; }
-          p { margin: 0 0 14px; color: #444; }
+          .sheet-header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 12px; }
+          .school-name { margin: 0; font-size: 26px; text-transform: uppercase; letter-spacing: 0.6px; }
+          .school-tagline { margin: 4px 0 0; color: #444; font-size: 13px; }
+          .report-title { margin: 10px 0 4px; font-size: 18px; }
+          .report-meta { margin: 0; color: #444; font-size: 13px; }
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid #999; padding: 8px; text-align: left; }
           th { background: #f3f3f3; }
         </style>
       </head>
       <body>
-        <h2>${title} Monthly Attendance</h2>
-        <p>${monthLabel}</p>
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">${headingTitle}</h2>
+          <p class="report-meta">Month: ${monthLabel}</p>
+        </div>
         <table>
           <thead>
             <tr>
