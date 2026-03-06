@@ -4847,6 +4847,25 @@ function initQuickAdd(){
   }
 }
 
+function initFeePaymentButton(){
+  const btnFeePayment = qs('#btnFeePayment');
+  if (btnFeePayment) {
+    btnFeePayment.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Ensure Fees view is active before opening payment modal.
+      if (AppState.view !== 'fees') {
+        switchView('fees');
+        setTimeout(() => openModal('#modalRecordPayment'), 80);
+        return;
+      }
+
+      openModal('#modalRecordPayment');
+    };
+  }
+}
+
 function initNotifications(){
   const btnNotifications = qs('#btnNotifications');
   if (btnNotifications) {
@@ -4907,7 +4926,7 @@ function init(){
         } catch (e) {
           console.error('⚠️ Quick add init error:', e);
         }
-        
+
         try {
           initNotifications();
         } catch (e) {
@@ -4926,6 +4945,12 @@ function init(){
         } catch (e) {
           console.warn('⚠️ Modal initialization warning:', e.message);
         }
+      }
+
+      try {
+        initFeePaymentButton();
+      } catch (e) {
+        console.error('⚠️ Fee payment button init error:', e);
       }
       
       try {
