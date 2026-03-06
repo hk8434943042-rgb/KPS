@@ -47,10 +47,34 @@ window.addEventListener('load', () => {
 // GLOBAL API CONFIGURATION
 // ===========================
 // Use API URL from api-config.js, which can be overridden by API_URL_OVERRIDE in localStorage
-let API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const DEFAULT_API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+let API_URL = DEFAULT_API_URL;
 const API_URL_OVERRIDE = localStorage.getItem('API_URL_OVERRIDE');
 if (API_URL_OVERRIDE) {
   API_URL = API_URL_OVERRIDE.replace(/\/+$/, '');
+}
+
+function clearStaleCloudflareOverride() {
+  const override = (localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  if (!override) return false;
+
+  // Cloudflare quick-tunnel URLs are ephemeral and commonly expire.
+  if (!/\.trycloudflare\.com/i.test(override)) return false;
+
+  localStorage.removeItem('API_URL_OVERRIDE');
+  API_URL = DEFAULT_API_URL;
+  console.warn('Removed stale Cloudflare API override and reverted to default API:', API_URL);
+
+  const setApiBaseUrl = document.getElementById('setApiBaseUrl');
+  if (setApiBaseUrl) setApiBaseUrl.value = '';
+
+  const settingsApiStatus = document.getElementById('settingsApiStatus');
+  if (settingsApiStatus) {
+    settingsApiStatus.textContent = `Removed expired Cloudflare override. Active API: ${API_URL}`;
+    settingsApiStatus.style.color = '#c0392b';
+  }
+
+  return true;
 }
 
 // ---------- Global State ----------
@@ -321,7 +345,7 @@ async function deleteStudentFromBackend(student) {
 let serverStatusCheckInterval = null;
 let isServerConnected = false;
 
-async function checkServerConnection() {
+async function checkServerConnection(canRetryAfterOverrideCleanup = true) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
@@ -341,6 +365,11 @@ async function checkServerConnection() {
     console.log('Server check:', isConnected ? 'Connected ✓' : 'Disconnected ✗');
   } catch (e) {
     console.warn('Server connection check failed:', e.message);
+
+    if (canRetryAfterOverrideCleanup && clearStaleCloudflareOverride()) {
+      return checkServerConnection(false);
+    }
+
     updateServerStatus(false);
   }
 }
