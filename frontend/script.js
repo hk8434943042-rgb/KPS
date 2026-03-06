@@ -135,6 +135,10 @@ const AppState = {
   teacherAttendance: {}, // key: `${teacherId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
   salaryPayments: [], // { id, teacherId, month, amount, date, status }
 
+  // Staff module
+  staff: [], // { id, name, role, phone, joinDate, salary, status }
+  staffAttendance: {}, // key: `${staffId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
+
   // Classes module
   classes: [], // { id, class, section, classTeacherId, subjects: {subjectName: teacherId}, capacity, status }
 
@@ -398,6 +402,10 @@ function loadState() {
     if (raw) {
       const stored = JSON.parse(raw);
       Object.assign(AppState, stored);
+      if (!Array.isArray(AppState.staff)) AppState.staff = [];
+      if (!AppState.staffAttendance || typeof AppState.staffAttendance !== 'object') {
+        AppState.staffAttendance = {};
+      }
       // Check if stored data has all new classes, if not, reseed
       const requiredClasses = ['Nursery', 'LKG', 'UKG', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
       const hasAllClasses = requiredClasses.every(cls => AppState.feeHeadsByClass[cls]);
@@ -1718,6 +1726,29 @@ function applyRoleBasedAccess() {
     console.log('  ✗ Hidden: Salary Tab');
     console.log('  ✗ Hidden: Add Teacher button');
     console.log('  ✗ Hidden: Export Teachers button');
+
+    // ===== RECEPTION RESTRICTIONS FOR STAFF SECTION =====
+    const addStaffBtn = document.getElementById('staffBtnAdd');
+    const staffPrefBtn = document.getElementById('staffBtnPreferences');
+    if (addStaffBtn) addStaffBtn.style.display = 'none';
+    if (staffPrefBtn) staffPrefBtn.style.display = 'none';
+
+    const staffListTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-list-tab"]');
+    const staffSalaryTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-salary-tab"]');
+    const staffAttendanceTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-attendance-tab"]');
+    if (staffListTabBtn) staffListTabBtn.style.display = 'none';
+    if (staffSalaryTabBtn) staffSalaryTabBtn.style.display = 'none';
+
+    if (staffAttendanceTabBtn && AppState.view === 'staff') {
+      setTimeout(() => {
+        staffAttendanceTabBtn.click();
+      }, 100);
+    }
+
+    console.log('  ✗ Hidden: Staff List Tab (attendance only)');
+    console.log('  ✗ Hidden: Staff Salary Tab');
+    console.log('  ✗ Hidden: Add Staff button');
+    console.log('  ✗ Hidden: Staff Preferences button');
   } else {
     // Main Admin - show all menu items
     document.querySelectorAll('.menu__item').forEach(item => {
@@ -1814,6 +1845,15 @@ function switchView(viewId) {
         setTimeout(() => {
           const attendanceTabBtn = document.querySelector('#view-teachers [data-tab="attendance-tab"]');
           if (attendanceTabBtn) attendanceTabBtn.click();
+        }, 50);
+      }
+    }
+    else if (viewId === 'staff') {
+      renderStaff();
+      if (isReceptionUser()) {
+        setTimeout(() => {
+          const staffAttendanceTabBtn = document.querySelector('#view-staff [data-staff-tab="staff-attendance-tab"]');
+          if (staffAttendanceTabBtn) staffAttendanceTabBtn.click();
         }, 50);
       }
     }
@@ -3924,13 +3964,14 @@ function openEditTeacher(teacherId){
 
 function setupTeacherButtons(){
   // Tab switching
-  qsa('.tab-btn').forEach(btn => {
+  qsa('#view-teachers [data-tab]').forEach(btn => {
     btn.onclick = () => {
-      qsa('.tab-btn').forEach(b => b.classList.remove('active'));
-      qsa('.tab-content').forEach(c => c.style.display = 'none');
+      qsa('#view-teachers [data-tab]').forEach(b => b.classList.remove('active'));
+      qsa('#view-teachers .tab-content').forEach(c => c.classList.add('d-none'));
       btn.classList.add('active');
       const tabId = btn.getAttribute('data-tab');
-      qs(`#${tabId}`).style.display = 'block';
+      const panel = qs(`#${tabId}`);
+      if (panel) panel.classList.remove('d-none');
     };
   });
 
@@ -3982,6 +4023,94 @@ function exportTeachersCSV(){
   const rows = AppState.teachers.map(t => [t.id, t.name, t.phone, t.email || '', t.subjects, t.joinDate, t.salary, t.status]);
   const csv = arrayToCSV([header, ...rows]);
   downloadFile('teachers.csv', csv);
+}
+
+// ---------- Staff Attendance ----------
+function renderStaff() {
+  setupStaffTabs();
+  setupStaffAttendance();
+}
+
+function setupStaffTabs() {
+  const tabButtons = qsa('#view-staff [data-staff-tab]');
+  const tabPanels = qsa('#view-staff .tab-content');
+  if (!tabButtons.length || !tabPanels.length) return;
+
+  tabButtons.forEach(btn => {
+    btn.onclick = () => {
+      tabButtons.forEach(b => b.classList.remove('active'));
+      tabPanels.forEach(p => p.classList.add('d-none'));
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-staff-tab');
+      const panel = qs(`#${tabId}`);
+      if (panel) panel.classList.remove('d-none');
+    };
+  });
+}
+
+function setupStaffAttendance() {
+  const datePicker = qs('#staffAttDatePicker');
+  if (!datePicker) return;
+  if (!datePicker.value) datePicker.value = todayYYYYMMDD();
+
+  if (qs('#staffAttBtnLoad')) qs('#staffAttBtnLoad').onclick = () => loadStaffAttendanceForDate(datePicker.value);
+  if (qs('#staffAttBtnMarkAll')) qs('#staffAttBtnMarkAll').onclick = () => {
+    qsa('select.staff-att-status').forEach(sel => { sel.value = 'present'; });
+  };
+  if (qs('#staffAttBtnSave')) qs('#staffAttBtnSave').onclick = () => saveStaffAttendance(datePicker.value);
+
+  loadStaffAttendanceForDate(datePicker.value);
+}
+
+function loadStaffAttendanceForDate(date) {
+  const tbody = qs('#staffAttendanceTableBody');
+  if (!tbody) return;
+
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="muted">No staff records found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = staffList.map((staff, idx) => {
+    const staffId = String(staff.id || `staff_${idx}`);
+    const key = `${staffId}|${date}`;
+    const att = AppState.staffAttendance[key] || { status: 'absent', remarks: '' };
+    return `
+      <tr>
+        <td>${staff.name || '-'}</td>
+        <td>
+          <select class="staff-att-status" data-id="${staffId}">
+            <option value="present" ${att.status === 'present' ? 'selected' : ''}>Present</option>
+            <option value="absent" ${att.status === 'absent' ? 'selected' : ''}>Absent</option>
+            <option value="leave" ${att.status === 'leave' ? 'selected' : ''}>Leave</option>
+          </select>
+        </td>
+        <td>
+          <input type="text" class="staff-att-remarks" data-id="${staffId}" value="${att.remarks || ''}" placeholder="Medical, etc." style="width:150px;" />
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function saveStaffAttendance(date) {
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    alert('No staff records found to save attendance.');
+    return;
+  }
+
+  qsa('select.staff-att-status').forEach(sel => {
+    const staffId = sel.getAttribute('data-id');
+    const status = sel.value;
+    const remarks = qs(`.staff-att-remarks[data-id="${staffId}"]`)?.value || '';
+    const key = `${staffId}|${date}`;
+    AppState.staffAttendance[key] = { status, remarks };
+  });
+
+  saveState();
+  alert('Staff attendance saved for ' + date);
 }
 
 function currentMonth(){

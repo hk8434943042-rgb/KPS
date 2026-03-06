@@ -1344,6 +1344,7 @@
         <div class="toolbar toolbar-bb">
           <div class="flex gap-16">
             <button class="tab-btn active" data-staff-tab="staff-list-tab">👥 Staff List</button>
+            <button class="tab-btn" data-staff-tab="staff-attendance-tab">✓ Attendance</button>
             <button class="tab-btn" data-staff-tab="staff-salary-tab">💰 Salary</button>
           </div>
         </div>
@@ -1518,6 +1519,41 @@
           <div id="staffListContent"><!-- list content injected --></div>
         </div>
         </div><!-- End of staff-list-tab -->
+
+        <!-- STAFF ATTENDANCE TAB -->
+        <div id="staff-attendance-tab" class="tab-content d-none">
+          <div class="card">
+            <div class="card__header">
+              <h3>Mark Staff Attendance</h3>
+            </div>
+            <div class="p-12">
+              <div class="grid-2 mb-16">
+                <label class="attendance-date-box">
+                  <span>Date</span>
+                  <input type="date" id="staffAttDatePicker" class="attendance-date-input" />
+                  <small class="attendance-date-display">Mark daily attendance for staff</small>
+                </label>
+                <div class="flex align-end gap-8">
+                  <button type="button" class="btn btn-primary" id="staffAttBtnLoad">Load Date</button>
+                  <button type="button" class="btn btn-ghost" id="staffAttBtnMarkAll">Mark All Present</button>
+                </div>
+              </div>
+              <div class="table-wrap maxh-500 ovy-auto">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Status</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody id="staffAttendanceTableBody"><!-- rows injected --></tbody>
+                </table>
+              </div>
+              <button type="button" class="btn btn-primary mt-12" id="staffAttBtnSave">Save Attendance</button>
+            </div>
+          </div>
+        </div><!-- End of staff-attendance-tab -->
 
         <!-- STAFF SALARY TAB -->
         <div id="staff-salary-tab" class="tab-content d-none">
@@ -2573,7 +2609,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-delete-fix-2"></script>
+  <script src="script.js?v=20260306-reception-attendance-2"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
