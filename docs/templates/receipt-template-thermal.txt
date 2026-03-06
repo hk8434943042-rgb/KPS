@@ -1,0 +1,78 @@
+================================================
+       KHUSHI PUBLIC SCHOOL
+================================================
+            Fee Payment Receipt
+------------------------------------------------
+Deoley, Shekhpura, Bihar - 811105
+Phone: +91-0149-2082596
+Email: info@khushischool.com
+================================================
+
+Receipt No        R-2026-0001
+Date              06 March 2026
+Time              10:30 AM
+
+================================================
+STUDENT INFORMATION
+================================================
+Admission No      ADM001
+Name              Priya Sharma
+Class             IX - A
+Father Name       Mr. Rajesh Sharma
+Contact           +91-9876543210
+================================================
+
+FEE DETAILS
+================================================
+Sr  Particulars              Month      Amount
+------------------------------------------------
+1   Tuition Fee              Mar 2026   3,000.00
+2   Transport Fee            Mar 2026   1,500.00
+3   Lab/IT Fee               Mar 2026     500.00
+4   Activity Fee             Mar 2026     300.00
+------------------------------------------------
+                             Subtotal   5,300.00
+                             Late Fee       0.00
+                             Discount    -300.00
+------------------------------------------------
+                        TOTAL PAID:    5,000.00
+================================================
+
+AMOUNT IN WORDS
+Rupees Five Thousand Only
+
+================================================
+PAYMENT INFORMATION
+================================================
+Payment Method    UPI (Google Pay)
+Transaction ID    UPI234567890123
+Payment Status    SUCCESS ✓
+Received By       Admin Office
+================================================
+
+TERMS & CONDITIONS
+------------------------------------------------
+• All fees once paid are non-refundable.
+• Late fee applies as per school policy.
+• Please preserve this receipt for records.
+• Report any discrepancy within 7 days.
+================================================
+
+          Authorized Signature
+     (Accounts Department)
+  
+     _________________________
+
+
+This is a computer-generated receipt.
+No manual signature required.
+
+Thank you for your payment!
+
+================================================
+        KHUSHI PUBLIC SCHOOL
+     Education for Excellence
+================================================
+Generated: 06 March 2026, 10:30 AM
+System: School Admin Portal v1.0
+================================================

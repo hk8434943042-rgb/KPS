@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fee Receipt - School Admin Portal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            color: #000;
+            background: #fff;
+        }
+
+        .receipt-container {
+            max-width: 800px;
+            margin: 0 auto;
+            border: 2px solid #000;
+            padding: 20px;
+            background: #fff;
+        }
+
+        .receipt-header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .school-logo {
+            max-width: 80px;
+            margin-bottom: 10px;
+        }
+
+        .school-name {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #1a1a1a;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .school-tagline {
+            font-size: 11pt;
+            color: #555;
+            font-style: italic;
+            margin-bottom: 8px;
+        }
+
+        .school-address {
+            font-size: 10pt;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .receipt-title {
+            font-size: 16pt;
+            font-weight: bold;
+            text-align: center;
+            margin: 15px 0;
+            padding: 8px;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+        }
+
+        .receipt-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 20px;
+            margin-bottom: 20px;
+            font-size: 11pt;
+        }
+
+        .info-row {
+            display: flex;
+            padding: 5px 0;
+        }
+
+        .info-label {
+            font-weight: bold;
+            min-width: 140px;
+            color: #333;
+        }
+
+        .info-value {
+            color: #000;
+        }
+
+        .receipt-details {
+            margin: 20px 0;
+        }
+
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 11pt;
+        }
+
+        .details-table thead {
+            background: #333;
+            color: #fff;
+        }
+
+        .details-table th,
+        .details-table td {
+            border: 1px solid #000;
+            padding: 10px;
+            text-align: left;
+        }
+
+        .details-table th {
+            font-weight: bold;
+        }
+
+        .details-table td:last-child,
+        .details-table th:last-child {
+            text-align: right;
+        }
+
+        .details-table .total-row {
+            font-weight: bold;
+            background: #f5f5f5;
+        }
+
+        .amount-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+        }
+
+        .amount-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 11pt;
+        }
+
+        .amount-row.total {
+            font-size: 14pt;
+            font-weight: bold;
+            border-top: 2px solid #000;
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+
+        .payment-info {
+            margin: 20px 0;
+            padding: 15px;
+            background: #e8f4f8;
+            border-left: 4px solid #0066cc;
+        }
+
+        .payment-info-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 12pt;
+        }
+
+        .receipt-footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 2px solid #000;
+        }
+
+        .signature-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-top: 40px;
+        }
+
+        .signature-box {
+            text-align: center;
+        }
+
+        .signature-line {
+            border-bottom: 1px solid #000;
+            width: 200px;
+            margin: 0 auto 5px;
+            height: 50px;
+        }
+
+        .signature-label {
+            font-size: 10pt;
+            color: #666;
+        }
+
+        .terms {
+            margin-top: 20px;
+            font-size: 9pt;
+            color: #555;
+            line-height: 1.5;
+        }
+
+        .terms-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .terms ul {
+            list-style-position: inside;
+            padding-left: 10px;
+        }
+
+        .terms li {
+            margin: 3px 0;
+        }
+
+        .receipt-footer-note {
+            text-align: center;
+            font-size: 9pt;
+            color: #888;
+            margin-top: 15px;
+            font-style: italic;
+        }
+
+        .stamp-box {
+            position: absolute;
+            right: 50px;
+            bottom: 120px;
+            width: 120px;
+            height: 120px;
+            border: 2px dashed #999;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9pt;
+            color: #999;
+        }
+
+        @media print {
+            body {
+                background: #fff;
+            }
+            
+            .receipt-container {
+                border: none;
+                max-width: 100%;
+            }
+
+            .no-print {
+                display: none;
+            }
+        }
+
+        .print-button {
+            display: block;
+            margin: 20px auto;
+            padding: 12px 30px;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .print-button:hover {
+            background: #0052a3;
+        }
+    </style>
+</head>
+<body>
+    <button class="print-button no-print" onclick="window.print()">🖨️ Print Receipt</button>
+
+    <div class="receipt-container">
+        <!-- Header Section -->
+        <div class="receipt-header">
+            <!-- <img src="school-logo.png" alt="School Logo" class="school-logo"> -->
+            <div class="school-name">KHUSHI PUBLIC SCHOOL</div>
+            <div class="school-tagline">Education for Excellence</div>
+            <div class="school-address">
+                Deoley, Shekhpura, Bihar - 811105<br>
+                Phone: +91-0149-2082596 | Email: info@khushischool.com<br>
+                Website: www.khushischool.com
+            </div>
+        </div>
+
+        <!-- Receipt Title -->
+        <div class="receipt-title">FEE PAYMENT RECEIPT</div>
+
+        <!-- Receipt Information -->
+        <div class="receipt-info">
+            <div class="info-row">
+                <span class="info-label">Receipt No:</span>
+                <span class="info-value">R-2026-0001</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Date:</span>
+                <span class="info-value">06 March 2026</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Admission No:</span>
+                <span class="info-value">ADM001</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Academic Year:</span>
+                <span class="info-value">2025-2026</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Student Name:</span>
+                <span class="info-value">PRIYA SHARMA</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Class & Section:</span>
+                <span class="info-value">IX - A</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Father's Name:</span>
+                <span class="info-value">Mr. Rajesh Sharma</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Contact:</span>
+                <span class="info-value">+91-9876543210</span>
+            </div>
+        </div>
+
+        <!-- Fee Details Table -->
+        <div class="receipt-details">
+            <table class="details-table">
+                <thead>
+                    <tr>
+                        <th style="width: 10%; text-align: center;">Sr. No.</th>
+                        <th style="width: 45%;">Particulars</th>
+                        <th style="width: 20%;">Month/Period</th>
+                        <th style="width: 25%;">Amount (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="text-align: center;">1</td>
+                        <td>Tuition Fee</td>
+                        <td>March 2026</td>
+                        <td style="text-align: right;">3,000.00</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;">2</td>
+                        <td>Transport Fee</td>
+                        <td>March 2026</td>
+                        <td style="text-align: right;">1,500.00</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;">3</td>
+                        <td>Lab/IT Fee</td>
+                        <td>March 2026</td>
+                        <td style="text-align: right;">500.00</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: center;">4</td>
+                        <td>Activity Fee</td>
+                        <td>March 2026</td>
+                        <td style="text-align: right;">300.00</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Amount Summary -->
+        <div class="amount-section">
+            <div class="amount-row">
+                <span>Subtotal:</span>
+                <span>₹ 5,300.00</span>
+            </div>
+            <div class="amount-row">
+                <span>Late Fee:</span>
+                <span>₹ 0.00</span>
+            </div>
+            <div class="amount-row">
+                <span>Discount (Early Payment):</span>
+                <span>- ₹ 300.00</span>
+            </div>
+            <div class="amount-row total">
+                <span>Total Amount Paid:</span>
+                <span>₹ 5,000.00</span>
+            </div>
+        </div>
+
+        <!-- Payment Information -->
+        <div class="payment-info">
+            <div class="payment-info-title">Payment Details</div>
+            <div class="info-row">
+                <span class="info-label">Payment Method:</span>
+                <span class="info-value">UPI (Google Pay)</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Transaction ID:</span>
+                <span class="info-value">UPI234567890123</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Payment Status:</span>
+                <span class="info-value">SUCCESS ✓</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Received By:</span>
+                <span class="info-value">Admin Office</span>
+            </div>
+        </div>
+
+        <!-- Amount in Words -->
+        <div style="margin: 15px 0; padding: 10px; border: 1px solid #ddd; background: #f9f9f9;">
+            <strong>Amount in Words:</strong> Five Thousand Rupees Only
+        </div>
+
+        <!-- Terms & Conditions -->
+        <div class="terms">
+            <div class="terms-title">Terms & Conditions:</div>
+            <ul>
+                <li>This receipt is valid only when accompanied by the school stamp and authorized signature.</li>
+                <li>All fees once paid are non-refundable and non-transferable.</li>
+                <li>Late fee will be charged as per school policy if payment is made after due date.</li>
+                <li>Please preserve this receipt for future reference and record purposes.</li>
+                <li>Any discrepancy in the receipt must be reported within 7 days of issue.</li>
+            </ul>
+        </div>
+
+        <!-- Footer -->
+        <div class="receipt-footer">
+            <!-- Signature Section -->
+            <div class="signature-section">
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Parent/Guardian Signature</div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Authorized Signature<br>(Accounts Department)</div>
+                </div>
+            </div>
+
+            <!-- Footer Note -->
+            <div class="receipt-footer-note">
+                This is a computer-generated receipt. No manual signature required.<br>
+                For any queries, please contact the school office during working hours.<br>
+                Generated on: 06 March 2026, 10:30 AM
+            </div>
+        </div>
+
+        <!-- School Stamp Placeholder -->
+        <!-- <div class="stamp-box">School Stamp</div> -->
+    </div>
+</body>
+</html>

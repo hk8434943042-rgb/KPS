@@ -1,0 +1,354 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "School Fee Receipt",
+  "description": "Complete fee receipt data structure for school admin portal",
+  "type": "object",
+  "required": [
+    "no",
+    "date",
+    "roll",
+    "name",
+    "amount",
+    "method"
+  ],
+  "properties": {
+    "no": {
+      "type": "string",
+      "description": "Unique receipt number",
+      "pattern": "^R-\\d{4,}$",
+      "examples": ["R-0001", "R-2026-00123"]
+    },
+    "date": {
+      "type": "string",
+      "description": "Receipt issue date in YYYY-MM-DD format",
+      "format": "date",
+      "examples": ["2026-03-06"]
+    },
+    "roll": {
+      "type": "string",
+      "description": "Student admission/roll number",
+      "minLength": 1,
+      "maxLength": 50,
+      "examples": ["ADM001", "2026-IX-001"]
+    },
+    "admission_no": {
+      "type": "string",
+      "description": "Alternate field for admission number (alias for roll)",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "name": {
+      "type": "string",
+      "description": "Student full name",
+      "minLength": 1,
+      "maxLength": 200,
+      "examples": ["Priya Sharma", "Rahul Kumar"]
+    },
+    "class": {
+      "type": "string",
+      "description": "Student class/grade",
+      "enum": ["Nursery", "LKG", "UKG", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"],
+      "examples": ["IX", "X"]
+    },
+    "section": {
+      "type": "string",
+      "description": "Student section",
+      "pattern": "^[A-Z]$",
+      "examples": ["A", "B", "C"]
+    },
+    "phone": {
+      "type": "string",
+      "description": "Parent/Guardian contact number",
+      "pattern": "^\\+?[0-9]{10,15}$",
+      "examples": ["+91-9876543210", "9876543210"]
+    },
+    "email": {
+      "type": "string",
+      "description": "Parent/Guardian email address",
+      "format": "email",
+      "examples": ["parent@example.com"]
+    },
+    "amount": {
+      "type": "number",
+      "description": "Total amount paid in rupees",
+      "minimum": 0,
+      "examples": [5000, 3500.50]
+    },
+    "method": {
+      "type": "string",
+      "description": "Payment method used",
+      "enum": ["Cash", "UPI", "Card", "Bank Transfer", "Cheque", "DD", "Online"],
+      "examples": ["Cash", "UPI"]
+    },
+    "ref": {
+      "type": "string",
+      "description": "Transaction reference number (optional)",
+      "maxLength": 100,
+      "examples": ["UPI234567890123", "CHQ123456"]
+    },
+    "heads": {
+      "type": "object",
+      "description": "Fee breakdown by head/component",
+      "properties": {
+        "Tuition": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Tuition fee amount"
+        },
+        "Transport": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Transport fee amount"
+        },
+        "Lab/IT": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Lab/IT fee amount"
+        },
+        "Activity": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Activity fee amount"
+        },
+        "Examination": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Examination fee amount"
+        },
+        "Library": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Library fee amount"
+        },
+        "Sports": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sports fee amount"
+        },
+        "Miscellaneous": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Miscellaneous fee amount"
+        }
+      },
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      },
+      "examples": [
+        {
+          "Tuition": 3000,
+          "Transport": 1500,
+          "Lab/IT": 500
+        }
+      ]
+    },
+    "discount": {
+      "type": "number",
+      "description": "Discount amount applied in rupees",
+      "minimum": 0,
+      "default": 0,
+      "examples": [500, 0]
+    },
+    "lateFee": {
+      "type": "number",
+      "description": "Late fee charged in rupees",
+      "minimum": 0,
+      "default": 0,
+      "examples": [100, 0]
+    },
+    "months": {
+      "type": "array",
+      "description": "Months covered by this payment (YYYY-MM format)",
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}$"
+      },
+      "minItems": 1,
+      "examples": [
+        ["2026-03"],
+        ["2026-03", "2026-04"]
+      ]
+    },
+    "razorpayData": {
+      "type": "object",
+      "description": "Razorpay payment gateway data (for online payments)",
+      "properties": {
+        "razorpayPaymentId": {
+          "type": "string",
+          "description": "Razorpay payment ID",
+          "examples": ["pay_xxxxxxxxxxxxx"]
+        },
+        "razorpayOrderId": {
+          "type": "string",
+          "description": "Razorpay order ID",
+          "examples": ["order_xxxxxxxxxxxxx"]
+        },
+        "razorpaySignature": {
+          "type": "string",
+          "description": "Razorpay signature for verification"
+        }
+      },
+      "required": ["razorpayPaymentId"]
+    },
+    "createdBy": {
+      "type": "string",
+      "description": "Username of person who created the receipt",
+      "examples": ["admin", "reception", "accountant"]
+    },
+    "createdAt": {
+      "type": "string",
+      "description": "Receipt creation timestamp (ISO 8601 format)",
+      "format": "date-time",
+      "examples": ["2026-03-06T10:30:00Z"]
+    },
+    "status": {
+      "type": "string",
+      "description": "Receipt status",
+      "enum": ["paid", "pending", "cancelled", "refunded"],
+      "default": "paid",
+      "examples": ["paid"]
+    },
+    "academicYear": {
+      "type": "string",
+      "description": "Academic year for this receipt",
+      "pattern": "^\\d{4}-\\d{4}$",
+      "examples": ["2025-2026", "2026-2027"]
+    },
+    "note": {
+      "type": "string",
+      "description": "Additional notes or remarks",
+      "maxLength": 500,
+      "examples": ["Concession applied for meritorious student"]
+    },
+    "purpose": {
+      "type": "string",
+      "description": "Payment purpose or description",
+      "maxLength": 200,
+      "examples": ["Monthly Fee", "Admission Fee", "Exam Fee"]
+    },
+    "paidBy": {
+      "type": "string",
+      "description": "Name of person who made the payment",
+      "maxLength": 200,
+      "examples": ["Father", "Mother", "Guardian"]
+    },
+    "receiptType": {
+      "type": "string",
+      "description": "Type of receipt",
+      "enum": ["fee", "admission", "exam", "transport", "miscellaneous"],
+      "default": "fee"
+    },
+    "isCancelled": {
+      "type": "boolean",
+      "description": "Whether the receipt has been cancelled",
+      "default": false
+    },
+    "cancelledAt": {
+      "type": "string",
+      "description": "Cancellation timestamp",
+      "format": "date-time"
+    },
+    "cancelledBy": {
+      "type": "string",
+      "description": "Username of person who cancelled the receipt"
+    },
+    "cancelReason": {
+      "type": "string",
+      "description": "Reason for cancellation",
+      "maxLength": 500
+    }
+  },
+  "examples": [
+    {
+      "no": "R-0001",
+      "date": "2026-03-06",
+      "roll": "ADM001",
+      "name": "Priya Sharma",
+      "class": "IX",
+      "section": "A",
+      "phone": "+91-9876543210",
+      "amount": 5000,
+      "method": "Cash",
+      "heads": {
+        "Tuition": 3000,
+        "Transport": 1500,
+        "Lab/IT": 500
+      },
+      "discount": 0,
+      "lateFee": 0,
+      "months": ["2026-03"],
+      "createdBy": "admin",
+      "createdAt": "2026-03-06T10:30:00Z",
+      "status": "paid"
+    },
+    {
+      "no": "R-0002",
+      "date": "2026-03-06",
+      "roll": "ADM002",
+      "name": "Rahul Kumar",
+      "class": "X",
+      "section": "B",
+      "phone": "+91-9123456789",
+      "amount": 8500,
+      "method": "UPI",
+      "ref": "UPI234567890123",
+      "heads": {
+        "Tuition": 6000,
+        "Transport": 3000
+      },
+      "discount": 500,
+      "lateFee": 0,
+      "months": ["2026-03", "2026-04"],
+      "razorpayData": {
+        "razorpayPaymentId": "pay_xxxxxxxxxxxxx",
+        "razorpayOrderId": "order_xxxxxxxxxxxxx",
+        "razorpaySignature": "signature_xxxxxxxxxxxxx"
+      },
+      "createdBy": "admin",
+      "createdAt": "2026-03-06T11:45:00Z",
+      "status": "paid",
+      "note": "Early payment discount applied"
+    }
+  ],
+  "definitions": {
+    "schoolInfo": {
+      "type": "object",
+      "description": "School information for receipt header",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "School full name",
+          "examples": ["KHUSHI PUBLIC SCHOOL"]
+        },
+        "tagline": {
+          "type": "string",
+          "description": "School motto or tagline",
+          "examples": ["Education for Excellence"]
+        },
+        "address": {
+          "type": "string",
+          "description": "Complete school address"
+        },
+        "phone": {
+          "type": "string",
+          "description": "School contact number"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "School email address"
+        },
+        "website": {
+          "type": "string",
+          "format": "uri",
+          "description": "School website URL"
+        },
+        "logo": {
+          "type": "string",
+          "description": "School logo URL or base64 data"
+        }
+      }
+    }
+  }
+}
