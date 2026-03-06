@@ -1,8 +1,8 @@
 ﻿{
-    "startedAt":  "2026-03-05T05:48:08",
-    "backendPid":  12112,
-    "tunnelPid":  11912,
-    "tunnelUrl":  "https://personal-yale-regarding-harley.trycloudflare.com",
-    "apiUrl":  "https://personal-yale-regarding-harley.trycloudflare.com/api",
+    "startedAt":  "2026-03-06T11:43:07",
+    "backendPid":  7180,
+    "tunnelPid":  11304,
+    "tunnelUrl":  "https://golf-blacks-asn-uniform.trycloudflare.com",
+    "apiUrl":  "https://golf-blacks-asn-uniform.trycloudflare.com/api",
     "backendHealth":  "http://localhost:5000/health"
 }

@@ -1,7 +1,7 @@
 ﻿{
-    "startedAt":  "2026-03-05T05:48:02",
-    "backendPid":  4484,
-    "frontendPid":  10288,
+    "startedAt":  "2026-03-06T11:43:02",
+    "backendPid":  15172,
+    "frontendPid":  9868,
     "backendUrl":  "http://localhost:5000/api",
     "frontendUrl":  "http://localhost:8000/login.html"
 }
