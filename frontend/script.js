@@ -2461,6 +2461,7 @@ function renderFees(){
   if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
 
   renderRecentReceipts();
+  initQuickPaymentBox();
 }
 
 function sumReceiptsThisMonth(){
@@ -2953,6 +2954,110 @@ function showThisMonthReceiptsModal(){
   }
   
   openModal('#modalThisMonthReceipts');
+}
+
+// Quick Payment Box Handlers
+function initQuickPaymentBox(){
+  const searchInput = qs('#qpStudentSearch');
+  const amountInput = qs('#qpAmount');
+  const methodSelect = qs('#qpMethod');
+  const refInput = qs('#qpRef');
+  const clearBtn = qs('#qpBtnClear');
+  const payBtn = qs('#qpBtnPay');
+  const dropdown = qs('#qpStudentList');
+  const badge = qs('#qpBadgeStatus');
+
+  // Student search with dropdown
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        dropdown.classList.add('d-none');
+        return;
+      }
+
+      const matches = AppState.students.filter(s => 
+        s.roll.toString().includes(query) || 
+        (s.name || '').toLowerCase().includes(query) ||
+        (s.phone || '').includes(query)
+      ).slice(0, 5);
+
+      if (matches.length === 0) {
+        dropdown.classList.add('d-none');
+      } else {
+        dropdown.innerHTML = matches.map(s => `
+          <div class="dropdown-item" data-roll="${s.roll}" data-name="${s.name}">
+            <strong>${s.roll}</strong> - ${s.name} (${s.class})
+          </div>
+        `).join('');
+        dropdown.classList.remove('d-none');
+
+        qsa('#qpStudentList .dropdown-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const roll = item.getAttribute('data-roll');
+            const name = item.getAttribute('data-name');
+            searchInput.value = roll;
+            dropdown.classList.add('d-none');
+            amountInput.focus();
+          });
+        });
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && !dropdown.classList.contains('d-none')) {
+        qsa('#qpStudentList .dropdown-item')[0]?.focus();
+      }
+    });
+  }
+
+  // Clear button
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      searchInput.value = '';
+      amountInput.value = '';
+      methodSelect.value = 'Cash';
+      refInput.value = '';
+      dropdown.classList.add('d-none');
+      badge.textContent = '';
+      badge.className = 'badge';
+    };
+  }
+
+  // Record Payment button - open modal with pre-filled data
+  if (payBtn) {
+    payBtn.onclick = () => {
+      const roll = searchInput.value.trim();
+      const amount = parseFloat(amountInput.value) || 0;
+      const method = methodSelect.value;
+      const ref = refInput.value.trim();
+
+      if (!roll) {
+        alert('Please select a student');
+        searchInput.focus();
+        return;
+      }
+
+      // Find student for validation
+      const student = AppState.students.find(s => s.roll.toString() === roll);
+      if (!student) {
+        alert('Student not found');
+        searchInput.focus();
+        return;
+      }
+
+      // Pre-fill the Record Payment modal
+      qs('#rpRoll').value = roll;
+      qs('#rpName').value = student.name || '';
+      qs('#rpClass').value = student.class || '';
+      if (amount > 0) qs('#rpPayNow').value = amount;
+      qs('#rpMethod').value = method;
+      if (ref) qs('#rpRef').value = ref;
+
+      // Open the Record Payment modal
+      openModal('#modalRecordPayment');
+    };
+  }
 }
 
 // ---------- CSV Export (Core) ----------

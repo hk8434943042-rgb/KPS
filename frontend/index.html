@@ -385,6 +385,46 @@
           </div>
         </div>
       
+        <!-- Quick Payment Box -->
+        <div class="card card-mt-16 quick-payment-box">
+          <div class="card__header">
+            <h3>💳 Quick Payment</h3>
+            <div class="card__actions">
+              <span class="badge" id="qpBadgeStatus"></span>
+            </div>
+          </div>
+          <div class="p-12">
+            <div class="grid-2 gap-12">
+              <label>
+                <span>Student (Admission No./Name)</span>
+                <input type="search" id="qpStudentSearch" placeholder="e.g., 1007 or Priya" autocomplete="off" />
+                <small class="muted">Press ↓ for list</small>
+                <div id="qpStudentList" class="dropdown d-none"></div>
+              </label>
+              <label>
+                <span>Amount (₹)</span>
+                <input type="number" id="qpAmount" placeholder="0" min="0" step="1" />
+              </label>
+            </div>
+            <div class="grid-2 gap-12 mt-12">
+              <label>
+                <span>Payment Method</span>
+                <select id="qpMethod" required>
+                  <option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option>
+                </select>
+              </label>
+              <label>
+                <span>Reference (Optional)</span>
+                <input type="text" id="qpRef" placeholder="UPI/Txn Ref No." />
+              </label>
+            </div>
+            <div class="flex gap-8 mt-12 justify-end">
+              <button type="button" class="btn btn-ghost" id="qpBtnClear">Clear</button>
+              <button type="button" class="btn btn-primary" id="qpBtnPay">💵 Record Payment</button>
+            </div>
+          </div>
+        </div>
+      
         <!-- Filters -->
         <div class="toolbar">
           <div class="filters">
@@ -2671,7 +2711,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-receipts-record-payment-btn-1"></script>
+<script src="script.js?v=20260306-quick-payment-box-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
