@@ -2219,27 +2219,34 @@ function renderFees(){
   if (feesKpiReceipts) feesKpiReceipts.textContent = String(countReceiptsThisMonth());
 
   // Make "Collected" KPI clickable to show receipts list
-  const feesKpiCollectedCard = qs('.kpi-grid').querySelector('.kpi:nth-child(1)');
-  if (feesKpiCollectedCard) {
-    feesKpiCollectedCard.style.cursor = 'pointer';
-    feesKpiCollectedCard.onclick = (e) => {
+  // Setup first KPI card (Collected)
+  const firstKpiCard = feesKpiCollected?.closest('.kpi');
+  if (firstKpiCard && firstKpiCard.id !== 'feesKpiDueCard' && firstKpiCard.id !== 'feesKpiOverdueCard' && firstKpiCard.id !== 'feesKpiFullyPaidCard') {
+    firstKpiCard.style.cursor = 'pointer';
+    firstKpiCard.onclick = (e) => {
       e.stopPropagation();
       showReceiptsModal();
     };
   }
 
-  // Make "Receipts" KPI clickable to show receipts list
-  const feesKpiReceiptsCard = qs('.kpi-grid').querySelector('.kpi:nth-child(4)');
-  if (feesKpiReceiptsCard) {
-    feesKpiReceiptsCard.style.cursor = 'pointer';
-    feesKpiReceiptsCard.onclick = (e) => {
+  // Setup receipts KPI card
+  const receiptsKpiCard = feesKpiReceipts?.closest('.kpi');
+  if (receiptsKpiCard && receiptsKpiCard.id !== 'feesKpiDueCard' && receiptsKpiCard.id !== 'feesKpiOverdueCard' && receiptsKpiCard.id !== 'feesKpiFullyPaidCard') {
+    receiptsKpiCard.style.cursor = 'pointer';
+    receiptsKpiCard.onclick = (e) => {
       e.stopPropagation();
       showReceiptsModal();
     };
   }
 
   const feesBtnCollect = qs('#feesBtnCollect');
-  if (feesBtnCollect) feesBtnCollect.onclick = ()=> openModal('#modalRecordPayment');
+  if (feesBtnCollect) {
+    feesBtnCollect.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal('#modalRecordPayment');
+    };
+  }
   
   const feesBtnFindReceipt = qs('#feesBtnFindReceipt');
   if (feesBtnFindReceipt) feesBtnFindReceipt.onclick = findReceiptByNumber;
