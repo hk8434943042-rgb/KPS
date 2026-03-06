@@ -1286,6 +1286,14 @@ function monthOfToday() {
   return `${yyyy}-${mm}`;
 }
 
+function formatMonthLabel(monthStr) {
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return '—';
+  const [year, month] = monthStr.split('-').map(Number);
+  const dt = new Date(year, month - 1, 1);
+  if (Number.isNaN(dt.getTime())) return monthStr;
+  return dt.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
 // ===== MISCELLANEOUS FEE HELPER =====
 // Miscellaneous fee is collected 4 times per year at 3-month intervals
 // Collection months: January (1), April (4), July (7), October (10)
@@ -2474,7 +2482,7 @@ function showFullyPaidStudentsModal() {
       const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
       const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
       
-      if (balance === 0 && v.paid > 0) {
+      if (balance === 0 && Number(v.paid || 0) > 0 && (!lastPaidMonth || month > lastPaidMonth)) {
         lastPaidMonth = month;
       }
     });
@@ -2491,7 +2499,7 @@ function showFullyPaidStudentsModal() {
       name: s.name,
       class: s.class,
       section: s.section,
-      paidTillMonth: lastPaidMonth || '—',
+      paidTillMonth: formatMonthLabel(lastPaidMonth),
       lastPayment: lastPaymentDate || '—'
     });
   });
