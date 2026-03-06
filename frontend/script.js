@@ -2178,6 +2178,13 @@ function renderFees(){
         const studentsFullyPaid = countStudentsFullyPaid();
         if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = String(studentsFullyPaid);
         if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = studentsFullyPaid === 1 ? '1 student' : `${studentsFullyPaid} students`;
+        
+        // Make KPI card clickable to show fully paid students list
+        feesKpiFullyPaidCard.style.cursor = 'pointer';
+        feesKpiFullyPaidCard.onclick = (e) => {
+          e.stopPropagation();
+          showFullyPaidStudentsModal();
+        };
       } catch (err) {
         console.error('Error calculating fully paid students:', err);
         if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = '0';
@@ -2370,6 +2377,93 @@ function showDueStudentsModal() {
   
   // Open the modal
   openModal('#modalDueStudents');
+}
+
+// Show modal with students who are fully paid
+function showFullyPaidStudentsModal() {
+  const m = monthOfToday();
+  const fullyPaidStudents = [];
+  const studentsWithDue = new Set();
+  
+  // First, identify students with due fees
+  Object.entries(AppState.fees).forEach(([key, v]) => {
+    const [roll, month] = key.split('|');
+    if (month > m) return; // Skip future months
+    
+    const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+    const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+    
+    if (balance > 0) {
+      studentsWithDue.add(roll);
+    }
+  });
+  
+  // Now collect fully paid students with their last payment info
+  AppState.students.forEach(s => {
+    if (studentsWithDue.has(s.roll)) return; // Skip students with due fees
+    
+    // Find the latest month paid for this student
+    let lastPaidMonth = '';
+    let lastPaymentDate = '';
+    
+    Object.entries(AppState.fees).forEach(([key, v]) => {
+      const [roll, month] = key.split('|');
+      if (roll !== s.roll || month > m) return;
+      
+      const headsTotal = Object.values(v.heads || {}).reduce((a, b) => a + Number(b || 0), 0);
+      const balance = Math.max(0, headsTotal + (v.lateFee || 0) - (v.discount || 0) - (v.paid || 0));
+      
+      if (balance === 0 && v.paid > 0) {
+        lastPaidMonth = month;
+      }
+    });
+    
+    // Find the latest receipt date for this student
+    AppState.receipts.forEach(r => {
+      if (r.roll === s.roll && (!lastPaymentDate || r.date > lastPaymentDate)) {
+        lastPaymentDate = r.date;
+      }
+    });
+    
+    fullyPaidStudents.push({
+      roll: s.roll,
+      name: s.name,
+      class: s.class,
+      section: s.section,
+      paidTillMonth: lastPaidMonth || '—',
+      lastPayment: lastPaymentDate || '—'
+    });
+  });
+  
+  // Sort alphabetically by name
+  fullyPaidStudents.sort((a, b) => a.name.localeCompare(b.name));
+  
+  // Populate modal
+  const tbody = qs('#fullyPaidStudentsBody');
+  const meta = qs('#fullyPaidStudentsMeta');
+  
+  if (meta) {
+    meta.textContent = `Total: ${fullyPaidStudents.length} student${fullyPaidStudents.length === 1 ? '' : 's'} fully paid`;
+  }
+  
+  if (tbody) {
+    if (fullyPaidStudents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No students fully paid</td></tr>';
+    } else {
+      tbody.innerHTML = fullyPaidStudents.map(s => `
+        <tr>
+          <td>${s.roll}</td>
+          <td>${s.name}</td>
+          <td>${s.class}-${s.section}</td>
+          <td>${s.paidTillMonth}</td>
+          <td>${s.lastPayment}</td>
+        </tr>
+      `).join('');
+    }
+  }
+  
+  // Open the modal
+  openModal('#modalFullyPaidStudents');
 }
 
 function renderRecentReceipts(){

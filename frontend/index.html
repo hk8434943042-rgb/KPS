@@ -650,6 +650,36 @@
           </footer>
         </form>
       </dialog>
+
+      <!-- MODAL: Students Fully Paid -->
+      <dialog class="modal" id="modalFullyPaidStudents">
+        <form method="dialog" class="modal__content">
+          <header class="modal__header">
+            <h3>Students Fully Paid</h3>
+            <button class="icon-btn" value="cancel" type="button" aria-label="Close">✖</button>
+          </header>
+          <div class="p-12">
+            <div id="fullyPaidStudentsMeta" class="muted mb-12">—</div>
+            <div class="table-wrap maxh-400 ovy-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Admission No.</th>
+                    <th>Name</th>
+                    <th>Class</th>
+                    <th>Paid Till Month</th>
+                    <th>Last Payment</th>
+                  </tr>
+                </thead>
+                <tbody id="fullyPaidStudentsBody"><!-- injected --></tbody>
+              </table>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="btn btn-ghost" value="cancel">Close</button>
+          </footer>
+        </form>
+      </dialog>
       
       <!-- MODAL: Fee Heads / Structures -->
       <dialog class="modal" id="modalFeeHeads">
