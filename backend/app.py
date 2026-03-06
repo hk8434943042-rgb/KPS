@@ -1634,6 +1634,7 @@ def generate_thermal_receipt():
 
         receipt_num = data.get('receipt_number', 'N/A')
         payment_date = data.get('payment_date', datetime.now().strftime('%d-%m-%Y'))
+        payment_time = data.get('payment_time', datetime.now().strftime('%I:%M %p'))
         student_name = data.get('student_name', 'N/A')
         amount_raw = data.get('amount', 0)
         method = data.get('payment_method', 'Cash')
@@ -1702,6 +1703,7 @@ def generate_thermal_receipt():
         receipt.append(line_lr('Course', str(course)).encode('utf-8'))
         receipt.append(line_lr('Course Duration', str(duration)).encode('utf-8'))
         receipt.append(line_lr('Date of payment', str(payment_date)).encode('utf-8'))
+        receipt.append(line_lr('Time of payment', str(payment_time)).encode('utf-8'))
         receipt.append(("-" * line_width + "\n").encode('utf-8'))
 
         receipt.append(line_lr('Sr  Particulars', 'Amount').encode('utf-8'))
@@ -1740,6 +1742,7 @@ def generate_html_receipt():
 
         receipt_num = html.escape(str(data.get('receipt_number', 'N/A')))
         payment_date = html.escape(str(data.get('payment_date', datetime.now().strftime('%d-%m-%Y'))))
+        payment_time = html.escape(str(data.get('payment_time', datetime.now().strftime('%I:%M %p'))))
         student_name = html.escape(str(data.get('student_name', 'N/A')))
         amount_raw = data.get('amount', 0)
         method = html.escape(str(data.get('payment_method', 'Cash')))
@@ -1839,6 +1842,10 @@ def generate_html_receipt():
                 <div class="rowline">
                     <div class="left">Courses Duration <span class="dots">&nbsp;{duration}&nbsp;</span></div>
                     <div class="right">Date of payment <span class="dots">&nbsp;{payment_date}&nbsp;</span></div>
+                </div>
+                <div class="rowline">
+                    <div class="left">Time of payment <span class="dots">&nbsp;{payment_time}&nbsp;</span></div>
+                    <div class="right"></div>
                 </div>
 
                 <table>

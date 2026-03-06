@@ -256,6 +256,7 @@ async function fetchPaymentsFromBackend() {
     AppState.receipts = (payments || []).map(p => ({
       no: p.transaction_id || `P-${p.id}`,
       date: String(p.payment_date || '').slice(0, 10),
+      time: normalizeReceiptTime(p.payment_time) || normalizeReceiptTime(p.created_at),
       roll: p.roll_no || '',
       name: p.name || '',
       method: p.payment_method || 'Cash',
@@ -1170,6 +1171,7 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
   const receipt = {
     no: 'R-' + String(AppState.receipts.length + 1).padStart(4, '0'),
     date: todayYYYYMMDD(),
+    time: formatNowTime12h(),
     roll: student.roll,
     name: student.name,
     method: 'razorpay',
@@ -1197,7 +1199,7 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
  * Print receipt on thermal printer (ESC/POS format)
  * Works with thermal printers like the ones used in petrol pumps
  */
-async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose) {
+async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose, paymentTime) {
   try {
     const receiptData = {
       payment_id: paymentId,
@@ -1207,7 +1209,8 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
       payment_method: paymentMethod,
       purpose: purpose || 'School Fee',
       receipt_number: 'RCP-' + String(AppState.receipts.length + 1).padStart(5, '0'),
-      payment_date: todayYYYYMMDD()
+      payment_date: todayYYYYMMDD(),
+      payment_time: paymentTime || formatNowTime12h()
     };
     
     const response = await fetch(API_URL + '/receipt/thermal', {
@@ -1477,6 +1480,36 @@ function todayYYYYMMDD() {
   const dd = String(d.getDate()).padStart(2,'0');
   return `${yyyy}-${mm}-${dd}`;
 }
+
+function formatNowTime12h() {
+  return new Date().toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+function normalizeReceiptTime(input) {
+  if (!input) return '';
+  const raw = String(input).trim();
+  if (!raw) return '';
+  if (/^\d{1,2}:\d{2}(\s?[APMapm]{2})?$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  }
+  return '';
+}
+
+function getReceiptDisplayTime(receipt) {
+  return normalizeReceiptTime(receipt?.time) || formatNowTime12h();
+}
+
 function monthOfToday() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -3151,6 +3184,7 @@ function initQuickPaymentBox(){
       const receipt = {
         no: receiptNo.toString(),
         date: todayYYYYMMDD(),
+        time: formatNowTime12h(),
         roll: roll,
         name: student.name,
         amount: amount,
@@ -3579,6 +3613,7 @@ function initRecordPaymentModal(){
       AppState.fees[key].lastReceipt=recNo;
       AppState.receipts.push({
         no:recNo, date:todayYYYYMMDD(), roll, name:s.name, method:rpMethod.value,
+        time: formatNowTime12h(),
         amount:payNow, ref:(rpRef.value||'').trim()
       });
 
@@ -3729,6 +3764,7 @@ function initConcessionModal(){
 function printReceipt(no){
   const r=AppState.receipts.find(x=> x.no===no);
   if(!r){ alert('Receipt not found'); return; }
+  const receiptTime = getReceiptDisplayTime(r);
 
   // Offer choice for thermal or regular printer
   const choice = confirm(
@@ -3746,7 +3782,8 @@ function printReceipt(no){
       r.roll,
       r.amount,
       r.method,
-      'School Fee'
+      'School Fee',
+      receiptTime
     );
   } else {
     // Regular browser print
@@ -3764,6 +3801,7 @@ function printReceipt(no){
         <hr />
         <div><strong>Receipt No:</strong> ${r.no}</div>
         <div><strong>Date:</strong> ${r.date}</div>
+        <div><strong>Time:</strong> ${receiptTime}</div>
         <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
         <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
         <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
@@ -3956,6 +3994,7 @@ function generateReceiptPDF(receiptNo) {
   const email = sch.email || '';
   const logoUrl = sch.logo || 'assets/logo.png';
   const amount = (receipt.amount || 0).toLocaleString(AppState.settings.locale || 'en-IN');
+  const receiptTime = getReceiptDisplayTime(receipt);
   const now = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
 
   // Build HTML string for PDF
@@ -3998,6 +4037,7 @@ function generateReceiptPDF(receiptNo) {
   html += '<div class="receipt-body">';
   html += '<div class="receipt-row"><span class="receipt-row-label">Receipt No:</span><span class="receipt-row-value"><strong>' + receipt.no + '</strong></span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Date:</span><span class="receipt-row-value">' + receipt.date + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Time:</span><span class="receipt-row-value">' + receiptTime + '</span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Student Name:</span><span class="receipt-row-value"><strong>' + receipt.name + '</strong></span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Admission No:</span><span class="receipt-row-value">' + receipt.roll + '</span></div>';
   html += '<div class="receipt-row"><span class="receipt-row-label">Payment Method:</span><span class="receipt-row-value">' + receipt.method + '</span></div>';
