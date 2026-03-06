@@ -77,6 +77,25 @@ function clearStaleCloudflareOverride() {
   return true;
 }
 
+function clearApiOverrideAndReconnect() {
+  const previousOverride = (localStorage.getItem('API_URL_OVERRIDE') || '').trim();
+  localStorage.removeItem('API_URL_OVERRIDE');
+  API_URL = DEFAULT_API_URL;
+
+  const setApiBaseUrl = document.getElementById('setApiBaseUrl');
+  if (setApiBaseUrl) setApiBaseUrl.value = '';
+
+  const settingsApiStatus = document.getElementById('settingsApiStatus');
+  if (settingsApiStatus) {
+    settingsApiStatus.textContent = previousOverride
+      ? `API override cleared (${previousOverride}). Active API: ${API_URL}`
+      : `No API override found. Active API: ${API_URL}`;
+    settingsApiStatus.style.color = '';
+  }
+
+  checkServerConnection(false);
+}
+
 // ---------- Global State ----------
 const AppState = {
   theme: 'system',
@@ -379,6 +398,7 @@ function updateServerStatus(isConnected) {
   const statusTopbar = document.getElementById('serverStatusTopbar');
   const statusDot = document.getElementById('serverStatusDot');
   const statusLabel = document.getElementById('serverStatusLabel');
+  const offlineBanner = document.getElementById('offlineBanner');
   
   // also update login page indicator if present
   const loginStatusTopbar = document.getElementById('loginServerStatusTopbar');
@@ -411,6 +431,10 @@ function updateServerStatus(isConnected) {
       loginStatusDot.classList.add('disconnected');
       loginStatusLabel.textContent = 'Offline';
     }
+  }
+
+  if (offlineBanner) {
+    offlineBanner.classList.toggle('offline-banner--hidden', !!isConnected);
   }
 }
 
@@ -671,6 +695,16 @@ function initializeAuth() {
   if (serverStatusTopbar) {
     serverStatusTopbar.addEventListener('click', checkServerConnection);
     console.log('✓ Server status topbar handler attached');
+  }
+
+  const offlineBannerRetry = document.getElementById('offlineBannerRetry');
+  if (offlineBannerRetry) {
+    offlineBannerRetry.addEventListener('click', () => checkServerConnection(false));
+  }
+
+  const offlineBannerResetApi = document.getElementById('offlineBannerResetApi');
+  if (offlineBannerResetApi) {
+    offlineBannerResetApi.addEventListener('click', clearApiOverrideAndReconnect);
   }
   
   // Auto-check server connection on initialization

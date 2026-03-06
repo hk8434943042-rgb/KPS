@@ -559,17 +559,27 @@ html[data-theme="dark"] .offline-banner__text {
   opacity: 0.9;
 }
 
-.offline-banner__retry {
+.offline-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.offline-banner__retry,
+.offline-banner__reset {
   padding: 6px 12px;
-  background: #dc2626;
-  color: white;
-  border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.offline-banner__retry {
+  background: #dc2626;
+  color: white;
+  border: none;
 }
 
 html[data-theme="dark"] .offline-banner__retry {
@@ -582,6 +592,26 @@ html[data-theme="dark"] .offline-banner__retry {
 
 html[data-theme="dark"] .offline-banner__retry:hover {
   background: #dc2626;
+}
+
+.offline-banner__reset {
+  background: rgba(255, 255, 255, 0.5);
+  color: #7f1d1d;
+  border: 1px solid #f87171;
+}
+
+html[data-theme="dark"] .offline-banner__reset {
+  background: rgba(127, 29, 29, 0.6);
+  color: #fecaca;
+  border-color: #ef4444;
+}
+
+.offline-banner__reset:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+html[data-theme="dark"] .offline-banner__reset:hover {
+  background: rgba(127, 29, 29, 0.85);
 }
 
 /* Grid */
@@ -2630,9 +2660,17 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
     order: 1;
   }
 
-  .offline-banner__retry {
+  .offline-banner__actions {
     flex-basis: 100%;
     order: 3;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .offline-banner__retry,
+  .offline-banner__reset {
+    width: 100%;
   }
 
   .page-header {

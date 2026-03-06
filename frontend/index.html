@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Styles -->
-  <link rel="stylesheet" href="style.css?v=20260304-delhi-receipt-new" />
+  <link rel="stylesheet" href="style.css?v=20260306-offline-reset-api-btn" />
 
   <script>
     // Prevent index page paint flicker when session is missing in this tab.
@@ -131,7 +131,10 @@
           <strong>Backend Server is Offline</strong>
           <p>Unable to connect to the backend server. Some features may not work. Please check your internet connection or contact your administrator.</p>
         </div>
-        <button type="button" class="offline-banner__retry" id="offlineBannerRetry" title="Retry connection">🔄 Retry</button>
+        <div class="offline-banner__actions">
+          <button type="button" class="offline-banner__retry" id="offlineBannerRetry" title="Retry connection">🔄 Retry</button>
+          <button type="button" class="offline-banner__reset" id="offlineBannerResetApi" title="Clear saved API URL override">Reset API Override</button>
+        </div>
       </div>
     </div>
 
@@ -2716,7 +2719,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-<script src="script.js?v=20260306-stale-api-override-fix"></script>
+<script src="script.js?v=20260306-offline-reset-api-btn"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
