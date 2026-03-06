@@ -4023,8 +4023,9 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
 
   const monthLabel = formatMonthLabel(month || currentMonth());
   const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
-  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley Sheikhpura');
-  const headingTitle = escapedText(`${title} Monthly Attendance`);
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+  const reportBase = String(title || 'Teacher').toLowerCase().includes('staff') ? 'Staff' : 'Teacher';
+  const headingTitle = escapedText(`${reportBase} Attendance Chart:-`);
   const popup = window.open('', '_blank');
   if (!popup) {
     alert('Unable to open print window. Please allow popups and try again.');
@@ -4036,15 +4037,31 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
       <head>
         <title>${schoolName} - ${headingTitle} (${monthLabel})</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 16px; }
-          .sheet-header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 12px; }
-          .school-name { margin: 0; font-size: 26px; text-transform: uppercase; letter-spacing: 0.6px; }
-          .school-tagline { margin: 4px 0 0; color: #444; font-size: 13px; }
-          .report-title { margin: 10px 0 4px; font-size: 18px; }
-          .report-meta { margin: 0; color: #444; font-size: 13px; }
+          body { font-family: "Times New Roman", serif; padding: 18px 24px; }
+          .sheet-header { text-align: center; margin-bottom: 16px; }
+          .school-name {
+            margin: 0;
+            font-size: 56px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 14px 0 0; color: #111; font-size: 40px; font-weight: 700; }
+          .report-title { margin: 18px 0 6px; font-size: 44px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0 0 8px; color: #111; font-size: 26px; font-weight: 600; }
           table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #999; padding: 8px; text-align: left; }
+          th, td { border: 1px solid #888; padding: 8px; text-align: left; font-size: 14px; }
           th { background: #f3f3f3; }
+          @media print {
+            .school-name { font-size: 40px; }
+            .school-tagline { font-size: 30px; }
+            .report-title { font-size: 32px; }
+            .report-meta { font-size: 20px; }
+          }
         </style>
       </head>
       <body>
@@ -4052,7 +4069,7 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
           <h1 class="school-name">${schoolName}</h1>
           <p class="school-tagline">${schoolTagline}</p>
           <h2 class="report-title">${headingTitle}</h2>
-          <p class="report-meta">Month: ${monthLabel}</p>
+          <p class="report-meta">${monthLabel}</p>
         </div>
         <table>
           <thead>
