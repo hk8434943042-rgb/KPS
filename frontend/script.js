@@ -2130,23 +2130,65 @@ function openEditStudent(roll){
 
 // ---------- Fees View ----------
 function renderFees(){
-  // Update KPI labels based on user role
+  // Update KPI labels and values based on user role
   const feesKpiCollectedTitle = qs('#feesKpiCollectedTitle');
   const feesKpiReceiptsTitle = qs('#feesKpiReceiptsTitle');
+  const feesKpiOverdueCard = qs('#feesKpiOverdueCard');
+  const feesKpiDueCard = qs('#feesKpiDueCard');
+  const feesKpiOutstandingTitle = qs('#feesKpiOutstandingTitle');
+  const feesKpiOutstandingCount = qs('#feesKpiOutstandingCount');
+  
   if (isReceptionUser()) {
+    // Reception: Show today's data and student counts
     if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (Today)';
     if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (Today)';
+    
+    // Hide overdue KPI for reception
+    if (feesKpiOverdueCard) feesKpiOverdueCard.style.display = 'none';
+    
+    // Change Outstanding KPI to show "Students with Due Fees"
+    if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Students with Due Fees';
+    if (feesKpiDueCard) {
+      const feesKpiOutstanding = qs('#feesKpiOutstanding');
+      const studentsWithDue = countStudentsWithDue();
+      if (feesKpiOutstanding) feesKpiOutstanding.textContent = String(studentsWithDue);
+      if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = studentsWithDue === 1 ? '1 student' : `${studentsWithDue} students`;
+    }
+    
+    // Show "Students Fully Paid" KPI for reception
+    const feesKpiFullyPaidCard = qs('#feesKpiFullyPaidCard');
+    if (feesKpiFullyPaidCard) {
+      feesKpiFullyPaidCard.style.display = '';
+      const feesKpiFullyPaid = qs('#feesKpiFullyPaid');
+      const feesKpiFullyPaidCount = qs('#feesKpiFullyPaidCount');
+      const studentsFullyPaid = countStudentsFullyPaid();
+      if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = String(studentsFullyPaid);
+      if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = studentsFullyPaid === 1 ? '1 student' : `${studentsFullyPaid} students`;
+    }
   } else {
+    // Admin: Show monthly data and amounts
     if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (This Month)';
     if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (This Month)';
+    
+    // Show overdue KPI for admin
+    if (feesKpiOverdueCard) feesKpiOverdueCard.style.display = '';
+    
+    // Hide "Students Fully Paid" KPI for admin
+    const feesKpiFullyPaidCard = qs('#feesKpiFullyPaidCard');
+    if (feesKpiFullyPaidCard) feesKpiFullyPaidCard.style.display = 'none';
+    
+    // Show Outstanding in rupees for admin
+    if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Outstanding (This Month)';
+    const feesKpiOutstanding = qs('#feesKpiOutstanding');
+    if (feesKpiOutstanding) feesKpiOutstanding.textContent = fmtINR(sumOutstandingThisMonth());
+    
+    const feesKpiOverdue = qs('#feesKpiOverdue');
+    if (feesKpiOverdue) feesKpiOverdue.textContent = fmtINR(sumOverdue());
   }
   
   const feesKpiCollected = qs('#feesKpiCollected');
   if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
-  const feesKpiOutstanding = qs('#feesKpiOutstanding');
-  if (feesKpiOutstanding) feesKpiOutstanding.textContent = fmtINR(sumOutstandingThisMonth());
-  const feesKpiOverdue = qs('#feesKpiOverdue');
-  if (feesKpiOverdue) feesKpiOverdue.textContent = fmtINR(sumOverdue());
+  
   const feesKpiReceipts = qs('#feesKpiReceipts');
   if (feesKpiReceipts) feesKpiReceipts.textContent = String(countReceiptsThisMonth());
 
@@ -2218,6 +2260,32 @@ function sumOverdue(){
     total+=bal;
   });
   return total;
+}
+function countStudentsWithDue(){
+  const m=monthOfToday();
+  const studentsWithDue = new Set();
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [roll,month]=key.split('|'); 
+    if(month>m) return; // Skip future months
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const balance=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    if(balance>0) studentsWithDue.add(roll);
+  });
+  return studentsWithDue.size;
+}
+function countStudentsFullyPaid(){
+  const m=monthOfToday();
+  const allStudentRolls = new Set(AppState.students.map(s => s.roll));
+  const studentsWithDue = new Set();
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [roll,month]=key.split('|');
+    if(month>m) return; // Skip future months
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const balance=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    if(balance>0) studentsWithDue.add(roll);
+  });
+  // Students fully paid = all students - students with due
+  return allStudentRolls.size - studentsWithDue.size;
 }
 function renderRecentReceipts(){
   const tbody=qs('#feesReceiptsBody');
