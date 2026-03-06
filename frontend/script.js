@@ -2150,13 +2150,22 @@ function renderFees(){
     if (feesKpiOutstandingTitle) feesKpiOutstandingTitle.textContent = 'Students with Due Fees';
     if (feesKpiDueCard) {
       const feesKpiOutstanding = qs('#feesKpiOutstanding');
-      const studentsWithDue = countStudentsWithDue();
-      if (feesKpiOutstanding) feesKpiOutstanding.textContent = String(studentsWithDue);
-      if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = studentsWithDue === 1 ? '1 student' : `${studentsWithDue} students`;
-      
-      // Make KPI card clickable to show student list
-      feesKpiDueCard.style.cursor = 'pointer';
-      feesKpiDueCard.onclick = () => showDueStudentsModal();
+      try {
+        const studentsWithDue = countStudentsWithDue();
+        if (feesKpiOutstanding) feesKpiOutstanding.textContent = String(studentsWithDue);
+        if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = studentsWithDue === 1 ? '1 student' : `${studentsWithDue} students`;
+        
+        // Make KPI card clickable to show student list
+        feesKpiDueCard.style.cursor = 'pointer';
+        feesKpiDueCard.onclick = (e) => {
+          e.stopPropagation();
+          showDueStudentsModal();
+        };
+      } catch (err) {
+        console.error('Error setting up due students KPI:', err);
+        if (feesKpiOutstanding) feesKpiOutstanding.textContent = '0';
+        if (feesKpiOutstandingCount) feesKpiOutstandingCount.textContent = '0 students';
+      }
     }
     
     // Show "Students Fully Paid" KPI for reception
@@ -2165,9 +2174,15 @@ function renderFees(){
       feesKpiFullyPaidCard.style.display = '';
       const feesKpiFullyPaid = qs('#feesKpiFullyPaid');
       const feesKpiFullyPaidCount = qs('#feesKpiFullyPaidCount');
-      const studentsFullyPaid = countStudentsFullyPaid();
-      if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = String(studentsFullyPaid);
-      if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = studentsFullyPaid === 1 ? '1 student' : `${studentsFullyPaid} students`;
+      try {
+        const studentsFullyPaid = countStudentsFullyPaid();
+        if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = String(studentsFullyPaid);
+        if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = studentsFullyPaid === 1 ? '1 student' : `${studentsFullyPaid} students`;
+      } catch (err) {
+        console.error('Error calculating fully paid students:', err);
+        if (feesKpiFullyPaid) feesKpiFullyPaid.textContent = '0';
+        if (feesKpiFullyPaidCount) feesKpiFullyPaidCount.textContent = '0 students';
+      }
     }
   } else {
     // Admin: Show monthly data and amounts
