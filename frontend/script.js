@@ -2876,6 +2876,7 @@ function renderRecentReceipts(filterByMonth=false){
   });
   qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
   qs('#feesBtnThisMonthReceipts').onclick=()=> showThisMonthReceiptsModal();
+  qs('#feesBtnRecordPayment').onclick=()=> openModal('#modalRecordPayment');
   
   // Wire up view mode toggles
   qsa('.receipt-view-btn').forEach(btn => {
