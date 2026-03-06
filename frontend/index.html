@@ -440,6 +440,7 @@
           <div class="card__header">
             <h3>Recent Receipts</h3>
             <div class="card__actions">
+              <button class="btn btn-ghost" id="feesBtnThisMonthReceipts">This Month's Receipts</button>
               <button class="btn btn-ghost" id="feesBtnPrint4ReceiptsA4">Print 4 Receipts (A4)</button>
               <button class="btn btn-ghost" id="feesBtnReceiptsExport">Export Receipts</button>
             </div>
@@ -1211,6 +1212,7 @@
                   <button type="button" class="btn btn-ghost" id="attMonthNext">Next Month →</button>
                   <button type="button" class="btn btn-primary" id="attBtnMonthLoad">Load Month</button>
                   <button type="button" class="btn" id="attBtnMonthPrint">Print A4</button>
+                  <button type="button" class="btn btn-ghost" id="attBtnDayWisePrint">Print Day-wise A4</button>
                 </div>
                 <div class="table-wrap maxh-400 ovy-auto mt-12">
                   <table class="table">
@@ -1562,6 +1564,7 @@
                   <button type="button" class="btn btn-ghost" id="staffAttMonthNext">Next Month →</button>
                   <button type="button" class="btn btn-primary" id="staffAttBtnMonthLoad">Load Month</button>
                   <button type="button" class="btn" id="staffAttBtnMonthPrint">Print A4</button>
+                  <button type="button" class="btn btn-ghost" id="staffAttBtnDayWisePrint">Print Day-wise A4</button>
                 </div>
                 <div class="table-wrap maxh-400 ovy-auto mt-12">
                   <table class="table">
@@ -2637,7 +2640,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-attendance-heading-2"></script>
+  <script src="script.js?v=20260306-receipts-thismonth-filter-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>

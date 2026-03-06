@@ -2769,20 +2769,31 @@ function showReceiptsModal() {
   alert(`Total Receipts: ${receipts.length}\n\nReceipt details are shown in the "Recent Receipts" table below.`);
 }
 
-function renderRecentReceipts(){
+function renderRecentReceipts(filterByMonth=false){
   const tbody=qs('#feesReceiptsBody');
   // Reception users see only today's receipts
   let filteredReceipts = [...AppState.receipts];
   const today = todayYYYYMMDD();
-  if (isReceptionUser()) {
+  const currentMonthStr = currentMonth();
+  
+  if (filterByMonth) {
+    // Filter by current month
+    filteredReceipts = filteredReceipts.filter(r => {
+      const receiptMonth = getMonthFromDate(r.date || '');
+      return receiptMonth === currentMonthStr;
+    });
+  } else if (isReceptionUser()) {
     filteredReceipts = filteredReceipts.filter(r=> (r.date||'') === today);
   }
   const rows=filteredReceipts.sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
   
-  // Update card header title based on user role
+  // Update card header title based on user role and filter
   const receiptCardHeader = qs('#feesReceiptsTable')?.closest('.card')?.querySelector('.card__header h3');
   if (receiptCardHeader) {
-    if (isReceptionUser()) {
+    if (filterByMonth) {
+      const monthLabel = formatMonthLabel(currentMonthStr);
+      receiptCardHeader.textContent = `Receipts (${monthLabel})`;
+    } else if (isReceptionUser()) {
       receiptCardHeader.textContent = 'Recent Receipts (Today)';
     } else {
       receiptCardHeader.textContent = 'Recent Receipts';
@@ -2810,6 +2821,7 @@ function renderRecentReceipts(){
     b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
   });
   qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
+  qs('#feesBtnThisMonthReceipts').onclick=()=> renderRecentReceipts(true);
 }
 
 // ---------- CSV Export (Core) ----------
@@ -3884,6 +3896,9 @@ function setupTeacherAttendance(){
   if (qs('#attBtnMonthPrint')) qs('#attBtnMonthPrint').onclick = () => {
     printMonthlyAttendance('Teachers', AttendanceMonthState.teacher || currentMonth(), '#attendanceMonthTableBody');
   };
+  if (qs('#attBtnDayWisePrint')) qs('#attBtnDayWisePrint').onclick = () => {
+    printTeacherDayWiseAttendance(AttendanceMonthState.teacher || currentMonth());
+  };
 
   loadAttendanceForDate(datePicker.value);
   renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
@@ -4094,6 +4109,258 @@ function printMonthlyAttendance(title, month, tableBodySelector) {
   popup.print();
 }
 
+function printTeacherDayWiseAttendance(month) {
+  if (!Array.isArray(AppState.teachers) || AppState.teachers.length === 0) {
+    alert('No teachers available to print.');
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+  const monthLabel = formatMonthLabel(targetMonth);
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+
+  const daySheets = [];
+  for (let d = 1; d <= totalDays; d++) {
+    const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dayDate = new Date(date);
+    const dayName = dayDate.toLocaleDateString('en-IN', { weekday: 'long' });
+    const displayDate = dayDate.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const isSunday = dayDate.getDay() === 0;
+
+    const rows = AppState.teachers.map((teacher, index) => {
+      const record = AppState.teacherAttendance[`${teacher.id}|${date}`];
+      const status = (record?.status || (isSunday ? 'leave' : 'absent')).toLowerCase();
+      const remarks = record?.remarks || (isSunday ? 'Sunday' : '');
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapedText(teacher.name || '-')}</td>
+          <td class="status-${status}">${escapedText(statusLabel)}</td>
+          <td>${escapedText(remarks || '-')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    daySheets.push(`
+      <section class="day-sheet">
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">Teacher Day-wise Attendance</h2>
+          <p class="report-meta">${escapedText(`${displayDate} (${dayName})`)}</p>
+          <p class="report-submeta">${escapedText(monthLabel)}</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px;">S.No.</th>
+              <th>Teacher Name</th>
+              <th style="width:130px;">Status</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>
+    `);
+  }
+
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${schoolName} - Teacher Day-wise Attendance (${escapedText(monthLabel)})</title>
+        <style>
+          body { font-family: "Times New Roman", serif; margin: 0; }
+          .day-sheet {
+            padding: 16px 20px;
+            page-break-after: always;
+            break-after: page;
+          }
+          .day-sheet:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .sheet-header { text-align: center; margin-bottom: 14px; }
+          .school-name {
+            margin: 0;
+            font-size: 42px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 10px 0 0; color: #111; font-size: 26px; font-weight: 700; }
+          .report-title { margin: 14px 0 4px; font-size: 30px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0; color: #111; font-size: 20px; font-weight: 700; }
+          .report-submeta { margin: 4px 0 0; color: #333; font-size: 15px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #888; padding: 7px; text-align: left; font-size: 13px; }
+          th { background: #f3f3f3; }
+          .status-present { color: #0a6f2e; font-weight: 700; }
+          .status-absent { color: #b71c1c; font-weight: 700; }
+          .status-leave { color: #0f5f8f; font-weight: 700; }
+          @media print {
+            .day-sheet { padding: 10mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${daySheets.join('')}
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function printStaffDayWiseAttendance(month) {
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    alert('No staff available to print.');
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+  const monthLabel = formatMonthLabel(targetMonth);
+  const schoolName = escapedText(AppState.settings?.school?.name || 'KHUSHI PUBLIC SCHOOL');
+  const schoolTagline = escapedText(AppState.settings?.school?.tagline || 'Deoley(Sheikhpura)');
+
+  const daySheets = [];
+  for (let d = 1; d <= totalDays; d++) {
+    const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dayDate = new Date(date);
+    const dayName = dayDate.toLocaleDateString('en-IN', { weekday: 'long' });
+    const displayDate = dayDate.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const isSunday = dayDate.getDay() === 0;
+
+    const rows = staffList.map((staff, index) => {
+      const staffId = String(staff.id || `staff_${index}`);
+      const record = AppState.staffAttendance[`${staffId}|${date}`];
+      const status = (record?.status || (isSunday ? 'leave' : 'absent')).toLowerCase();
+      const remarks = record?.remarks || (isSunday ? 'Sunday' : '');
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapedText(staff.name || '-')}</td>
+          <td class="status-${status}">${escapedText(statusLabel)}</td>
+          <td>${escapedText(remarks || '-')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    daySheets.push(`
+      <section class="day-sheet">
+        <div class="sheet-header">
+          <h1 class="school-name">${schoolName}</h1>
+          <p class="school-tagline">${schoolTagline}</p>
+          <h2 class="report-title">Staff Day-wise Attendance</h2>
+          <p class="report-meta">${escapedText(`${displayDate} (${dayName})`)}</p>
+          <p class="report-submeta">${escapedText(monthLabel)}</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px;">S.No.</th>
+              <th>Staff Name</th>
+              <th style="width:130px;">Status</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </section>
+    `);
+  }
+
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${schoolName} - Staff Day-wise Attendance (${escapedText(monthLabel)})</title>
+        <style>
+          body { font-family: "Times New Roman", serif; margin: 0; }
+          .day-sheet {
+            padding: 16px 20px;
+            page-break-after: always;
+            break-after: page;
+          }
+          .day-sheet:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .sheet-header { text-align: center; margin-bottom: 14px; }
+          .school-name {
+            margin: 0;
+            font-size: 42px;
+            line-height: 1;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #0a8fd1;
+            -webkit-text-stroke: 1px #0f5f8f;
+            text-shadow: 2px 2px 0 #bde9ff;
+          }
+          .school-tagline { margin: 10px 0 0; color: #111; font-size: 26px; font-weight: 700; }
+          .report-title { margin: 14px 0 4px; font-size: 30px; font-weight: 700; text-decoration: underline; }
+          .report-meta { margin: 0; color: #111; font-size: 20px; font-weight: 700; }
+          .report-submeta { margin: 4px 0 0; color: #333; font-size: 15px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #888; padding: 7px; text-align: left; font-size: 13px; }
+          th { background: #f3f3f3; }
+          .status-present { color: #0a6f2e; font-weight: 700; }
+          .status-absent { color: #b71c1c; font-weight: 700; }
+          .status-leave { color: #0f5f8f; font-weight: 700; }
+          @media print {
+            .day-sheet { padding: 10mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${daySheets.join('')}
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
 function renderSalaryPayments(){
   const tbody = qs('#salaryTableBody');
   if (!tbody) return;
@@ -4288,6 +4555,9 @@ function setupStaffAttendance() {
   };
   if (qs('#staffAttBtnMonthPrint')) qs('#staffAttBtnMonthPrint').onclick = () => {
     printMonthlyAttendance('Staff', AttendanceMonthState.staff || currentMonth(), '#staffAttendanceMonthTableBody');
+  };
+  if (qs('#staffAttBtnDayWisePrint')) qs('#staffAttBtnDayWisePrint').onclick = () => {
+    printStaffDayWiseAttendance(AttendanceMonthState.staff || currentMonth());
   };
 
   loadStaffAttendanceForDate(datePicker.value);
