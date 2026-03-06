@@ -1817,6 +1817,14 @@ async function loadDashboardData() {
     fetchAllPayments()
   ]);
 
+  // Update KPI title based on user role
+  const kpiFeesTitle = qs('#kpiFeesTitle');
+  if (isReceptionUser()) {
+    if (kpiFeesTitle) kpiFeesTitle.textContent = 'Fees Collected (Today)';
+  } else {
+    if (kpiFeesTitle) kpiFeesTitle.textContent = 'Fees Collected (This Month)';
+  }
+
   // Update KPI cards with real data
   const kpiStudents = qs('#kpiStudents');
   const kpiAttendance = qs('#kpiAttendance');
@@ -2122,6 +2130,17 @@ function openEditStudent(roll){
 
 // ---------- Fees View ----------
 function renderFees(){
+  // Update KPI labels based on user role
+  const feesKpiCollectedTitle = qs('#feesKpiCollectedTitle');
+  const feesKpiReceiptsTitle = qs('#feesKpiReceiptsTitle');
+  if (isReceptionUser()) {
+    if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (Today)';
+    if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (Today)';
+  } else {
+    if (feesKpiCollectedTitle) feesKpiCollectedTitle.textContent = 'Collected (This Month)';
+    if (feesKpiReceiptsTitle) feesKpiReceiptsTitle.textContent = 'Receipts (This Month)';
+  }
+  
   const feesKpiCollected = qs('#feesKpiCollected');
   if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
   const feesKpiOutstanding = qs('#feesKpiOutstanding');
@@ -2159,11 +2178,22 @@ function renderFees(){
 }
 
 function sumReceiptsThisMonth(){
+  // Reception users see only today's receipts, admin sees full month
+  if (isReceptionUser()) {
+    const today = dateOfToday();
+    return AppState.receipts.filter(r=> (r.date||'') === today)
+      .reduce((sum,r)=> sum+Number(r.amount||0),0);
+  }
   const m=monthOfToday();
   return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m)
     .reduce((sum,r)=> sum+Number(r.amount||0),0);
 }
 function countReceiptsThisMonth(){
+  // Reception users see only today's receipts, admin sees full month
+  if (isReceptionUser()) {
+    const today = dateOfToday();
+    return AppState.receipts.filter(r=> (r.date||'') === today).length;
+  }
   const m=monthOfToday();
   return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m).length;
 }
@@ -2191,7 +2221,24 @@ function sumOverdue(){
 }
 function renderRecentReceipts(){
   const tbody=qs('#feesReceiptsBody');
-  const rows=[...AppState.receipts].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
+  // Reception users see only today's receipts
+  let filteredReceipts = [...AppState.receipts];
+  const today = dateOfToday();
+  if (isReceptionUser()) {
+    filteredReceipts = filteredReceipts.filter(r=> (r.date||'') === today);
+  }
+  const rows=filteredReceipts.sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
+  
+  // Update card header title based on user role
+  const receiptCardHeader = qs('#feesReceiptsTable')?.closest('.card')?.querySelector('.card__header h3');
+  if (receiptCardHeader) {
+    if (isReceptionUser()) {
+      receiptCardHeader.textContent = 'Recent Receipts (Today)';
+    } else {
+      receiptCardHeader.textContent = 'Recent Receipts';
+    }
+  }
+  
   tbody.innerHTML=rows.map(r=> `
     <tr>
       <td>${r.no}</td>
