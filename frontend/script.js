@@ -146,6 +146,11 @@ const AppState = {
   notices: [] // { id, title, description, author, date, priority, status, audience }
 };
 
+const AttendanceMonthState = {
+  teacher: null,
+  staff: null
+};
+
 // ---------- Persistence ----------
 const STORAGE_KEY = 'khushi_school_admin';
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState)); }
@@ -3845,13 +3850,43 @@ function setupTeacherAttendance(){
   const datePicker = qs('#attDatePicker');
   if (datePicker && !datePicker.value) datePicker.value = todayYYYYMMDD();
 
-  if (qs('#attBtnLoad')) qs('#attBtnLoad').onclick = () => loadAttendanceForDate(datePicker.value);
+  AttendanceMonthState.teacher = getMonthFromDate(datePicker?.value) || currentMonth();
+
+  if (qs('#attBtnLoad')) qs('#attBtnLoad').onclick = () => {
+    loadAttendanceForDate(datePicker.value);
+    AttendanceMonthState.teacher = getMonthFromDate(datePicker.value) || AttendanceMonthState.teacher || currentMonth();
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
   if (qs('#attBtnMarkAll')) qs('#attBtnMarkAll').onclick = () => {
     qsa('select.att-status').forEach(sel => sel.value = 'present');
   };
   if (qs('#attBtnSave')) qs('#attBtnSave').onclick = () => saveAttendance(datePicker.value);
 
+  if (datePicker) {
+    datePicker.onchange = () => {
+      AttendanceMonthState.teacher = getMonthFromDate(datePicker.value) || AttendanceMonthState.teacher || currentMonth();
+      loadAttendanceForDate(datePicker.value);
+      renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+    };
+  }
+
+  if (qs('#attMonthPrev')) qs('#attMonthPrev').onclick = () => {
+    AttendanceMonthState.teacher = shiftYearMonth(AttendanceMonthState.teacher || currentMonth(), -1);
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
+  if (qs('#attMonthNext')) qs('#attMonthNext').onclick = () => {
+    AttendanceMonthState.teacher = shiftYearMonth(AttendanceMonthState.teacher || currentMonth(), 1);
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  };
+  if (qs('#attBtnMonthLoad')) qs('#attBtnMonthLoad').onclick = () => {
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher || currentMonth());
+  };
+  if (qs('#attBtnMonthPrint')) qs('#attBtnMonthPrint').onclick = () => {
+    printMonthlyAttendance('Teachers', AttendanceMonthState.teacher || currentMonth(), '#attendanceMonthTableBody');
+  };
+
   loadAttendanceForDate(datePicker.value);
+  renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
 }
 
 function loadAttendanceForDate(date){
@@ -3906,6 +3941,130 @@ function saveAttendance(date){
   });
   saveState();
   alert('Attendance saved for ' + date);
+
+  if (AttendanceMonthState.teacher === getMonthFromDate(date)) {
+    renderTeacherMonthlyAttendance(AttendanceMonthState.teacher);
+  }
+}
+
+function getMonthFromDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr.slice(0, 7) : null;
+}
+
+function shiftYearMonth(yearMonth, monthDelta) {
+  if (!/^\d{4}-\d{2}$/.test(yearMonth || '')) return currentMonth();
+  const [year, month] = yearMonth.split('-').map(Number);
+  const dt = new Date(year, month - 1 + Number(monthDelta || 0), 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function renderTeacherMonthlyAttendance(month) {
+  const monthDisplay = qs('#attMonthDisplay');
+  const tbody = qs('#attendanceMonthTableBody');
+  if (monthDisplay) monthDisplay.textContent = formatMonthLabel(month || currentMonth());
+  if (!tbody) return;
+
+  if (!Array.isArray(AppState.teachers) || AppState.teachers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No teachers found.</td></tr>';
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+
+  tbody.innerHTML = AppState.teachers.map(t => {
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+    let markedDays = 0;
+
+    for (let d = 1; d <= totalDays; d++) {
+      const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = `${t.id}|${date}`;
+      const record = AppState.teacherAttendance[key];
+      const isSunday = new Date(date).getDay() === 0;
+
+      let status = null;
+      if (record && record.status) {
+        status = record.status;
+      } else if (isSunday) {
+        status = 'leave';
+      }
+
+      if (!status) continue;
+      markedDays += 1;
+      if (status === 'present') present += 1;
+      else if (status === 'absent') absent += 1;
+      else leave += 1;
+    }
+
+    const presentPct = markedDays > 0 ? ((present / markedDays) * 100).toFixed(1) : '0.0';
+    return `
+      <tr>
+        <td>${t.name}</td>
+        <td>${present}</td>
+        <td>${absent}</td>
+        <td>${leave}</td>
+        <td>${markedDays}</td>
+        <td>${presentPct}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function printMonthlyAttendance(title, month, tableBodySelector) {
+  const tbody = qs(tableBodySelector);
+  if (!tbody || !tbody.innerHTML.trim()) {
+    alert('No monthly attendance data available to print.');
+    return;
+  }
+
+  const monthLabel = formatMonthLabel(month || currentMonth());
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    alert('Unable to open print window. Please allow popups and try again.');
+    return;
+  }
+
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${title} Monthly Attendance - ${monthLabel}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 16px; }
+          h2 { margin: 0 0 6px; }
+          p { margin: 0 0 14px; color: #444; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #999; padding: 8px; text-align: left; }
+          th { background: #f3f3f3; }
+        </style>
+      </head>
+      <body>
+        <h2>${title} Monthly Attendance</h2>
+        <p>${monthLabel}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Present</th>
+              <th>Absent</th>
+              <th>Leave</th>
+              <th>Marked Days</th>
+              <th>Present %</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tbody.innerHTML}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
 }
 
 function renderSalaryPayments(){
@@ -4069,13 +4228,43 @@ function setupStaffAttendance() {
   if (!datePicker) return;
   if (!datePicker.value) datePicker.value = todayYYYYMMDD();
 
-  if (qs('#staffAttBtnLoad')) qs('#staffAttBtnLoad').onclick = () => loadStaffAttendanceForDate(datePicker.value);
+  AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || currentMonth();
+
+  if (qs('#staffAttBtnLoad')) qs('#staffAttBtnLoad').onclick = () => {
+    loadStaffAttendanceForDate(datePicker.value);
+    AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || AttendanceMonthState.staff || currentMonth();
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
   if (qs('#staffAttBtnMarkAll')) qs('#staffAttBtnMarkAll').onclick = () => {
     qsa('select.staff-att-status').forEach(sel => { sel.value = 'present'; });
   };
   if (qs('#staffAttBtnSave')) qs('#staffAttBtnSave').onclick = () => saveStaffAttendance(datePicker.value);
 
+  if (datePicker) {
+    datePicker.onchange = () => {
+      AttendanceMonthState.staff = getMonthFromDate(datePicker.value) || AttendanceMonthState.staff || currentMonth();
+      loadStaffAttendanceForDate(datePicker.value);
+      renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+    };
+  }
+
+  if (qs('#staffAttMonthPrev')) qs('#staffAttMonthPrev').onclick = () => {
+    AttendanceMonthState.staff = shiftYearMonth(AttendanceMonthState.staff || currentMonth(), -1);
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
+  if (qs('#staffAttMonthNext')) qs('#staffAttMonthNext').onclick = () => {
+    AttendanceMonthState.staff = shiftYearMonth(AttendanceMonthState.staff || currentMonth(), 1);
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  };
+  if (qs('#staffAttBtnMonthLoad')) qs('#staffAttBtnMonthLoad').onclick = () => {
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff || currentMonth());
+  };
+  if (qs('#staffAttBtnMonthPrint')) qs('#staffAttBtnMonthPrint').onclick = () => {
+    printMonthlyAttendance('Staff', AttendanceMonthState.staff || currentMonth(), '#staffAttendanceMonthTableBody');
+  };
+
   loadStaffAttendanceForDate(datePicker.value);
+  renderStaffMonthlyAttendance(AttendanceMonthState.staff);
 }
 
 function loadStaffAttendanceForDate(date) {
@@ -4144,6 +4333,67 @@ function saveStaffAttendance(date) {
 
   saveState();
   alert('Staff attendance saved for ' + date);
+
+  if (AttendanceMonthState.staff === getMonthFromDate(date)) {
+    renderStaffMonthlyAttendance(AttendanceMonthState.staff);
+  }
+}
+
+function renderStaffMonthlyAttendance(month) {
+  const monthDisplay = qs('#staffAttMonthDisplay');
+  const tbody = qs('#staffAttendanceMonthTableBody');
+  if (monthDisplay) monthDisplay.textContent = formatMonthLabel(month || currentMonth());
+  if (!tbody) return;
+
+  const staffList = Array.isArray(AppState.staff) ? AppState.staff : [];
+  if (staffList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No staff found.</td></tr>';
+    return;
+  }
+
+  const targetMonth = /^\d{4}-\d{2}$/.test(month || '') ? month : currentMonth();
+  const [year, mon] = targetMonth.split('-').map(Number);
+  const totalDays = daysInMonth(year, mon);
+
+  tbody.innerHTML = staffList.map((staff, idx) => {
+    const staffId = String(staff.id || `staff_${idx}`);
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+    let markedDays = 0;
+
+    for (let d = 1; d <= totalDays; d++) {
+      const date = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = `${staffId}|${date}`;
+      const record = AppState.staffAttendance[key];
+      const isSunday = new Date(date).getDay() === 0;
+
+      let status = null;
+      if (record && record.status) {
+        status = record.status;
+      } else if (isSunday) {
+        status = 'leave';
+      }
+
+      if (!status) continue;
+      markedDays += 1;
+      if (status === 'present') present += 1;
+      else if (status === 'absent') absent += 1;
+      else leave += 1;
+    }
+
+    const presentPct = markedDays > 0 ? ((present / markedDays) * 100).toFixed(1) : '0.0';
+    return `
+      <tr>
+        <td>${staff.name || '-'}</td>
+        <td>${present}</td>
+        <td>${absent}</td>
+        <td>${leave}</td>
+        <td>${markedDays}</td>
+        <td>${presentPct}%</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function currentMonth(){

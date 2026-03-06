@@ -1551,6 +1551,34 @@
                 </table>
               </div>
               <button type="button" class="btn btn-primary mt-12" id="staffAttBtnSave">Save Attendance</button>
+
+              <div class="attendance-month-panel mt-12">
+                <div class="attendance-month-panel__header">
+                  <h4>Monthly Attendance View</h4>
+                </div>
+                <div class="attendance-month-controls">
+                  <button type="button" class="btn btn-ghost" id="staffAttMonthPrev">← Prev Month</button>
+                  <small id="staffAttMonthDisplay" class="attendance-month-display">—</small>
+                  <button type="button" class="btn btn-ghost" id="staffAttMonthNext">Next Month →</button>
+                  <button type="button" class="btn btn-primary" id="staffAttBtnMonthLoad">Load Month</button>
+                  <button type="button" class="btn" id="staffAttBtnMonthPrint">Print A4</button>
+                </div>
+                <div class="table-wrap maxh-400 ovy-auto mt-12">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Staff</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                        <th>Leave</th>
+                        <th>Marked Days</th>
+                        <th>Present %</th>
+                      </tr>
+                    </thead>
+                    <tbody id="staffAttendanceMonthTableBody"><!-- monthly rows injected --></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div><!-- End of staff-attendance-tab -->
@@ -2609,7 +2637,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-  <script src="script.js?v=20260306-sunday-auto-leave-1"></script>
+  <script src="script.js?v=20260306-monthly-attendance-1"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>
