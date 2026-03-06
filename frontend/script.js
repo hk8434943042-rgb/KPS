@@ -258,14 +258,11 @@ async function syncPaymentToBackend({ studentId, amount, paymentDate, method, re
 async function deleteStudentFromBackend(student) {
   if (!student) return { ok: false, reason: 'missing-student' };
 
-  const hasId = Number.isFinite(Number(student.id));
-  const endpoint = hasId
-    ? `${API_URL}/students/${student.id}`
-    : `${API_URL}/students/by-roll/${encodeURIComponent(student.roll || '')}`;
+  const tryDelete = async (endpoint) => {
+    try {
+      const response = await fetchWithTimeout(endpoint, { method: 'DELETE' }, 8000);
+      if (response && response.ok) return { ok: true };
 
-  try {
-    const response = await fetchWithTimeout(endpoint, { method: 'DELETE' }, 8000);
-    if (!response || !response.ok) {
       let msg = `Delete failed: ${response?.status || 'no response'}`;
       try {
         const err = await response.json();
@@ -273,12 +270,42 @@ async function deleteStudentFromBackend(student) {
       } catch (_) {
         // Keep default message when response body is not JSON.
       }
-      return { ok: false, reason: msg };
+      return { ok: false, reason: msg, status: response?.status || 0 };
+    } catch (e) {
+      return { ok: false, reason: e?.message || 'request-failed', status: 0 };
     }
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, reason: e?.message || 'request-failed' };
+  };
+
+  // 1) Preferred path: delete by numeric id when present.
+  const hasId = Number.isFinite(Number(student.id));
+  if (hasId) {
+    const byId = await tryDelete(`${API_URL}/students/${student.id}`);
+    if (byId.ok) return byId;
+    // If already gone, treat as success for UI consistency.
+    if (byId.status === 404) return { ok: true };
   }
+
+  // 2) Resolve id from backend list (handles stale/local students without id).
+  try {
+    const listResp = await fetchWithTimeout(`${API_URL}/students`, {}, 8000);
+    if (listResp && listResp.ok) {
+      const rows = await listResp.json();
+      const hit = (rows || []).find(r => String(r.roll_no || '').trim() === String(student.roll || '').trim());
+      if (hit?.id) {
+        const byResolvedId = await tryDelete(`${API_URL}/students/${hit.id}`);
+        if (byResolvedId.ok) return byResolvedId;
+        if (byResolvedId.status === 404) return { ok: true };
+      }
+    }
+  } catch (_) {
+    // Continue to roll-based fallback.
+  }
+
+  // 3) Final fallback: delete by roll endpoint (for legacy backend variants).
+  const byRoll = await tryDelete(`${API_URL}/students/by-roll/${encodeURIComponent(student.roll || '')}`);
+  if (byRoll.ok || byRoll.status === 404) return { ok: true };
+
+  return { ok: false, reason: byRoll.reason || 'delete-failed' };
 }
 
 // ---------- Server Connection Check ----------
