@@ -3058,6 +3058,15 @@ function initQuickPaymentBox(){
         return;
       }
 
+      // Validate student ID exists
+      if (!student.id) {
+        badge.textContent = '❌ Student data error';
+        badge.className = 'badge error-badge';
+        console.error('Student object missing id:', student);
+        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        return;
+      }
+
       // Prepare payment data - mapped to match /api/payments endpoint
       const paymentData = {
         student_id: student.id,
@@ -3071,6 +3080,8 @@ function initQuickPaymentBox(){
         discount: 0,
         late_fee: 0
       };
+
+      console.log('Sending payment data:', paymentData);
 
       // Also prepare receipt object for frontend display
       const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
@@ -3093,16 +3104,33 @@ function initQuickPaymentBox(){
       payBtn.textContent = '⏳ Processing...';
 
       try {
-        // Save to backend using /api/payments endpoint
-        const response = await fetch('/api/payments', {
+        // Save to backend using configured API base URL
+        const response = await fetchWithTimeout(API_URL + '/payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(paymentData)
-        });
+        }, 8000);
+
+        console.log('Response status:', response.status);
+        const responseText = await response.text();
+        console.log('Response body:', responseText);
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to save payment');
+          let errorMsg = 'Failed to save payment';
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMsg = errorData.error || errorMsg;
+          } catch (e) {
+            errorMsg = `Server error (${response.status}): ${responseText.substring(0, 100)}`;
+          }
+          throw new Error(errorMsg);
+        }
+
+        // Parse JSON response only when available.
+        let result = null;
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json') && responseText) {
+          try { result = JSON.parse(responseText); } catch (_) { result = null; }
         }
 
         // Update AppState
@@ -3315,8 +3343,20 @@ function initRecordPaymentModal(){
   const rpError=qs('#rpError');
   const rpStatus=qs('#rpStatus');
 
-  // set default month from settings or today
-  rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+  // Month picker can be absent in newer modal markup. Resolve month safely.
+  const resolvePaymentMonth = () => {
+    if (rpMonth && rpMonth.value) return rpMonth.value;
+
+    const selectedMonths = qsa('#rpUnpaidMonthsList input[type="checkbox"]:checked')
+      .map(inp => (inp.value || inp.getAttribute('data-month') || '').trim())
+      .filter(Boolean);
+    if (selectedMonths.length) return selectedMonths[0];
+
+    return AppState.settings.defaultFeesMonth || monthOfToday();
+  };
+
+  // set default month from settings or today when legacy field exists
+  if (rpMonth) rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
 
   // add recalc button once
   if(!qs('#rpLateFeeRecalc')){
@@ -3365,7 +3405,7 @@ function initRecordPaymentModal(){
   };
 
   rpRoll.onchange=()=>{ fillStudentInfo(); };
-  rpMonth.onchange=()=>{ loadHeads(); autoCalcLateFee(); };
+  if (rpMonth) rpMonth.onchange=()=>{ loadHeads(); autoCalcLateFee(); };
 
   function fillStudentInfo(){
     const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
@@ -3374,7 +3414,7 @@ function initRecordPaymentModal(){
   }
 
   function loadHeads(){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
     if(!roll||!month) return;
     const key=`${roll}|${month}`;
     let fee=AppState.fees[key];
@@ -3431,7 +3471,7 @@ function initRecordPaymentModal(){
   }
 
   function autoCalcLateFee(){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
     if(!roll||!month) return;
     const autoFee=computeLateFee(roll,month,new Date());
     const current=Number(rpLateFee.value||0);
@@ -3442,7 +3482,7 @@ function initRecordPaymentModal(){
   qs('#rpSaveAndPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); renderFees(); };
 
   function savePayment(printAfter){
-    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    const roll=rpRoll.value.trim(); const month=resolvePaymentMonth();
     const s=AppState.students.find(x=> x.roll===roll);
     if(!s){ rpError.textContent='Invalid roll.'; rpError.style.display='block'; return false; }
     if(!month){ rpError.textContent='Please select a month.'; rpError.style.display='block'; return false; }
@@ -5717,6 +5757,10 @@ function renderSettings() {
   const setStudentsPageSize = qs('#setStudentsPageSize');
   const setDefaultFeesMonth = qs('#setDefaultFeesMonth');
   const setChartAnimation = qs('#setChartAnimation');
+  const setApiBaseUrl = qs('#setApiBaseUrl');
+  const settingsTestApiBtn = qs('#settingsTestApiBtn');
+  const settingsClearApiBtn = qs('#settingsClearApiBtn');
+  const settingsApiStatus = qs('#settingsApiStatus');
 
   const saveBtn = qs('#settingsSaveBtn');
   const exportBtn = qs('#settingsExportBackupBtn');
@@ -5749,6 +5793,29 @@ function renderSettings() {
     setDefaultFeesMonth.value = '';
   }
 
+  const normalizeApiUrl = (raw) => {
+    let v = String(raw || '').trim().replace(/\/+$/, '');
+    if (!v) return '';
+    if (!/\/api$/i.test(v)) v += '/api';
+    return v;
+  };
+
+  const updateApiStatus = (msg, kind) => {
+    if (!settingsApiStatus) return;
+    settingsApiStatus.textContent = msg;
+    settingsApiStatus.className = 'muted';
+    settingsApiStatus.style.color = '';
+    if (kind === 'ok') settingsApiStatus.style.color = '#1f8b4c';
+    if (kind === 'bad') settingsApiStatus.style.color = '#c0392b';
+  };
+
+  const savedOverride = localStorage.getItem('API_URL_OVERRIDE') || '';
+  if (setApiBaseUrl) setApiBaseUrl.value = savedOverride;
+  updateApiStatus(savedOverride
+    ? `Current override: ${savedOverride}`
+    : `Using default API: ${API_URL}`,
+    savedOverride ? 'ok' : '');
+
   const sch = AppState.settings.school || {};
   if (setSchoolName) setSchoolName.value    = sch.name    || '';
   if (setSchoolTagline) setSchoolTagline.value = sch.tagline || '';
@@ -5766,6 +5833,19 @@ function renderSettings() {
     AppState.settings.studentsPageSize = pageSize;
     AppState.settings.defaultFeesMonth = setDefaultFeesMonth?.value || null;
     AppState.settings.chartAnimation = !!setChartAnimation.checked;
+
+    // API override save
+    const normalizedApi = normalizeApiUrl(setApiBaseUrl?.value || '');
+    if (normalizedApi) {
+      localStorage.setItem('API_URL_OVERRIDE', normalizedApi);
+      API_URL = normalizedApi;
+      if (setApiBaseUrl) setApiBaseUrl.value = normalizedApi;
+      updateApiStatus(`API override saved: ${normalizedApi}`, 'ok');
+    } else {
+      localStorage.removeItem('API_URL_OVERRIDE');
+      API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+      updateApiStatus(`API override cleared. Using default: ${API_URL}`, '');
+    }
 
     // School profile
     AppState.settings.school = {
@@ -5794,6 +5874,41 @@ function renderSettings() {
     saveState();
     alert('Settings saved.');
   };
+
+  if (settingsTestApiBtn) {
+    settingsTestApiBtn.onclick = async () => {
+      const normalizedApi = normalizeApiUrl(setApiBaseUrl?.value || API_URL);
+      if (!normalizedApi) {
+        updateApiStatus('Enter API URL first (example: http://localhost:5000/api).', 'bad');
+        return;
+      }
+
+      const healthUrl = normalizedApi.replace(/\/api$/i, '') + '/health';
+      settingsTestApiBtn.disabled = true;
+      updateApiStatus(`Checking ${healthUrl} ...`, '');
+      try {
+        const response = await fetchWithTimeout(healthUrl, { method: 'GET', cache: 'no-store' }, 6000);
+        if (response && response.ok) {
+          updateApiStatus(`API reachable: ${normalizedApi}`, 'ok');
+        } else {
+          updateApiStatus(`API not reachable (HTTP ${response?.status || 'no response'}).`, 'bad');
+        }
+      } catch (e) {
+        updateApiStatus(`API not reachable: ${e?.message || 'request failed'}`, 'bad');
+      } finally {
+        settingsTestApiBtn.disabled = false;
+      }
+    };
+  }
+
+  if (settingsClearApiBtn) {
+    settingsClearApiBtn.onclick = () => {
+      localStorage.removeItem('API_URL_OVERRIDE');
+      if (setApiBaseUrl) setApiBaseUrl.value = '';
+      API_URL = (window.__API_BASE_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+      updateApiStatus(`Override cleared. Active API: ${API_URL}`, '');
+    };
+  }
 
   // Export backup (as JSON)
   if (exportBtn) exportBtn.onclick = () => {

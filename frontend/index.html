@@ -2231,6 +2231,11 @@
             <label>
               <span>API URL Override (optional)</span>
               <input type="url" id="setApiBaseUrl" placeholder="http://192.168.31.164:5000/api" />
+              <div class="flex gap-8 mt-8">
+                <button type="button" class="btn btn-ghost small" id="settingsTestApiBtn">Test API</button>
+                <button type="button" class="btn btn-ghost small" id="settingsClearApiBtn">Clear Override</button>
+              </div>
+              <small class="muted" id="settingsApiStatus">Using default API configuration.</small>
             </label>
 
             <label class="flex align-center gap-8">
@@ -2711,7 +2716,7 @@
   <script src="api-config.js?v=20260303c"></script>
 
   <!-- App Script -->
-<script src="script.js?v=20260306-quick-payment-fix-api"></script>
+<script src="script.js?v=20260306-quick-payment-debug"></script>
   
   <!-- Emergency fallback to make buttons clickable -->
   <script>

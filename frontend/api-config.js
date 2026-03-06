@@ -32,6 +32,13 @@
 		return;
 	}
 
+	// On GitHub Pages, same-origin '/api' points to github.io (not your backend).
+	// Use local backend by default unless user configured a public URL/override.
+	if (isGitHubPages) {
+		window.__API_BASE_URL = LOCAL_BACKEND_API;
+		return;
+	}
+
 	// Check localStorage override (set via set-api.html)
 	const override = localStorage.getItem('API_URL_OVERRIDE');
 	if (override) {
