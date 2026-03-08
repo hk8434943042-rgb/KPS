@@ -401,7 +401,10 @@
             <div class="grid-2 gap-12">
               <label>
                 <span>Student (Admission No./Name/Phone)</span>
-                <input type="search" id="qpStudentSearch" placeholder="e.g., 1007 or Priya or +91-98..." autocomplete="off" />
+                <div class="input-group-with-toggle">
+                  <input type="search" id="qpStudentSearch" placeholder="e.g., 1007 or Priya or +91-98..." autocomplete="off" />
+                  <button type="button" class="btn btn-small btn-ghost" id="qpToggleViewMode" title="Toggle between Admission # and Name view">👤 Name View</button>
+                </div>
                 <small class="muted">Press ↓ for list, Enter to select</small>
                 <div id="qpStudentList" class="dropdown d-none"></div>
               </label>
@@ -422,6 +425,18 @@
                 <div id="qpUnpaidMonthsList" class="mt-4 flex flex-wrap gap-6"><!-- Month pills injected --></div>
               </div>
             </div>
+
+            <!-- Fee Breakdown (Collapsible) -->
+            <details class="qp-fee-breakdown mt-12 p-8 bg-light rounded hidden" id="qpFeeBreakdown">
+              <summary class="cursor-pointer font-bold mb-8">💰 Fee Breakdown (Click to expand)</summary>
+              <div id="qpFeeHeadsContainer" class="grid gap-6 mt-6">
+                <!-- Individual fee heads with checkboxes will be injected here -->
+              </div>
+              <div class="flex gap-8 mt-8 justify-end">
+                <button type="button" class="btn btn-ghost small" id="qpBtnSelectAllFees">✓ Select All</button>
+                <button type="button" class="btn btn-ghost small" id="qpBtnClearFees">✕ Clear All</button>
+              </div>
+            </details>
 
             <!-- Amount & Payment Details -->
             <div class="grid-2 gap-12 mt-12">

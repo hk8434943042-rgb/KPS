@@ -3062,6 +3062,7 @@ function showThisMonthReceiptsModal(){
 // Quick Payment Box Handlers - FULL FEATURED
 function initQuickPaymentBox(){
   const searchInput = qs('#qpStudentSearch');
+  const toggleViewBtn = qs('#qpToggleViewMode');
   const studentClassInput = qs('#qpStudentClass');
   const amountInput = qs('#qpAmount');
   const methodSelect = qs('#qpMethod');
@@ -3079,8 +3080,14 @@ function initQuickPaymentBox(){
   const payAmountSpan = qs('#qpPayAmount');
   const balanceSpan = qs('#qpBalance');
   const balanceRow = qs('#qpBalanceRow');
+  const feeBreakdownSection = qs('#qpFeeBreakdown');
+  const feeHeadsContainer = qs('#qpFeeHeadsContainer');
+  const selectAllFeesBtn = qs('#qpBtnSelectAllFees');
+  const clearAllFeesBtn = qs('#qpBtnClearFees');
 
   let selectedStudent = null;
+  let viewMode = 'admission'; // 'admission' or 'name'
+  let selectedFeeHeads = {}; // Track selected fee heads {head_name: amount}
 
   // Calculate due amount for a student
   function calculateStudentDue(student) {
@@ -3136,7 +3143,119 @@ function initQuickPaymentBox(){
     }).join('');
     unpaidMonthsDiv.innerHTML = months || '<span class="muted">No dues</span>';
 
+    // Populate fee breakdown
+    populateFeeBreakdown(student, unpaidDues);
+    
     updateSummary();
+  }
+
+  // Helper function to get icon for fee head
+  function getHeadIcon(head) {
+    const icons = {
+      'Tuition': '📚',
+      'Transport': '🚌',
+      'Lab/IT': '💻',
+      'Activity': '🎨',
+      'Miscellaneous': '📌',
+      'Other': '💰'
+    };
+    return icons[head] || '💰';
+  }
+
+  // Populate fee breakdown with individual heads
+  function populateFeeBreakdown(student, unpaidDues) {
+    if (unpaidDues.length === 0) {
+      feeBreakdownSection.classList.add('hidden');
+      return;
+    }
+
+    // Group fees by head type
+    const feesByHead = {};
+    unpaidDues.forEach(fee => {
+      const head = fee.head || 'Other';
+      if (!feesByHead[head]) {
+        feesByHead[head] = 0;
+      }
+      feesByHead[head] += parseFloat(fee.amount) || 0;
+    });
+
+    // Clear previous selections
+    selectedFeeHeads = {};
+
+    // Generate fee head items
+    const feeHeadsHTML = Object.entries(feesByHead).map(([head, amount], idx) => {
+      const checkboxId = `qp-fee-${head}-${idx}`;
+      selectedFeeHeads[head] = false; // Initialize as unchecked
+      return `
+        <div class="fee-head-item">
+          <input type="checkbox" id="${checkboxId}" class="qp-fee-checkbox" data-head="${head}" data-amount="${amount}" />
+          <label for="${checkboxId}">
+            <span>${getHeadIcon(head)} ${head}</span>
+            <span class="fee-head-amount">₹${amount.toLocaleString()}</span>
+          </label>
+        </div>
+      `;
+    }).join('');
+
+    feeHeadsContainer.innerHTML = feeHeadsHTML;
+    feeBreakdownSection.classList.remove('hidden');
+
+    // Add checkbox event listeners
+    qsa('.qp-fee-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const head = e.target.dataset.head;
+        selectedFeeHeads[head] = e.target.checked;
+        updateAmountFromFeeSelection();
+      });
+    });
+
+    // Select All button
+    if (selectAllFeesBtn) {
+      selectAllFeesBtn.onclick = (e) => {
+        e.preventDefault();
+        qsa('.qp-fee-checkbox').forEach(cb => {
+          cb.checked = true;
+          selectedFeeHeads[cb.dataset.head] = true;
+        });
+        updateAmountFromFeeSelection();
+      };
+    }
+
+    // Clear All button
+    if (clearAllFeesBtn) {
+      clearAllFeesBtn.onclick = (e) => {
+        e.preventDefault();
+        qsa('.qp-fee-checkbox').forEach(cb => {
+          cb.checked = false;
+          selectedFeeHeads[cb.dataset.head] = false;
+        });
+        amountInput.value = '0';
+        updateSummary();
+      };
+    }
+  }
+
+  // Update amount field based on selected fee heads
+  function updateAmountFromFeeSelection() {
+    let total = 0;
+    qsa('.qp-fee-checkbox:checked').forEach(checkbox => {
+      total += parseFloat(checkbox.dataset.amount) || 0;
+    });
+    amountInput.value = total || '0';
+    updateSummary();
+  }
+
+  // Toggle view mode (Admission # vs Name)
+  if (toggleViewBtn) {
+    toggleViewBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      viewMode = viewMode === 'admission' ? 'name' : 'admission';
+      toggleViewBtn.textContent = viewMode === 'name' ? '🆔 Admission View' : '👤 Name View';
+      // Refresh dropdown if visible
+      if (!dropdown.classList.contains('d-none') && searchInput.value.trim()) {
+        searchInput.dispatchEvent(new Event('input'));
+      }
+    });
   }
 
   // Student search with dropdown
@@ -3160,13 +3279,28 @@ function initQuickPaymentBox(){
       } else {
         dropdown.innerHTML = matches.map(s => {
           const { totalDue } = calculateStudentDue(s);
-          return `
-            <div class="dropdown-item" data-roll="${s.roll}" data-id="${s.id}">
-              <strong>${s.roll}</strong> - ${s.name}
-              <span class="muted text-sm">(${s.class}-${s.section})</span>
-              ${totalDue > 0 ? `<span class="badge error-badge ml-8">₹${totalDue}</span>` : '<span class="badge success-badge ml-8">Paid</span>'}
-            </div>
-          `;
+          
+          if (viewMode === 'name') {
+            // Name-focused view
+            return `
+              <div class="dropdown-item dropdown-item--name-view" data-roll="${s.roll}" data-id="${s.id}">
+                <div class="dropdown-item-name">👤 ${s.name}</div>
+                <div class="dropdown-item-meta">🆔 Admission #${s.roll} | ${s.class}-${s.section}</div>
+                <div class="dropdown-item-meta" style="margin-top: 4px;">
+                  ${totalDue > 0 ? `💰 Due: <strong>₹${totalDue}</strong>` : '<span style="color: #10b981;">✓ Paid</span>'}
+                </div>
+              </div>
+            `;
+          } else {
+            // Admission-focused view (default)
+            return `
+              <div class="dropdown-item" data-roll="${s.roll}" data-id="${s.id}">
+                <strong>${s.roll}</strong> - ${s.name}
+                <span class="muted text-sm">(${s.class}-${s.section})</span>
+                ${totalDue > 0 ? `<span class="badge error-badge ml-8">₹${totalDue}</span>` : '<span class="badge success-badge ml-8">Paid</span>'}
+              </div>
+            `;
+          }
         }).join('');
         dropdown.classList.remove('d-none');
 
