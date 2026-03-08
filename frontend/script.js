@@ -953,7 +953,7 @@ function renderParentPortal() {
       const due = Math.max(0, headTotal - fee.paid);
       return `
         <tr>
-          <td>${month}</td>
+          <td>${formatMonthLabel(month)}</td>
           <td>${fmtINR(tuition)}</td>
           <td>${fmtINR(transport)}</td>
           <td>${fmtINR(miscellaneous)}</td>
@@ -2943,7 +2943,7 @@ function renderRecentReceipts(filterByMonth=false){
   tbody.innerHTML=rows.map(r=> `
     <tr>
       <td>${r.no}</td>
-      <td>${r.date}</td>
+      <td>${formatDateReadable(r.date)}</td>
       <td>${r.roll}</td>
       <td>${r.name}</td>
       <td>${r.method}</td>
@@ -2962,7 +2962,7 @@ function renderRecentReceipts(filterByMonth=false){
     <div class="receipt-box">
       <div class="receipt-box__header">
         <div class="receipt-box__no">Receipt #${r.no}</div>
-        <div class="receipt-box__date">${r.date}</div>
+        <div class="receipt-box__date">${formatDateReadable(r.date)}</div>
       </div>
       <div class="receipt-box__details">
         <div class="receipt-box__row">
@@ -3001,7 +3001,7 @@ function renderRecentReceipts(filterByMonth=false){
         </div>
         <div class="receipt-list-item__meta">
           <span>${r.name} (${r.roll})</span>
-          <span>${r.date}</span>
+          <span>${formatDateReadable(r.date)}</span>
         </div>
       </div>
       <div class="receipt-list-item__actions">
@@ -3171,6 +3171,18 @@ function initQuickPaymentBox(){
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthIndex = parseInt(month, 10) - 1;
     return monthNames[monthIndex] ? `${monthNames[monthIndex]} ${year}` : monthStr;
+  }
+
+  // Helper function to format YYYY-MM-DD to readable date
+  function formatDateReadable(dateStr) {
+    if (!dateStr || !/-/.test(dateStr)) return dateStr;
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch (e) {
+      return dateStr;
+    }
   }
 
   function displayStudentDetails(student) {
