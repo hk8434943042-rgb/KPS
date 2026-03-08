@@ -522,9 +522,9 @@ function loadState() {
   Promise.all([
     fetchStudentsFromBackend(),
     fetchPaymentsFromBackend()
-  ]).then(() => {
+  ]).then(async () => {
     if (AppState.view === 'students') renderStudents();
-    if (AppState.view === 'fees') renderFees();
+    if (AppState.view === 'fees') await renderFees();
     if (AppState.view === 'dashboard') renderDashboard();
   }).catch(e => console.warn('[WARN] Background data fetch failed:', e));
 }
@@ -1972,7 +1972,16 @@ function switchView(viewId) {
   requestAnimationFrame(() => {
     if (viewId === 'dashboard') renderDashboard();
     else if (viewId === 'students')  renderStudents();
-    else if (viewId === 'fees')      renderFees();
+    else if (viewId === 'fees') { 
+      renderFees(); // Async function, will complete in background
+      // Ensure Quick Payment Box is initialized after a short delay
+      setTimeout(() => {
+        if (typeof initQuickPaymentBox === 'function') {
+          console.log('📌 Ensuring Quick Payment Box is initialized...');
+          initQuickPaymentBox();
+        }
+      }, 500);
+    }
     else if (viewId === 'exams')     renderExams();
     else if (viewId === 'classes')   renderClasses();
     else if (viewId === 'teachers') {
@@ -2598,9 +2607,12 @@ async function renderFees(){
     fetchStudentsFromBackend().catch(() => { console.warn('Failed to sync students'); }),
     fetchFeesFromBackend().catch(() => { console.warn('Failed to sync fees'); })
   ]);
+  console.log('✅ Database sync complete. Students:', AppState.students.length, 'Fees:', AppState.fees.length);
   
   renderRecentReceipts();
+  console.log('🎯 Calling initQuickPaymentBox()...');
   initQuickPaymentBox();
+  console.log('✅ initQuickPaymentBox() completed');
 }
 
 function sumReceiptsThisMonth(){
