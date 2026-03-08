@@ -4281,3 +4281,137 @@ html[data-theme="dark"] .dropdown__item--due.student-due-low {
   cursor: pointer;
   transition: all 0.2s ease;
 }
+
+/* Enhanced Quick Payment Box Styles */
+.quick-payment-box .hidden {
+  display: none;
+}
+
+.quick-payment-box #qpStudentDetailsBox {
+  border-left: 3px solid var(--primary);
+  background: #f0f9ff;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.quick-payment-box .qp-info-box {
+  padding: 10px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.quick-payment-box .qp-info-box em {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+.quick-payment-box .qp-info-box div {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.quick-payment-box .qp-info-box strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.quick-payment-box .qp-quick-amounts {
+  flex-wrap: wrap;
+}
+
+.quick-payment-box .qp-amt-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.quick-payment-box .qp-amt-btn:hover {
+  background: #e0e7ff;
+  color: var(--primary);
+}
+
+.quick-payment-box .qp-summary {
+  border: 1px solid #e5e7eb;
+}
+
+.quick-payment-box .qp-summary > div {
+  font-size: 13px;
+}
+
+.quick-payment-box .qp-summary strong {
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.quick-payment-box .input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-payment-box .input-wrapper input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.quick-payment-box .flex {
+  display: flex;
+}
+
+.quick-payment-box .flex-wrap {
+  flex-wrap: wrap;
+}
+
+.quick-payment-box .gap-6 {
+  gap: 6px;
+}
+
+.quick-payment-box .gap-8 {
+  gap: 8px;
+}
+
+.quick-payment-box .justify-end {
+  justify-content: flex-end;
+}
+
+.quick-payment-box .align-center {
+  align-items: center;
+}
+
+.quick-payment-box .badge-light {
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.quick-payment-box #qpBtnPay:disabled,
+.quick-payment-box #qpBtnPreview:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-payment-box .bg-light {
+  background: #f9fafb;
+}
+
+.quick-payment-box .rounded {
+  border-radius: 6px;
+}
+
+.quick-payment-box .text-sm {
+  font-size: 13px;
+}
+
+.quick-payment-box .ml-8 {
+  margin-left: 8px;
+}

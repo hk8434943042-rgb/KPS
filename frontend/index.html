@@ -397,33 +397,85 @@
             </div>
           </div>
           <div class="p-12">
+            <!-- Student Selection -->
             <div class="grid-2 gap-12">
               <label>
-                <span>Student (Admission No./Name)</span>
-                <input type="search" id="qpStudentSearch" placeholder="e.g., 1007 or Priya" autocomplete="off" />
-                <small class="muted">Press ↓ for list</small>
+                <span>Student (Admission No./Name/Phone)</span>
+                <input type="search" id="qpStudentSearch" placeholder="e.g., 1007 or Priya or +91-98..." autocomplete="off" />
+                <small class="muted">Press ↓ for list, Enter to select</small>
                 <div id="qpStudentList" class="dropdown d-none"></div>
               </label>
               <label>
-                <span>Amount (₹)</span>
-                <input type="number" id="qpAmount" placeholder="0" min="0" step="1" />
+                <span>Class/Section</span>
+                <input type="text" id="qpStudentClass" disabled placeholder="Auto-filled" />
               </label>
             </div>
+
+            <!-- Student Details & Due Info -->
+            <div class="grid-2 gap-12 mt-12 hidden" id="qpStudentDetailsBox">
+              <div class="qp-info-box">
+                <em class="muted">📊 Fee Status</em>
+                <div id="qpStudentDueInfo" class="mt-4"><!-- Due amount & months injected --></div>
+              </div>
+              <div class="qp-info-box">
+                <em class="muted">🗓️ Unpaid Months</em>
+                <div id="qpUnpaidMonthsList" class="mt-4 flex flex-wrap gap-6"><!-- Month pills injected --></div>
+              </div>
+            </div>
+
+            <!-- Amount & Payment Details -->
             <div class="grid-2 gap-12 mt-12">
+              <label>
+                <span>Amount (₹)</span>
+                <div class="input-wrapper flex gap-8">
+                  <input type="number" id="qpAmount" placeholder="0" min="0" step="1" />
+                  <div class="qp-quick-amounts flex gap-4">
+                    <button type="button" class="btn btn-ghost small qp-amt-btn" data-type="due" title="Exact due amount">Due</button>
+                    <button type="button" class="btn btn-ghost small qp-amt-btn" data-type="half" title="50% of due">50%</button>
+                  </div>
+                </div>
+              </label>
               <label>
                 <span>Payment Method</span>
                 <select id="qpMethod" required>
-                  <option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option>
+                  <option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option><option>Cheque</option>
                 </select>
               </label>
+            </div>
+
+            <!-- Reference & Additional Info -->
+            <div class="grid-2 gap-12 mt-12">
               <label>
-                <span>Reference (Optional)</span>
-                <input type="text" id="qpRef" placeholder="UPI/Txn Ref No." />
+                <span>Transaction Ref (Optional)</span>
+                <input type="text" id="qpRef" placeholder="UPI/Txn/Cheque No." />
+              </label>
+              <label>
+                <span>Remarks (Optional)</span>
+                <input type="text" id="qpRemarks" placeholder="e.g., Late fee waived..." />
               </label>
             </div>
+
+            <!-- Summary & Actions -->
+            <div class="qp-summary mt-12 p-8 bg-light rounded">
+              <div class="flex justify-between mb-8">
+                <em>Total Due:</em>
+                <strong id="qpTotalDue">₹ 0</strong>
+              </div>
+              <div class="flex justify-between mb-8">
+                <em>Pay Now:</em>
+                <strong id="qpPayAmount">₹ 0</strong>
+              </div>
+              <div class="flex justify-between" id="qpBalanceRow" style="display:none;">
+                <em>Balance After:</em>
+                <strong id="qpBalance">₹ 0</strong>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
             <div class="flex gap-8 mt-12 justify-end">
-              <button type="button" class="btn btn-ghost" id="qpBtnClear">Clear</button>
-              <button type="button" class="btn btn-primary" id="qpBtnPay">💵 Record Payment</button>
+              <button type="button" class="btn btn-ghost" id="qpBtnClear">🔄 Clear</button>
+              <button type="button" class="btn" id="qpBtnPreview" disabled>👁️ Preview</button>
+              <button type="button" class="btn btn-primary" id="qpBtnPay" disabled>💵 Record Payment</button>
             </div>
           </div>
         </div>

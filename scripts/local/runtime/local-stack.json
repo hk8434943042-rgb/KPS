@@ -1,8 +1,8 @@
 ﻿{
-    "startedAt":  "2026-03-06T11:43:07",
-    "backendPid":  7180,
-    "tunnelPid":  11304,
-    "tunnelUrl":  "https://golf-blacks-asn-uniform.trycloudflare.com",
-    "apiUrl":  "https://golf-blacks-asn-uniform.trycloudflare.com/api",
+    "startedAt":  "2026-03-08T06:59:22",
+    "backendPid":  12452,
+    "tunnelPid":  2824,
+    "tunnelUrl":  "https://helicopter-rise-drawn-michigan.trycloudflare.com",
+    "apiUrl":  "https://helicopter-rise-drawn-michigan.trycloudflare.com/api",
     "backendHealth":  "http://localhost:5000/health"
 }

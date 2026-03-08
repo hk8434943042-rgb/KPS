@@ -3059,16 +3059,85 @@ function showThisMonthReceiptsModal(){
   openModal('#modalThisMonthReceipts');
 }
 
-// Quick Payment Box Handlers
+// Quick Payment Box Handlers - FULL FEATURED
 function initQuickPaymentBox(){
   const searchInput = qs('#qpStudentSearch');
+  const studentClassInput = qs('#qpStudentClass');
   const amountInput = qs('#qpAmount');
   const methodSelect = qs('#qpMethod');
   const refInput = qs('#qpRef');
+  const remarksInput = qs('#qpRemarks');
   const clearBtn = qs('#qpBtnClear');
   const payBtn = qs('#qpBtnPay');
+  const previewBtn = qs('#qpBtnPreview');
   const dropdown = qs('#qpStudentList');
   const badge = qs('#qpBadgeStatus');
+  const studentDetailsBox = qs('#qpStudentDetailsBox');
+  const dueInfoDiv = qs('#qpStudentDueInfo');
+  const unpaidMonthsDiv = qs('#qpUnpaidMonthsList');
+  const totalDueSpan = qs('#qpTotalDue');
+  const payAmountSpan = qs('#qpPayAmount');
+  const balanceSpan = qs('#qpBalance');
+  const balanceRow = qs('#qpBalanceRow');
+
+  let selectedStudent = null;
+
+  // Calculate due amount for a student
+  function calculateStudentDue(student) {
+    const dues = AppState.fees.filter(f => f.roll === student.roll && !f.paid_date);
+    const totalDue = dues.reduce((sum, f) => sum + (parseFloat(f.amount) || 0), 0);
+    return { totalDue, unpaidDues: dues };
+  }
+
+  // Update summary display
+  function updateSummary() {
+    const amount = parseFloat(amountInput.value) || 0;
+    const totalDue = selectedStudent ? calculateStudentDue(selectedStudent).totalDue : 0;
+    const balance = totalDue - amount;
+
+    totalDueSpan.textContent = `₹ ${(totalDue).toLocaleString()}`;
+    payAmountSpan.textContent = `₹ ${(amount).toLocaleString()}`;
+    
+    if (balance > 0) {
+      balanceSpan.textContent = `₹ ${(balance).toLocaleString()}`;
+      balanceRow.style.display = 'flex';
+    } else if (balance < 0) {
+      balanceSpan.textContent = `₹ ${Math.abs(balance).toLocaleString()} (Overpaid)`;
+      balanceRow.style.display = 'flex';
+    } else {
+      balanceRow.style.display = 'none';
+    }
+
+    // Enable/disable pay button
+    payBtn.disabled = !selectedStudent || amount <= 0 || amount > totalDue + 100; // Allow 100 buffer for fees
+    previewBtn.disabled = !selectedStudent || amount <= 0;
+  }
+
+  // Display student details when selected
+  function displayStudentDetails(student) {
+    selectedStudent = student;
+    const { totalDue, unpaidDues } = calculateStudentDue(student);
+    
+    studentClassInput.value = `${student.class}-${student.section}`;
+    studentDetailsBox.classList.remove('hidden');
+
+    // Due info
+    dueInfoDiv.innerHTML = `
+      <div class="text-sm">
+        <div>💰 Total Due: <strong>₹ ${totalDue.toLocaleString()}</strong></div>
+        <div class="muted mt-4">📅 ${unpaidDues.length} unpaid month${unpaidDues.length !== 1 ? 's' : ''}</div>
+      </div>
+    `;
+
+    // Unpaid months
+    const months = unpaidDues.map(f => {
+      const monthStr = f.month_year || 'N/A';
+      return `<span class="badge badge-light">${monthStr}</span>`;
+    }).join('');
+    unpaidMonthsDiv.innerHTML = months || '<span class="muted">No dues</span>';
+
+    updateSummary();
+  }
 
   // Student search with dropdown
   if (searchInput) {
@@ -3083,25 +3152,34 @@ function initQuickPaymentBox(){
         s.roll.toString().includes(query) || 
         (s.name || '').toLowerCase().includes(query) ||
         (s.phone || '').includes(query)
-      ).slice(0, 5);
+      ).slice(0, 8);
 
       if (matches.length === 0) {
-        dropdown.classList.add('d-none');
+        dropdown.innerHTML = '<div class="dropdown-item muted">No students found</div>';
+        dropdown.classList.remove('d-none');
       } else {
-        dropdown.innerHTML = matches.map(s => `
-          <div class="dropdown-item" data-roll="${s.roll}" data-name="${s.name}">
-            <strong>${s.roll}</strong> - ${s.name} (${s.class})
-          </div>
-        `).join('');
+        dropdown.innerHTML = matches.map(s => {
+          const { totalDue } = calculateStudentDue(s);
+          return `
+            <div class="dropdown-item" data-roll="${s.roll}" data-id="${s.id}">
+              <strong>${s.roll}</strong> - ${s.name}
+              <span class="muted text-sm">(${s.class}-${s.section})</span>
+              ${totalDue > 0 ? `<span class="badge error-badge ml-8">₹${totalDue}</span>` : '<span class="badge success-badge ml-8">Paid</span>'}
+            </div>
+          `;
+        }).join('');
         dropdown.classList.remove('d-none');
 
         qsa('#qpStudentList .dropdown-item').forEach(item => {
           item.addEventListener('click', () => {
             const roll = item.getAttribute('data-roll');
-            const name = item.getAttribute('data-name');
-            searchInput.value = roll;
-            dropdown.classList.add('d-none');
-            amountInput.focus();
+            const student = AppState.students.find(s => s.roll.toString() === roll);
+            if (student) {
+              searchInput.value = roll;
+              displayStudentDetails(student);
+              dropdown.classList.add('d-none');
+              amountInput.focus();
+            }
           });
         });
       }
@@ -3109,168 +3187,210 @@ function initQuickPaymentBox(){
 
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' && !dropdown.classList.contains('d-none')) {
-        qsa('#qpStudentList .dropdown-item')[0]?.focus();
+        const firstItem = qs('#qpStudentList .dropdown-item:not(.muted)');
+        if (firstItem) firstItem.focus();
+      } else if (e.key === 'Enter') {
+        const activeItem = qs('#qpStudentList .dropdown-item:focus');
+        if (activeItem) activeItem.click();
       }
     });
   }
+
+  // Amount input - real-time summary update
+  if (amountInput) {
+    amountInput.addEventListener('input', updateSummary);
+  }
+
+  // Quick amount buttons
+  qsa('.qp-amt-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!selectedStudent) {
+        showNotification('Select student first', 'error');
+        return;
+      }
+
+      const { totalDue } = calculateStudentDue(selectedStudent);
+      const type = btn.getAttribute('data-type');
+
+      if (type === 'due') {
+        amountInput.value = totalDue;
+      } else if (type === 'half') {
+        amountInput.value = Math.floor(totalDue / 2);
+      }
+
+      updateSummary();
+      amountInput.focus();
+    });
+  });
 
   // Clear button
   if (clearBtn) {
     clearBtn.onclick = () => {
       searchInput.value = '';
+      studentClassInput.value = '';
       amountInput.value = '';
       methodSelect.value = 'Cash';
       refInput.value = '';
+      remarksInput.value = '';
       dropdown.classList.add('d-none');
+      studentDetailsBox.classList.add('hidden');
       badge.textContent = '';
       badge.className = 'badge';
+      selectedStudent = null;
+      updateSummary();
+      searchInput.focus();
     };
   }
 
-  // Record Payment button - process payment directly
+  // Preview button
+  if (previewBtn) {
+    previewBtn.onclick = async () => {
+      if (!selectedStudent) {
+        showNotification('Select student first', 'error');
+        return;
+      }
+
+      const amount = parseFloat(amountInput.value);
+      if (amount <= 0) {
+        showNotification('Enter valid amount', 'error');
+        return;
+      }
+
+      // Show receipt preview modal
+      showReceiptPreview(selectedStudent, amount, methodSelect.value, refInput.value);
+    };
+  }
+
+  // Record Payment button - full featured
   if (payBtn) {
     payBtn.onclick = async () => {
-      const roll = searchInput.value.trim();
-      const amount = parseFloat(amountInput.value) || 0;
-      const method = methodSelect.value;
-      const ref = refInput.value.trim();
-
-      // Validation
-      if (!roll) {
+      if (!selectedStudent) {
         badge.textContent = '❌ Select Student';
         badge.className = 'badge error-badge';
         searchInput.focus();
-        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        setTimeout(clearTimeout, 3000);
         return;
       }
 
-      const student = AppState.students.find(s => s.roll.toString() === roll);
-      if (!student) {
-        badge.textContent = '❌ Student Not Found';
-        badge.className = 'badge error-badge';
-        searchInput.focus();
-        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
-        return;
-      }
+      const amount = parseFloat(amountInput.value) || 0;
+      const method = methodSelect.value;
+      const ref = refInput.value.trim();
+      const remarks = remarksInput.value.trim();
+      const { totalDue } = calculateStudentDue(selectedStudent);
 
+      // Validation
       if (amount <= 0) {
-        badge.textContent = '❌ Enter Amount';
+        badge.textContent = '❌ Enter Amount > 0';
         badge.className = 'badge error-badge';
         amountInput.focus();
-        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        setTimeout(() => clearBadge(), 3000);
         return;
       }
 
-      // Validate student ID exists
-      if (!student.id) {
+      if (amount > totalDue + 100) {
+        badge.textContent = '❌ Amount exceeds due';
+        badge.className = 'badge error-badge';
+        amountInput.focus();
+        setTimeout(() => clearBadge(), 3000);
+        return;
+      }
+
+      if (!selectedStudent.id) {
         badge.textContent = '❌ Student data error';
         badge.className = 'badge error-badge';
-        console.error('Student object missing id:', student);
-        setTimeout(() => { badge.textContent = ''; badge.className = 'badge'; }, 3000);
+        console.error('Student missing id:', selectedStudent);
+        setTimeout(() => clearBadge(), 3000);
         return;
       }
 
-      // Prepare payment data - mapped to match /api/payments endpoint
+      // Prepare payment data
       const paymentData = {
-        student_id: student.id,
+        student_id: selectedStudent.id,
         amount: amount,
         payment_date: todayYYYYMMDD(),
         payment_method: method,
         transaction_id: ref || null,
         purpose: 'Monthly Fees',
         status: 'Completed',
-        remarks: `Quick payment via fees portal`,
+        remarks: remarks || 'Quick payment via fees portal',
         discount: 0,
         late_fee: 0
       };
 
-      console.log('Sending payment data:', paymentData);
+      console.log('Recording payment:', paymentData);
 
-      // Also prepare receipt object for frontend display
       const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
       const receipt = {
         no: receiptNo.toString(),
         date: todayYYYYMMDD(),
         time: formatNowTime12h(),
-        roll: roll,
-        name: student.name,
+        roll: selectedStudent.roll.toString(),
+        name: selectedStudent.name,
         amount: amount,
         method: method,
         ref: ref || null,
-        heads: { 'Cash': amount },
+        heads: { 'Monthly Fees': amount },
         discount: 0,
         latefee: 0,
         status: 'completed'
       };
 
-      // Show processing status
       payBtn.disabled = true;
       payBtn.textContent = '⏳ Processing...';
 
       try {
-        // Save to backend using configured API base URL
         const response = await fetchWithTimeout(API_URL + '/payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(paymentData)
         }, 8000);
 
-        console.log('Response status:', response.status);
         const responseText = await response.text();
-        console.log('Response body:', responseText);
 
         if (!response.ok) {
           let errorMsg = 'Failed to save payment';
           try {
             const errorData = JSON.parse(responseText);
             errorMsg = errorData.error || errorMsg;
-          } catch (e) {
-            errorMsg = `Server error (${response.status}): ${responseText.substring(0, 100)}`;
+          } catch (_) {
+            errorMsg = `Server error (${response.status})`;
           }
           throw new Error(errorMsg);
         }
 
-        // Parse JSON response only when available.
-        let result = null;
-        const contentType = (response.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json') && responseText) {
-          try { result = JSON.parse(responseText); } catch (_) { result = null; }
-        }
-
-        // Update AppState
+        // Update state
         AppState.receipts.push(receipt);
         
-        // Show success feedback
-        badge.textContent = '✅ Payment Recorded';
+        badge.textContent = '✅ Payment Recorded!';
         badge.className = 'badge success-badge';
         payBtn.textContent = '💵 Record Payment';
         payBtn.disabled = false;
 
-        // Clear form
-        clearBtn.click();
-
-        // Re-render receipts
+        // Refresh UI
         renderRecentReceipts();
         updateFeeKpis();
 
-        // Auto-clear success message
+        // Show success & clear
         setTimeout(() => {
-          badge.textContent = '';
-          badge.className = 'badge';
-        }, 3000);
+          clearBtn.click();
+          showNotification(`Payment of ₹${amount} recorded for ${selectedStudent.name}`, 'success');
+        }, 500);
       } catch (error) {
         console.error('Payment error:', error);
-        badge.textContent = '❌ Error: ' + error.message;
+        badge.textContent = '❌ ' + error.message;
         badge.className = 'badge error-badge';
         payBtn.textContent = '💵 Record Payment';
         payBtn.disabled = false;
 
-        setTimeout(() => {
-          badge.textContent = '';
-          badge.className = 'badge';
-        }, 4000);
+        setTimeout(() => clearBadge(), 4000);
       }
     };
+  }
+
+  function clearBadge() {
+    badge.textContent = '';
+    badge.className = 'badge';
   }
 }
 
@@ -6966,6 +7086,138 @@ function init(){
     console.error('Stack:', e.stack);
   }
 }
+
+// ===========================
+// HELPER FUNCTIONS
+// ===========================
+
+// Global notification system
+function showNotification(message, type = 'info', duration = 3000) {
+  const notificationDiv = document.createElement('div');
+  notificationDiv.className = `notification notification-${type}`;
+  notificationDiv.textContent = message;
+  notificationDiv.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 16px;
+    background: ${type === 'success' ? '#dcfce7' : type === 'error' ? '#fee2e2' : '#dbeafe'};
+    color: ${type === 'success' ? '#166534' : type === 'error' ? '#991b1b' : '#0c4a6e'};
+    border: 1px solid ${type === 'success' ? '#bbf7d0' : type === 'error' ? '#fca5a5' : '#7dd3fc'};
+    border-radius: 6px;
+    font-weight: 500;
+    z-index: 9999;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    animation: slideIn 0.3s ease;
+  `;
+
+  document.body.appendChild(notificationDiv);
+  
+  setTimeout(() => {
+    notificationDiv.style.animation = 'slideOut 0.3s ease';
+    setTimeout(() => notificationDiv.remove(), 300);
+  }, duration);
+}
+
+// Receipt preview modal
+function showReceiptPreview(student, amount, method, ref) {
+  const modal = qs('#modalReceiptPreview');
+  if (!modal) {
+    console.warn('Receipt preview modal not found');
+    return;
+  }
+
+  const receiptBody = qs('#receiptPreviewBody');
+  const receiptMeta = qs('#receiptPreviewMeta');
+  
+  const receiptHTML = `
+    <div class="receipt-preview-content" style="background: white; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; font-family: 'Arial', sans-serif; max-width: 500px;">
+      <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #3b82f6; padding-bottom: 12px;">
+        <h2 style="margin: 0; color: #1f2937;">RECEIPT</h2>
+        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 12px;">School Admin Portal</p>
+      </div>
+      
+      <div style="margin-bottom: 16px;">
+        <table style="width: 100%; font-size: 13px;">
+          <tr>
+            <td style="text-align: left; color: #6b7280;">Receipt No:</td>
+            <td style="text-align: right;"><strong>${Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1}</strong></td>
+          </tr>
+          <tr>
+            <td style="text-align: left; color: #6b7280;">Date:</td>
+            <td style="text-align: right;"><strong>${todayYYYYMMDD()}</strong></td>
+          </tr>
+          <tr>
+            <td style="text-align: left; color: #6b7280;">Time:</td>
+            <td style="text-align: right;"><strong>${formatNowTime12h()}</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin-bottom: 16px; padding: 12px; background: #f3f4f6; border-radius: 6px;">
+        <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">STUDENT DETAILS</div>
+        <div style="font-size: 13px;">
+          <strong>${student.name}</strong><br>
+          Admission No: <strong>${student.roll}</strong><br>
+          Class: <strong>${student.class}-${student.section}</strong>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <th style="text-align: left; padding: 8px 0; color: #6b7280;">Description</th>
+              <th style="text-align: right; padding: 8px 0; color: #6b7280;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 8px 0;">Monthly Fees</td>
+              <td style="text-align: right; padding: 8px 0;">₹ ${amount.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-bottom: 16px; padding-top: 12px; border-top: 2px solid #3b82f6;">
+        <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; color: #1f2937;">
+          <span>TOTAL:</span>
+          <span>₹ ${amount.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px; font-size: 12px; color: #6b7280;">
+        <strong>Payment Method:</strong> ${method}<br>
+        ${ref ? `<strong>Ref No:</strong> ${ref}` : ''}
+      </div>
+
+      <div style="text-align: center; padding-top: 12px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 11px;">
+        <p>Thank you for your payment</p>
+        <p>This is a computer-generated receipt</p>
+      </div>
+    </div>
+  `;
+
+  receiptBody.innerHTML = receiptHTML;
+  receiptMeta.textContent = `Receipt for ₹${amount} from ${student.name}`;
+  
+  modal.showModal();
+}
+
+// Add slide animation styles
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from { transform: translateX(400px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes slideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(400px); opacity: 0; }
+  }
+`;
+document.head.appendChild(style);
 
 document.addEventListener('DOMContentLoaded', function() {
   try {
