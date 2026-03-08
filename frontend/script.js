@@ -274,6 +274,42 @@ async function fetchPaymentsFromBackend() {
   }
 }
 
+// Fetch and organize fees from backend for Quick Payment Box
+async function fetchFeesFromBackend() {
+  try {
+    console.log('[API] Syncing fees from database...');
+    
+    // Fetch all payments (which includes fee records)
+    const response = await fetchWithTimeout(API_URL + '/payments', {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch fees: ${response?.status}`);
+    
+    const payments = await response.json();
+    
+    // Organize payments/fees by student and calculate unpaid dues
+    AppState.fees = (payments || [])
+      .filter(p => p.status !== 'Paid') // Get unpaid/pending payments
+      .map(p => ({
+        id: p.id,
+        student_id: p.student_id,
+        roll: p.roll_no || '',
+        name: p.name || '',
+        month_year: p.payment_date ? String(p.payment_date).slice(0, 7) : '', // YYYY-MM format
+        head: p.purpose || 'Fees', // Fee head like 'Tuition', 'Transport', etc
+        amount: Number(p.amount || 0),
+        status: p.status || 'Due',
+        payment_date: p.payment_date,
+        payment_method: p.payment_method || '',
+        transaction_id: p.transaction_id || ''
+      }));
+    
+    console.log('✅ Fees synced from backend:', AppState.fees.length, 'records');
+    return AppState.fees;
+  } catch (e) {
+    console.warn('❌ Could not sync fees from backend:', e.message);
+    return [];
+  }
+}
+
 async function syncPaymentToBackend({ studentId, amount, paymentDate, method, ref, purpose, discount, lateFee }) {
   if (!studentId) return { ok: false, reason: 'missing-student-id' };
 
@@ -2416,7 +2452,7 @@ function openEditStudent(roll){
 }
 
 // ---------- Fees View ----------
-function renderFees(){
+async function renderFees(){
   // Update KPI labels and values based on user role
   const feesKpiCollectedTitle = qs('#feesKpiCollectedTitle');
   const feesKpiReceiptsTitle = qs('#feesKpiReceiptsTitle');
@@ -2556,6 +2592,13 @@ function renderFees(){
   const feesBtnAging = qs('#feesBtnAging');
   if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
 
+  // 🔄 Sync database before initializing Quick Payment Box
+  console.log('🔄 Syncing database for Quick Payment Box...');
+  await Promise.all([
+    fetchStudentsFromBackend().catch(() => { console.warn('Failed to sync students'); }),
+    fetchFeesFromBackend().catch(() => { console.warn('Failed to sync fees'); })
+  ]);
+  
   renderRecentReceipts();
   initQuickPaymentBox();
 }
@@ -3121,6 +3164,15 @@ function initQuickPaymentBox(){
   }
 
   // Display student details when selected
+  // Helper function to format YYYY-MM to readable month name
+  function formatMonthName(monthStr) {
+    if (!monthStr || monthStr === 'N/A') return 'N/A';
+    const [year, month] = monthStr.split('-');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIndex = parseInt(month, 10) - 1;
+    return monthNames[monthIndex] ? `${monthNames[monthIndex]} ${year}` : monthStr;
+  }
+
   function displayStudentDetails(student) {
     selectedStudent = student;
     const { totalDue, unpaidDues } = calculateStudentDue(student);
@@ -3136,9 +3188,9 @@ function initQuickPaymentBox(){
       </div>
     `;
 
-    // Unpaid months
+    // Unpaid months with formatted names
     const months = unpaidDues.map(f => {
-      const monthStr = f.month_year || 'N/A';
+      const monthStr = formatMonthName(f.month_year || 'N/A');
       return `<span class="badge badge-light">${monthStr}</span>`;
     }).join('');
     unpaidMonthsDiv.innerHTML = months || '<span class="muted">No dues</span>';
