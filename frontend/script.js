@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @fileoverview School Admin Portal - Main Application Script
  * Note: This file uses template literals with HTML. VS Code may show false 
  * JSX errors which can be ignored - the code is valid JavaScript.
@@ -7,11 +7,11 @@
  */
 /* eslint-disable */
 /* ============================
-   School Admin Portal — script.js
+   School Admin Portal â€” script.js
    Author: Himanshu Kumar
    ============================ */
 
-console.log('📜 script.js loading...');
+console.log('ðŸ“œ script.js loading...');
 
 // global error catching (helps debug freezes)
 window.addEventListener('error', e => {
@@ -134,7 +134,7 @@ const AppState = {
     skipSun: false,
     holidays: [],                       // ["2026-03-08", ...]
     shiftRule: 'none',                  // 'none' | 'nextBusiness' | 'prevBusiness'
-    applyToHeads: {                     // when true → late fee applies only if that head is included
+    applyToHeads: {                     // when true â†’ late fee applies only if that head is included
       Tuition: true,
       Transport: true,
       Lab: false,
@@ -147,7 +147,7 @@ const AppState = {
   // Settings (+ School profile)
   settings: {
     theme: 'system',
-    currency: '₹',
+    currency: 'â‚¹',
     locale: 'en-IN',
     studentsPageSize: 10,
     defaultFeesMonth: null,
@@ -302,10 +302,10 @@ async function fetchFeesFromBackend() {
         transaction_id: p.transaction_id || ''
       }));
     
-    console.log('✅ Fees synced from backend:', AppState.fees.length, 'records');
+    console.log('âœ… Fees synced from backend:', AppState.fees.length, 'records');
     return AppState.fees;
   } catch (e) {
-    console.warn('❌ Could not sync fees from backend:', e.message);
+    console.warn('âŒ Could not sync fees from backend:', e.message);
     return [];
   }
 }
@@ -418,7 +418,7 @@ async function checkServerConnection(canRetryAfterOverrideCleanup = true) {
     
     const isConnected = response && response.ok;
     updateServerStatus(isConnected);
-    console.log('Server check:', isConnected ? 'Connected ✓' : 'Disconnected ✗');
+    console.log('Server check:', isConnected ? 'Connected âœ“' : 'Disconnected âœ—');
   } catch (e) {
     console.warn('Server connection check failed:', e.message);
 
@@ -717,21 +717,21 @@ function initializeAuth() {
   try {
     displayUserInfo();
   } catch (e) {
-    console.warn('⚠️ displayUserInfo error:', e);
+    console.warn('âš ï¸ displayUserInfo error:', e);
   }
 
   // Setup logout button (still works if present)
   const logoutBtn = document.getElementById('btnLogout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', handleLogout);
-    console.log('✓ Logout button handler attached');
+    console.log('âœ“ Logout button handler attached');
   }
 
   // Setup server status topbar click to manually check
   const serverStatusTopbar = document.getElementById('serverStatusTopbar');
   if (serverStatusTopbar) {
     serverStatusTopbar.addEventListener('click', checkServerConnection);
-    console.log('✓ Server status topbar handler attached');
+    console.log('âœ“ Server status topbar handler attached');
   }
 
   const offlineBannerRetry = document.getElementById('offlineBannerRetry');
@@ -975,7 +975,7 @@ function renderParentPortal() {
       .map(n => `
         <div style="padding:12px; border-bottom:1px solid var(--border);">
           <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
-          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • by ${escapedText(n.author)}</p>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} â€¢ by ${escapedText(n.author)}</p>
           <p style="margin:8px 0;">${escapedText(n.description)}</p>
         </div>
       `).join('');
@@ -1013,7 +1013,7 @@ function renderPublicPortal() {
       .map(n => `
         <div style="padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
           <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
-          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • ${n.audience}</p>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} â€¢ ${n.audience}</p>
           <p style="margin:8px 0;">${escapedText(n.description)}</p>
         </div>
       `).join('');
@@ -1185,7 +1185,7 @@ function handleRazorpaySuccess(response) {
 
 function handleRazorpayError(error) {
   RazorpayState.paymentInProgress = false;
-  alert('❌ Payment Failed!\n\nCode: ' + error.code + '\nDescription: ' + error.description + '\n\nPlease try again.');
+  alert('âŒ Payment Failed!\n\nCode: ' + error.code + '\nDescription: ' + error.description + '\n\nPlease try again.');
 }
 
 function handleRazorpayCancel() {
@@ -1221,7 +1221,7 @@ function processRazorpayPayment(student, amount, receiptData, modal) {
   saveState();
   
   // Show success message with Razorpay details
-  const successMsg = `✅ Payment Successful!\n\nReceipt No: ${receipt.no}\nAmount: ₹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
+  const successMsg = `âœ… Payment Successful!\n\nReceipt No: ${receipt.no}\nAmount: â‚¹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
   alert(successMsg);
   
   // Close modal and refresh
@@ -1265,7 +1265,7 @@ async function printThermalReceipt(paymentId, studentName, rollNo, amount, payme
       if (navigator.serial) {
         await sendToSerialPrinter(result.receipt);
       } else {
-        alert('⚠️ Web Serial API not available.\n\nReceipt generated. Please use the Print option from your printer settings.');
+        alert('âš ï¸ Web Serial API not available.\n\nReceipt generated. Please use the Print option from your printer settings.');
         printHTMLReceipt(receiptData);
       }
     }
@@ -1329,7 +1329,7 @@ async function sendToSerialPrinter(receiptData) {
     // Close port
     await port.close();
     
-    alert('✅ Receipt sent to thermal printer!');
+    alert('âœ… Receipt sent to thermal printer!');
   } catch (error) {
     console.error('Serial printer error:', error);
     alert('Could not connect to printer. Error: ' + error.message);
@@ -1504,7 +1504,7 @@ const qsa = sel => Array.from(document.querySelectorAll(sel));
 
 function fmtINR(n) {
   const val = Number(n || 0);
-  const sym = AppState.settings?.currency || '₹';
+  const sym = AppState.settings?.currency || 'â‚¹';
   const loc = AppState.settings?.locale || 'en-IN';
   return sym + ' ' + val.toLocaleString(loc, { maximumFractionDigits: 0 });
 }
@@ -1554,7 +1554,7 @@ function monthOfToday() {
 }
 
 function formatMonthLabel(monthStr) {
-  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return '—';
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return 'â€”';
   const [year, month] = monthStr.split('-').map(Number);
   const dt = new Date(year, month - 1, 1);
   if (Number.isNaN(dt.getTime())) return monthStr;
@@ -1720,7 +1720,7 @@ function computeLateFee(roll,yyyyMM,today=new Date()){
   if (headsWrap) {
     const includedAll = Array.from(headsWrap.querySelectorAll('input[type="checkbox"][data-include]'));
     const included = includedAll.filter(x => x.checked).map(x => x.getAttribute('data-include'));
-    // If no checkboxes are checked at all, assume admin intends to add only late fee — allow calculation
+    // If no checkboxes are checked at all, assume admin intends to add only late fee â€” allow calculation
     if (included.length === 0) {
       hasApplicableHeadIncluded = true;
     } else {
@@ -1754,7 +1754,7 @@ function applyThemeFromSettings() {
   AppState.theme = t; // keep in sync if used elsewhere
   document.documentElement.setAttribute('data-theme', t);
   const icon = document.getElementById('themeIcon');
-  if (icon) icon.textContent = (t === 'dark') ? '🌞' : '🌙';
+  if (icon) icon.textContent = (t === 'dark') ? 'ðŸŒž' : 'ðŸŒ™';
 }
 function initThemeToggle(){
   const btn=qs('#themeToggle');
@@ -1783,7 +1783,7 @@ function applyRoleBasedAccess() {
   const isReception = isReceptionUser();
   const panelRole = getPanelRole();
   
-  console.log('🔍 Applying role-based access...');
+  console.log('ðŸ” Applying role-based access...');
   console.log('  - Panel Role:', panelRole);
   console.log('  - Is Reception:', isReception);
   
@@ -1813,7 +1813,7 @@ function applyRoleBasedAccess() {
       const menuItem = document.querySelector(`.menu__item[data-view="${view}"]`);
       if (menuItem) {
         menuItem.style.display = 'none';
-        console.log('  ✗ Hidden:', view);
+        console.log('  âœ— Hidden:', view);
       }
     });
     
@@ -1854,15 +1854,15 @@ function applyRoleBasedAccess() {
     // Restrict access if someone tries to navigate to admin-only view directly
     const currentView = AppState.view;
     if (adminOnlyViews.includes(currentView)) {
-      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      alert('âš ï¸ Access Denied: This section is only available to Main Admin.');
       switchView('dashboard');
     }
     
-    console.log('✓ Reception role restrictions applied');
-    console.log('  ✗ Hidden: Teachers Tab (attendance only)');
-    console.log('  ✗ Hidden: Salary Tab');
-    console.log('  ✗ Hidden: Add Teacher button');
-    console.log('  ✗ Hidden: Export Teachers button');
+    console.log('âœ“ Reception role restrictions applied');
+    console.log('  âœ— Hidden: Teachers Tab (attendance only)');
+    console.log('  âœ— Hidden: Salary Tab');
+    console.log('  âœ— Hidden: Add Teacher button');
+    console.log('  âœ— Hidden: Export Teachers button');
 
     // ===== RECEPTION RESTRICTIONS FOR STAFF SECTION =====
     const addStaffBtn = document.getElementById('staffBtnAdd');
@@ -1882,16 +1882,16 @@ function applyRoleBasedAccess() {
       }, 100);
     }
 
-    console.log('  ✗ Hidden: Staff List Tab (attendance only)');
-    console.log('  ✗ Hidden: Staff Salary Tab');
-    console.log('  ✗ Hidden: Add Staff button');
-    console.log('  ✗ Hidden: Staff Preferences button');
+    console.log('  âœ— Hidden: Staff List Tab (attendance only)');
+    console.log('  âœ— Hidden: Staff Salary Tab');
+    console.log('  âœ— Hidden: Add Staff button');
+    console.log('  âœ— Hidden: Staff Preferences button');
   } else {
     // Main Admin - show all menu items
     document.querySelectorAll('.menu__item').forEach(item => {
       item.style.display = '';
     });
-    console.log('✓ Full admin access granted (Main Admin)');
+    console.log('âœ“ Full admin access granted (Main Admin)');
   }
 }
 
@@ -1948,7 +1948,7 @@ function switchView(viewId) {
   if (isReceptionUser()) {
     const adminOnlyViews = ['exams', 'settings', 'audit', 'parents'];
     if (adminOnlyViews.includes(viewId)) {
-      alert('⚠️ Access Denied: This section is only available to Main Admin.');
+      alert('âš ï¸ Access Denied: This section is only available to Main Admin.');
       return; // Don't switch to restricted view
     }
   }
@@ -1977,7 +1977,7 @@ function switchView(viewId) {
       // Ensure Quick Payment Box is initialized after a short delay
       setTimeout(() => {
         if (typeof initQuickPaymentBox === 'function') {
-          console.log('📌 Ensuring Quick Payment Box is initialized...');
+          console.log('ðŸ“Œ Ensuring Quick Payment Box is initialized...');
           initQuickPaymentBox();
         }
       }, 500);
@@ -2080,10 +2080,10 @@ function renderDashboard(){
   if (btnRefresh) {
     btnRefresh.onclick = async () => {
       btnRefresh.disabled = true;
-      btnRefresh.textContent = '⏳ Syncing...';
+      btnRefresh.textContent = 'â³ Syncing...';
       await loadDashboardData();
       btnRefresh.disabled = false;
-      btnRefresh.textContent = '🔄 Refresh';
+      btnRefresh.textContent = 'ðŸ”„ Refresh';
     };
   }
   
@@ -2395,9 +2395,9 @@ function renderStudents(){
   function renderStudentsPagination(){
     const {page,totalPages}=AppState.pagination.students;
     let html='';
-    html+=`<button class="btn btn-ghost small" ${page<=1?'disabled':''} data-pg="prev">◀ Prev</button>`;
+    html+=`<button class="btn btn-ghost small" ${page<=1?'disabled':''} data-pg="prev">â—€ Prev</button>`;
     html+=`<span class="muted"> Page ${page} of ${totalPages} </span>`;
-    html+=`<button class="btn btn-ghost small" ${page>=totalPages?'disabled':''} data-pg="next">Next ▶</button>`;
+    html+=`<button class="btn btn-ghost small" ${page>=totalPages?'disabled':''} data-pg="next">Next â–¶</button>`;
     pagination.innerHTML=html;
     qsa('button[data-pg]').forEach(b=>{
       b.onclick=()=>{
@@ -2601,18 +2601,18 @@ async function renderFees(){
   const feesBtnAging = qs('#feesBtnAging');
   if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
 
-  // 🔄 Sync database before initializing Quick Payment Box
-  console.log('🔄 Syncing database for Quick Payment Box...');
+  // ðŸ”„ Sync database before initializing Quick Payment Box
+  console.log('ðŸ”„ Syncing database for Quick Payment Box...');
   await Promise.all([
     fetchStudentsFromBackend().catch(() => { console.warn('Failed to sync students'); }),
     fetchFeesFromBackend().catch(() => { console.warn('Failed to sync fees'); })
   ]);
-  console.log('✅ Database sync complete. Students:', AppState.students.length, 'Fees:', AppState.fees.length);
+  console.log('âœ… Database sync complete. Students:', AppState.students.length, 'Fees:', AppState.fees.length);
   
   renderRecentReceipts();
-  console.log('🎯 Calling initQuickPaymentBox()...');
+  console.log('ðŸŽ¯ Calling initQuickPaymentBox()...');
   initQuickPaymentBox();
-  console.log('✅ initQuickPaymentBox() completed');
+  console.log('âœ… initQuickPaymentBox() completed');
 }
 
 function sumReceiptsThisMonth(){
@@ -2835,7 +2835,7 @@ function showFullyPaidStudentsModal() {
       class: s.class,
       section: s.section,
       paidTillMonth: formatMonthLabel(lastPaidMonth),
-      lastPayment: lastPaymentDate || '—'
+      lastPayment: lastPaymentDate || 'â€”'
     });
   });
   
@@ -2961,9 +2961,9 @@ function renderRecentReceipts(filterByMonth=false){
       <td>${r.method}</td>
       <td>${fmtINR(r.amount)}</td>
       <td style="text-align:right;">
-        <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
-        <button class="btn btn-ghost small" data-act="a4" data-no="${r.no}" title="A4 Printable Receipt">📑 A4</button>
-        <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
+        <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">ðŸ–¨ï¸ Print</button>
+        <button class="btn btn-ghost small" data-act="a4" data-no="${r.no}" title="A4 Printable Receipt">ðŸ“‘ A4</button>
+        <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">ðŸ“„ PDF</button>
       </td>
     </tr>
   `).join('');
@@ -2995,9 +2995,9 @@ function renderRecentReceipts(filterByMonth=false){
         </div>
       </div>
       <div class="receipt-box__actions">
-        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
-        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
-        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">ðŸ–¨ï¸ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">ðŸ“‘ A4</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">ðŸ“„ PDF</button>
       </div>
     </div>
   `).join('');
@@ -3017,9 +3017,9 @@ function renderRecentReceipts(filterByMonth=false){
         </div>
       </div>
       <div class="receipt-list-item__actions">
-        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
-        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
-        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+        <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">ðŸ–¨ï¸ Print</button>
+        <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">ðŸ“‘ A4</button>
+        <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">ðŸ“„ PDF</button>
       </div>
     </div>
   `).join('');
@@ -3103,9 +3103,9 @@ function showThisMonthReceiptsModal(){
           </div>` : ''}
         </div>
         <div class="receipt-box__actions">
-          <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">🖨️ Print</button>
-          <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">📑 A4</button>
-          <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">📄 PDF</button>
+          <button class="btn btn-ghost small" onclick="printReceipt('${r.no}')">ðŸ–¨ï¸ Print</button>
+          <button class="btn btn-ghost small" onclick="printReceiptA4('${r.no}')">ðŸ“‘ A4</button>
+          <button class="btn btn-ghost small" onclick="generateReceiptPDF('${r.no}')">ðŸ“„ PDF</button>
         </div>
       </div>
     `).join('');
@@ -3157,14 +3157,14 @@ function initQuickPaymentBox(){
     const totalDue = selectedStudent ? calculateStudentDue(selectedStudent).totalDue : 0;
     const balance = totalDue - amount;
 
-    totalDueSpan.textContent = `₹ ${(totalDue).toLocaleString()}`;
-    payAmountSpan.textContent = `₹ ${(amount).toLocaleString()}`;
+    totalDueSpan.textContent = `â‚¹ ${(totalDue).toLocaleString()}`;
+    payAmountSpan.textContent = `â‚¹ ${(amount).toLocaleString()}`;
     
     if (balance > 0) {
-      balanceSpan.textContent = `₹ ${(balance).toLocaleString()}`;
+      balanceSpan.textContent = `â‚¹ ${(balance).toLocaleString()}`;
       balanceRow.style.display = 'flex';
     } else if (balance < 0) {
-      balanceSpan.textContent = `₹ ${Math.abs(balance).toLocaleString()} (Overpaid)`;
+      balanceSpan.textContent = `â‚¹ ${Math.abs(balance).toLocaleString()} (Overpaid)`;
       balanceRow.style.display = 'flex';
     } else {
       balanceRow.style.display = 'none';
@@ -3207,8 +3207,8 @@ function initQuickPaymentBox(){
     // Due info
     dueInfoDiv.innerHTML = `
       <div class="text-sm">
-        <div>💰 Total Due: <strong>₹ ${totalDue.toLocaleString()}</strong></div>
-        <div class="muted mt-4">📅 ${unpaidDues.length} unpaid month${unpaidDues.length !== 1 ? 's' : ''}</div>
+        <div>ðŸ’° Total Due: <strong>â‚¹ ${totalDue.toLocaleString()}</strong></div>
+        <div class="muted mt-4">ðŸ“… ${unpaidDues.length} unpaid month${unpaidDues.length !== 1 ? 's' : ''}</div>
       </div>
     `;
 
@@ -3228,14 +3228,14 @@ function initQuickPaymentBox(){
   // Helper function to get icon for fee head
   function getHeadIcon(head) {
     const icons = {
-      'Tuition': '📚',
-      'Transport': '🚌',
-      'Lab/IT': '💻',
-      'Activity': '🎨',
-      'Miscellaneous': '📌',
-      'Other': '💰'
+      'Tuition': 'ðŸ“š',
+      'Transport': 'ðŸšŒ',
+      'Lab/IT': 'ðŸ’»',
+      'Activity': 'ðŸŽ¨',
+      'Miscellaneous': 'ðŸ“Œ',
+      'Other': 'ðŸ’°'
     };
-    return icons[head] || '💰';
+    return icons[head] || 'ðŸ’°';
   }
 
   // Populate fee breakdown with individual heads
@@ -3267,7 +3267,7 @@ function initQuickPaymentBox(){
           <input type="checkbox" id="${checkboxId}" class="qp-fee-checkbox" data-head="${head}" data-amount="${amount}" />
           <label for="${checkboxId}">
             <span>${getHeadIcon(head)} ${head}</span>
-            <span class="fee-head-amount">₹${amount.toLocaleString()}</span>
+            <span class="fee-head-amount">â‚¹${amount.toLocaleString()}</span>
           </label>
         </div>
       `;
@@ -3326,7 +3326,7 @@ function initQuickPaymentBox(){
     toggleViewBtn.addEventListener('click', (e) => {
       e.preventDefault();
       viewMode = viewMode === 'admission' ? 'name' : 'admission';
-      toggleViewBtn.textContent = viewMode === 'name' ? '🆔 Admission View' : '👤 Name View';
+      toggleViewBtn.textContent = viewMode === 'name' ? 'ðŸ†” Admission View' : 'ðŸ‘¤ Name View';
       // Refresh dropdown if visible
       if (!dropdown.classList.contains('d-none') && searchInput.value.trim()) {
         searchInput.dispatchEvent(new Event('input'));
@@ -3360,10 +3360,10 @@ function initQuickPaymentBox(){
             // Name-focused view
             return `
               <div class="dropdown-item dropdown-item--name-view" data-roll="${s.roll}" data-id="${s.id}">
-                <div class="dropdown-item-name">👤 ${s.name}</div>
-                <div class="dropdown-item-meta">🆔 Admission #${s.roll} | ${s.class}-${s.section}</div>
+                <div class="dropdown-item-name">ðŸ‘¤ ${s.name}</div>
+                <div class="dropdown-item-meta">ðŸ†” Admission #${s.roll} | ${s.class}-${s.section}</div>
                 <div class="dropdown-item-meta" style="margin-top: 4px;">
-                  ${totalDue > 0 ? `💰 Due: <strong>₹${totalDue}</strong>` : '<span style="color: #10b981;">✓ Paid</span>'}
+                  ${totalDue > 0 ? `ðŸ’° Due: <strong>â‚¹${totalDue}</strong>` : '<span style="color: #10b981;">âœ“ Paid</span>'}
                 </div>
               </div>
             `;
@@ -3373,7 +3373,7 @@ function initQuickPaymentBox(){
               <div class="dropdown-item" data-roll="${s.roll}" data-id="${s.id}">
                 <strong>${s.roll}</strong> - ${s.name}
                 <span class="muted text-sm">(${s.class}-${s.section})</span>
-                ${totalDue > 0 ? `<span class="badge error-badge ml-8">₹${totalDue}</span>` : '<span class="badge success-badge ml-8">Paid</span>'}
+                ${totalDue > 0 ? `<span class="badge error-badge ml-8">â‚¹${totalDue}</span>` : '<span class="badge success-badge ml-8">Paid</span>'}
               </div>
             `;
           }
@@ -3476,7 +3476,7 @@ function initQuickPaymentBox(){
   if (payBtn) {
     payBtn.onclick = async () => {
       if (!selectedStudent) {
-        badge.textContent = '❌ Select Student';
+        badge.textContent = 'âŒ Select Student';
         badge.className = 'badge error-badge';
         searchInput.focus();
         setTimeout(clearTimeout, 3000);
@@ -3491,7 +3491,7 @@ function initQuickPaymentBox(){
 
       // Validation
       if (amount <= 0) {
-        badge.textContent = '❌ Enter Amount > 0';
+        badge.textContent = 'âŒ Enter Amount > 0';
         badge.className = 'badge error-badge';
         amountInput.focus();
         setTimeout(() => clearBadge(), 3000);
@@ -3499,7 +3499,7 @@ function initQuickPaymentBox(){
       }
 
       if (amount > totalDue + 100) {
-        badge.textContent = '❌ Amount exceeds due';
+        badge.textContent = 'âŒ Amount exceeds due';
         badge.className = 'badge error-badge';
         amountInput.focus();
         setTimeout(() => clearBadge(), 3000);
@@ -3507,7 +3507,7 @@ function initQuickPaymentBox(){
       }
 
       if (!selectedStudent.id) {
-        badge.textContent = '❌ Student data error';
+        badge.textContent = 'âŒ Student data error';
         badge.className = 'badge error-badge';
         console.error('Student missing id:', selectedStudent);
         setTimeout(() => clearBadge(), 3000);
@@ -3529,8 +3529,8 @@ function initQuickPaymentBox(){
         late_fee: 0
       };
 
-      console.log('🔵 Recording payment:', JSON.stringify(paymentData, null, 2));
-      console.log('📍 API URL:', API_URL);
+      console.log('ðŸ”µ Recording payment:', JSON.stringify(paymentData, null, 2));
+      console.log('ðŸ“ API URL:', API_URL);
 
       const receiptNo = Math.max(...(AppState.receipts || []).map(r => parseInt(r.no) || 0), 0) + 1;
       const receipt = {
@@ -3549,7 +3549,7 @@ function initQuickPaymentBox(){
       };
 
       payBtn.disabled = true;
-      payBtn.textContent = '⏳ Processing...';
+      payBtn.textContent = 'â³ Processing...';
 
       try {
         const response = await fetchWithTimeout(API_URL + '/payments', {
@@ -3561,9 +3561,9 @@ function initQuickPaymentBox(){
         const contentType = response.headers.get('content-type') || '';
         const responseText = await response.text();
 
-        console.log('✅ Response Status:', response.status);
-        console.log('✅ Response Headers:', contentType);
-        console.log('✅ Response Body:', responseText.substring(0, 200));
+        console.log('âœ… Response Status:', response.status);
+        console.log('âœ… Response Headers:', contentType);
+        console.log('âœ… Response Body:', responseText.substring(0, 200));
 
         if (!response.ok) {
           let errorMsg = `Server error (${response.status})`;
@@ -3577,7 +3577,7 @@ function initQuickPaymentBox(){
           } catch (parseError) {
             console.error('Error parsing response:', parseError);
           }
-          console.error('❌ API Error:', errorMsg);
+          console.error('âŒ API Error:', errorMsg);
           throw new Error(errorMsg);
         }
 
@@ -3585,11 +3585,11 @@ function initQuickPaymentBox(){
         if (!AppState.receipts) AppState.receipts = [];
         AppState.receipts.push(receipt);
         
-        console.log('✅ Payment saved successfully');
+        console.log('âœ… Payment saved successfully');
         
-        badge.textContent = '✅ Payment Recorded!';
+        badge.textContent = 'âœ… Payment Recorded!';
         badge.className = 'badge success-badge';
-        payBtn.textContent = '💵 Record Payment';
+        payBtn.textContent = 'ðŸ’µ Record Payment';
         payBtn.disabled = false;
 
         // Refresh UI
@@ -3597,24 +3597,24 @@ function initQuickPaymentBox(){
           if (typeof renderRecentReceipts === 'function') renderRecentReceipts();
           if (typeof updateFeeKpis === 'function') updateFeeKpis();
         } catch (uiUpdateError) {
-          console.warn('⚠️ UI update error (non-critical):', uiUpdateError.message);
+          console.warn('âš ï¸ UI update error (non-critical):', uiUpdateError.message);
         }
 
         // Show success & clear
         setTimeout(() => {
           clearBtn.click();
-          showNotification(`✅ Payment of ₹${amount} recorded for ${selectedStudent.name}`, 'success');
+          showNotification(`âœ… Payment of â‚¹${amount} recorded for ${selectedStudent.name}`, 'success');
         }, 500);
       } catch (error) {
-        console.error('❌ Payment error:', error.message);
+        console.error('âŒ Payment error:', error.message);
         console.error('Stack:', error.stack);
         
-        badge.textContent = '❌ ' + (error.message || 'Payment failed');
+        badge.textContent = 'âŒ ' + (error.message || 'Payment failed');
         badge.className = 'badge error-badge';
-        payBtn.textContent = '💵 Record Payment';
+        payBtn.textContent = 'ðŸ’µ Record Payment';
         payBtn.disabled = false;
 
-        showNotification('❌ ' + (error.message || 'Payment recording failed'), 'error', 5000);
+        showNotification('âŒ ' + (error.message || 'Payment recording failed'), 'error', 5000);
         setTimeout(() => clearBadge(), 5000);
       }
     };
@@ -3893,11 +3893,11 @@ function initImportCSVModal(){
     previewBody.innerHTML = parsedData.map(d => {
       let statusBadge = '';
       if (d.valid) {
-        statusBadge = '<span class="badge" style="background: #dcfce7; color: #166534;">✓ OK</span>';
+        statusBadge = '<span class="badge" style="background: #dcfce7; color: #166534;">âœ“ OK</span>';
       } else if (d.duplicate) {
-        statusBadge = '<span class="badge" style="background: #fee2e2; color: #dc2626;">⚠ Duplicate</span>';
+        statusBadge = '<span class="badge" style="background: #fee2e2; color: #dc2626;">âš  Duplicate</span>';
       } else {
-        statusBadge = '<span class="badge" style="background: #fed7aa; color: #c2410c;">✗ Invalid</span>';
+        statusBadge = '<span class="badge" style="background: #fed7aa; color: #c2410c;">âœ— Invalid</span>';
       }
       
       const errorText = d.errors.length > 0 ? `<br/><small>${d.errors.join('; ')}</small>` : '';
@@ -3970,10 +3970,10 @@ function initImportCSVModal(){
           status: d.status
         });
         importedCount++;
-        progressLog.innerHTML += `<div>✓ Row ${d.rowIdx}: ${d.name} (${d.roll})</div>`;
+        progressLog.innerHTML += `<div>âœ“ Row ${d.rowIdx}: ${d.name} (${d.roll})</div>`;
       } catch (err) {
         errCount++;
-        progressLog.innerHTML += `<div style="color: #ef4444;">✗ Row ${d.rowIdx}: ${err.message}</div>`;
+        progressLog.innerHTML += `<div style="color: #ef4444;">âœ— Row ${d.rowIdx}: ${err.message}</div>`;
       }
       
       // Allow UI to update
@@ -4072,7 +4072,7 @@ function initRecordPaymentModal(){
     recalcBtn.type='button';
     recalcBtn.className='btn btn-ghost small';
     recalcBtn.style.marginLeft='6px';
-    recalcBtn.textContent='↻ Recalculate';
+    recalcBtn.textContent='â†» Recalculate';
     rpLateFee.parentElement.appendChild(recalcBtn);
     recalcBtn.onclick=()=> autoCalcLateFee();
   }
@@ -4106,7 +4106,7 @@ function initRecordPaymentModal(){
       ((s.name || '') + '').toLowerCase().includes(q) ||
       ((s.phone || '') + '').toLowerCase().includes(q)
     ).slice(0, 8);
-    list.innerHTML = matches.map(s => ` <button type="button" class="dropdown__item" data-roll="${s.roll}">${s.roll || ''} · ${s.name || ''} · ${s.class || ''}-${s.section || ''}</button>`).join('');
+    list.innerHTML = matches.map(s => ` <button type="button" class="dropdown__item" data-roll="${s.roll}">${s.roll || ''} Â· ${s.name || ''} Â· ${s.class || ''}-${s.section || ''}</button>`).join('');
     list.style.display = matches.length ? 'block' : 'none';
     qsa('#rpStudentList .dropdown__item').forEach(btn => {
       btn.onclick = () => { rpRoll.value = btn.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; };
@@ -4189,7 +4189,7 @@ function initRecordPaymentModal(){
       const label = formatMonthLabel(m.month); // e.g., "March 2025"
       const checkbox = `<input type="checkbox" data-month="${m.month}" class="month-checkbox" ${m.status !== 'paid' ? 'checked' : ''} />`;
       const statusBadge = `<span class="month-status-badge ${badgeClass}">${m.status.toUpperCase()}</span>`;
-      const outstandingText = m.outstanding > 0 ? ` (₹${m.outstanding})` : '';
+      const outstandingText = m.outstanding > 0 ? ` (â‚¹${m.outstanding})` : '';
 
       return `
         <label class="month-item month-${m.status}">
@@ -4287,7 +4287,7 @@ function initRecordPaymentModal(){
 
     rpHeadsWrap.innerHTML=Object.entries(fee.heads).map(([head,amt])=>`
       <div class="grid-2">
-        <label><span>${head} (₹)</span><input type="number" min="0" step="1" data-head="${head}" value="${amt}"/></label>
+        <label><span>${head} (â‚¹)</span><input type="number" min="0" step="1" data-head="${head}" value="${amt}"/></label>
         <label><span>Include</span><input type="checkbox" data-include="${head}" checked/></label>
       </div>`).join('');
 
@@ -4470,7 +4470,7 @@ function initFeeHeadsModal(){
       <div style="padding:8px;">
         ${Object.entries(heads).map(([h,amt])=>`
           <div class="grid-2">
-            <label><span>${h} (₹)</span><input type="number" min="0" step="1" data-k="${klass}" data-h="${h}" value="${amt}"/></label>
+            <label><span>${h} (â‚¹)</span><input type="number" min="0" step="1" data-k="${klass}" data-h="${h}" value="${amt}"/></label>
             <button class="btn btn-ghost small" type="button" data-k="${klass}" data-del="${h}">Delete Head</button>
           </div>
         `).join('')}
@@ -4486,7 +4486,7 @@ function initFeeHeadsModal(){
     btn.onclick=()=>{ const k=btn.getAttribute('data-k'); const h=btn.getAttribute('data-del'); delete AppState.feeHeadsByClass[k][h]; initFeeHeadsModal(); };
   });
   qsa('#fhEditor button[data-add]').forEach(btn=>{
-    btn.onclick=()=>{ const k=btn.getAttribute('data-add'); const h=prompt('Head name? (e.g., Tuition)'); const amt=Number(prompt('Monthly amount (₹)?')||0); if(!h) return; AppState.feeHeadsByClass[k][h]=amt; initFeeHeadsModal(); };
+    btn.onclick=()=>{ const k=btn.getAttribute('data-add'); const h=prompt('Head name? (e.g., Tuition)'); const amt=Number(prompt('Monthly amount (â‚¹)?')||0); if(!h) return; AppState.feeHeadsByClass[k][h]=amt; initFeeHeadsModal(); };
   });
 
   form.onsubmit=(e)=>{ e.preventDefault(); saveState(); form.parentElement.close(); };
@@ -4506,8 +4506,8 @@ function initLateRulesModal(){
   const wrap=qs('#lfSlabsWrap');
   wrap.innerHTML=(AppState.lateFeeRules.slabs||[]).map((s,idx)=>`
     <div class="grid-2">
-      <div><strong>${s.from}–${s.to||'∞'} days</strong></div>
-      <div>₹ ${s.perDay}/day <button class="btn btn-ghost small" data-del="${idx}">Remove</button></div>
+      <div><strong>${s.from}â€“${s.to||'âˆž'} days</strong></div>
+      <div>â‚¹ ${s.perDay}/day <button class="btn btn-ghost small" data-del="${idx}">Remove</button></div>
     </div>
   `).join('');
   qsa('#lfSlabsWrap button[data-del]').forEach(b=>{
@@ -4517,7 +4517,7 @@ function initLateRulesModal(){
   qs('#lfAddSlab').onclick=()=>{
     const from=Number(prompt('From day (>=1)?')||1);
     const to=prompt('To day (leave blank for open-ended)');
-    const perDay=Number(prompt('Per day amount (₹)?')||0);
+    const perDay=Number(prompt('Per day amount (â‚¹)?')||0);
     AppState.lateFeeRules.slabs.push({from, to: to? Number(to): null, perDay});
     initLateRulesModal();
   };
@@ -4581,9 +4581,9 @@ function printReceipt(no){
 
   // Offer choice for thermal or regular printer
   const choice = confirm(
-    '🖨️ Print Options:\n\n' +
-    'OK → Thermal Printer (ESC/POS Format)\n' +
-    'Cancel → Regular Printer (Browser Print)\n\n' +
+    'ðŸ–¨ï¸ Print Options:\n\n' +
+    'OK â†’ Thermal Printer (ESC/POS Format)\n' +
+    'Cancel â†’ Regular Printer (Browser Print)\n\n' +
     'Choose Thermal for petrol pump style thermal printers.'
   );
   
@@ -4604,7 +4604,7 @@ function printReceipt(no){
     const sch = AppState.settings.school || {};
     const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
     const tagline     = sch.tagline || '';
-    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' Â· ');
 
     root.innerHTML=`
       <div class="receipt">
@@ -4810,7 +4810,7 @@ function printAllDueReceipts(compact = false) {
   const sch = AppState.settings.school || {};
   const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
   const tagline = sch.tagline || '';
-  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+  const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' Â· ');
   
   if (compact) {
     // Compact format - table only
@@ -4958,8 +4958,8 @@ function generateReceiptPDF(receiptNo) {
   html += '<p class="school-tagline">' + tagline + '</p>';
   html += '<div class="school-address">';
   if (address) html += address + '<br>';
-  if (phone) html += '📞 ' + phone + '<br>';
-  if (email) html += '✉️ ' + email;
+  if (phone) html += 'ðŸ“ž ' + phone + '<br>';
+  if (email) html += 'âœ‰ï¸ ' + email;
   html += '</div></div></div></div>';
   html += '<div class="receipt-title">FEE RECEIPT</div>';
   html += '<div class="receipt-body">';
@@ -4972,12 +4972,12 @@ function generateReceiptPDF(receiptNo) {
   if (receipt.ref) html += '<div class="receipt-row"><span class="receipt-row-label">Reference:</span><span class="receipt-row-value">' + receipt.ref + '</span></div>';
   html += '</div>';
   html += '<div class="amount-section">';
-  html += '<div class="amount-row"><span class="amount-row-label">Amount Paid</span><span class="amount-row-value">₹ ' + amount + '</span></div>';
-  html += '<div class="total-row"><span>Total</span><span>₹ ' + amount + '</span></div>';
+  html += '<div class="amount-row"><span class="amount-row-label">Amount Paid</span><span class="amount-row-value">â‚¹ ' + amount + '</span></div>';
+  html += '<div class="total-row"><span>Total</span><span>â‚¹ ' + amount + '</span></div>';
   html += '</div>';
-  html += '<div class="collection-note">💳 Payment Collected at Cash Counter</div>';
+  html += '<div class="collection-note">ðŸ’³ Payment Collected at Cash Counter</div>';
   html += '<div class="receipt-footer">';
-  html += '<p>✓ Payment received and recorded in system</p>';
+  html += '<p>âœ“ Payment received and recorded in system</p>';
   html += '<p>This is a system-generated receipt. No signature required.</p>';
   html += '<p style="margin:8px 0 0 0;">For queries, contact the school office</p>';
   html += '<div class="timestamp">Generated on ' + now + '</div>';
@@ -6813,7 +6813,7 @@ function renderSettings() {
 
   // Load current values into controls
   setTheme.value = AppState.settings.theme || 'system';
-  setCurrency.value = AppState.settings.currency || '₹';
+  setCurrency.value = AppState.settings.currency || 'â‚¹';
   setLocale.value = AppState.settings.locale || 'en-IN';
   setStudentsPageSize.value = AppState.settings.studentsPageSize || 10;
   setChartAnimation.checked = !!AppState.settings.chartAnimation;
@@ -6859,7 +6859,7 @@ function renderSettings() {
   if (saveBtn) saveBtn.onclick = () => {
     const pageSize = Math.max(5, Number(setStudentsPageSize.value || 10));
     AppState.settings.theme = setTheme.value;
-    AppState.settings.currency = (setCurrency.value || '₹').trim();
+    AppState.settings.currency = (setCurrency.value || 'â‚¹').trim();
     AppState.settings.locale = setLocale.value || 'en-IN';
     AppState.settings.studentsPageSize = pageSize;
     AppState.settings.defaultFeesMonth = setDefaultFeesMonth?.value || null;
@@ -7215,7 +7215,7 @@ function initNotifications(){
 
 // ---------- Init ----------
 function init(){
-  console.log('🚀 Initializing School Admin Portal...');
+  console.log('ðŸš€ Initializing School Admin Portal...');
   
   try {
     // Initialize authentication FIRST (this sets up basic button handlers)
@@ -7247,26 +7247,26 @@ function init(){
     // Role-based initialization
     if (isAuthenticated()) {
       const role = getUserRole();
-      console.log('✅ User authenticated as:', role);
+      console.log('âœ… User authenticated as:', role);
       
       if (role === 'admin') {
-        console.log('📊 Initializing Admin Portal...');
+        console.log('ðŸ“Š Initializing Admin Portal...');
         try {
           initSidebarNavigation();
         } catch (e) {
-          console.error('⚠️ Sidebar init error:', e);
+          console.error('âš ï¸ Sidebar init error:', e);
         }
         
         try {
           initQuickAdd();
         } catch (e) {
-          console.error('⚠️ Quick add init error:', e);
+          console.error('âš ï¸ Quick add init error:', e);
         }
 
         try {
           initNotifications();
         } catch (e) {
-          console.error('⚠️ Notifications init error:', e);
+          console.error('âš ï¸ Notifications init error:', e);
         }
         
         // Initialize modals with error handling
@@ -7277,16 +7277,16 @@ function init(){
           initFeeHeadsModal();
           initLateRulesModal();
           initConcessionModal();
-          console.log('✅ Modals initialized');
+          console.log('âœ… Modals initialized');
         } catch (e) {
-          console.warn('⚠️ Modal initialization warning:', e.message);
+          console.warn('âš ï¸ Modal initialization warning:', e.message);
         }
       }
 
       try {
         initFeePaymentButton();
       } catch (e) {
-        console.error('⚠️ Fee payment button init error:', e);
+        console.error('âš ï¸ Fee payment button init error:', e);
       }
       
       try {
@@ -7294,12 +7294,12 @@ function init(){
         
         // Add panel role logging for debugging
         const panelRole = getPanelRole();
-        console.log('🔐 User Role:', role);
-        console.log('📋 Panel Role:', panelRole);
-        console.log('🎭 Is Reception?', isReceptionUser());
+        console.log('ðŸ” User Role:', role);
+        console.log('ðŸ“‹ Panel Role:', panelRole);
+        console.log('ðŸŽ­ Is Reception?', isReceptionUser());
         
       } catch (e) {
-        console.error('⚠️ switchRole error:', e);
+        console.error('âš ï¸ switchRole error:', e);
       }
       
       // Ensure dashboard loads on initial page load
@@ -7311,10 +7311,10 @@ function init(){
         }, 100);
       }
       
-      console.log('✅ Portal ready!');
+      console.log('âœ… Portal ready!');
     }
   } catch (e) {
-    console.error('❌ Initialization error:', e);
+    console.error('âŒ Initialization error:', e);
     console.error('Stack:', e.stack);
   }
 }
@@ -7409,7 +7409,7 @@ function showReceiptPreview(student, amount, method, ref) {
           <tbody>
             <tr>
               <td style="padding: 8px 0;">Monthly Fees</td>
-              <td style="text-align: right; padding: 8px 0;">₹ ${amount.toLocaleString()}</td>
+              <td style="text-align: right; padding: 8px 0;">â‚¹ ${amount.toLocaleString()}</td>
             </tr>
           </tbody>
         </table>
@@ -7418,7 +7418,7 @@ function showReceiptPreview(student, amount, method, ref) {
       <div style="margin-bottom: 16px; padding-top: 12px; border-top: 2px solid #3b82f6;">
         <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; color: #1f2937;">
           <span>TOTAL:</span>
-          <span>₹ ${amount.toLocaleString()}</span>
+          <span>â‚¹ ${amount.toLocaleString()}</span>
         </div>
       </div>
 
@@ -7435,7 +7435,7 @@ function showReceiptPreview(student, amount, method, ref) {
   `;
 
   receiptBody.innerHTML = receiptHTML;
-  receiptMeta.textContent = `Receipt for ₹${amount} from ${student.name}`;
+  receiptMeta.textContent = `Receipt for â‚¹${amount} from ${student.name}`;
   
   modal.showModal();
 }
@@ -7470,5 +7470,5 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-/ /   D e p l o y m e n t   t r i g g e r   -   2 0 2 6 - 0 3 - 0 8   0 7 : 5 8  
- 
+// Deployment trigger - 2026-03-08 07:58
+
