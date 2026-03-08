@@ -3304,13 +3304,14 @@ function initQuickPaymentBox(){
         return;
       }
 
-      // Prepare payment data
+      // Prepare payment data (use integer amount in paise to avoid decimals)
+      const amountInt = Math.floor(amount);
       const paymentData = {
-        student_id: selectedStudent.id,
-        amount: amount,
+        student_id: parseInt(selectedStudent.id),
+        amount: amountInt,
         payment_date: todayYYYYMMDD(),
         payment_method: method,
-        transaction_id: ref || null,
+        transaction_id: ref && ref.length > 0 ? ref : null,
         purpose: 'Monthly Fees',
         status: 'Completed',
         remarks: remarks || 'Quick payment via fees portal',
@@ -3318,9 +3319,10 @@ function initQuickPaymentBox(){
         late_fee: 0
       };
 
-      console.log('Recording payment:', paymentData);
+      console.log('🔵 Recording payment:', JSON.stringify(paymentData, null, 2));
+      console.log('📍 API URL:', API_URL);
 
-      const receiptNo = Math.max(...AppState.receipts.map(r => parseInt(r.no) || 0), 0) + 1;
+      const receiptNo = Math.max(...(AppState.receipts || []).map(r => parseInt(r.no) || 0), 0) + 1;
       const receipt = {
         no: receiptNo.toString(),
         date: todayYYYYMMDD(),
@@ -3346,21 +3348,34 @@ function initQuickPaymentBox(){
           body: JSON.stringify(paymentData)
         }, 8000);
 
+        const contentType = response.headers.get('content-type') || '';
         const responseText = await response.text();
 
+        console.log('✅ Response Status:', response.status);
+        console.log('✅ Response Headers:', contentType);
+        console.log('✅ Response Body:', responseText.substring(0, 200));
+
         if (!response.ok) {
-          let errorMsg = 'Failed to save payment';
+          let errorMsg = `Server error (${response.status})`;
           try {
-            const errorData = JSON.parse(responseText);
-            errorMsg = errorData.error || errorMsg;
-          } catch (_) {
-            errorMsg = `Server error (${response.status})`;
+            if (contentType.includes('application/json')) {
+              const errorData = JSON.parse(responseText);
+              errorMsg = errorData.error || errorData.message || errorMsg;
+            } else {
+              errorMsg = responseText || errorMsg;
+            }
+          } catch (parseError) {
+            console.error('Error parsing response:', parseError);
           }
+          console.error('❌ API Error:', errorMsg);
           throw new Error(errorMsg);
         }
 
-        // Update state
+        // Update state safely
+        if (!AppState.receipts) AppState.receipts = [];
         AppState.receipts.push(receipt);
+        
+        console.log('✅ Payment saved successfully');
         
         badge.textContent = '✅ Payment Recorded!';
         badge.className = 'badge success-badge';
@@ -3368,22 +3383,29 @@ function initQuickPaymentBox(){
         payBtn.disabled = false;
 
         // Refresh UI
-        renderRecentReceipts();
-        updateFeeKpis();
+        try {
+          if (typeof renderRecentReceipts === 'function') renderRecentReceipts();
+          if (typeof updateFeeKpis === 'function') updateFeeKpis();
+        } catch (uiUpdateError) {
+          console.warn('⚠️ UI update error (non-critical):', uiUpdateError.message);
+        }
 
         // Show success & clear
         setTimeout(() => {
           clearBtn.click();
-          showNotification(`Payment of ₹${amount} recorded for ${selectedStudent.name}`, 'success');
+          showNotification(`✅ Payment of ₹${amount} recorded for ${selectedStudent.name}`, 'success');
         }, 500);
       } catch (error) {
-        console.error('Payment error:', error);
-        badge.textContent = '❌ ' + error.message;
+        console.error('❌ Payment error:', error.message);
+        console.error('Stack:', error.stack);
+        
+        badge.textContent = '❌ ' + (error.message || 'Payment failed');
         badge.className = 'badge error-badge';
         payBtn.textContent = '💵 Record Payment';
         payBtn.disabled = false;
 
-        setTimeout(() => clearBadge(), 4000);
+        showNotification('❌ ' + (error.message || 'Payment recording failed'), 'error', 5000);
+        setTimeout(() => clearBadge(), 5000);
       }
     };
   }
@@ -7092,7 +7114,7 @@ function init(){
 // ===========================
 
 // Global notification system
-function showNotification(message, type = 'info', duration = 3000) {
+function showNotification(message, type = 'info', duration = 4000) {
   const notificationDiv = document.createElement('div');
   notificationDiv.className = `notification notification-${type}`;
   notificationDiv.textContent = message;
@@ -7109,6 +7131,9 @@ function showNotification(message, type = 'info', duration = 3000) {
     z-index: 9999;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     animation: slideIn 0.3s ease;
+    max-width: 400px;
+    word-wrap: break-word;
+    white-space: pre-wrap;
   `;
 
   document.body.appendChild(notificationDiv);

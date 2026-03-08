@@ -1454,12 +1454,31 @@ def delete_attendance(attendance_id):
 def create_payment():
     try:
         data = request.json
+        
+        # Validation
+        required_fields = ['student_id', 'amount', 'payment_date', 'payment_method']
+        missing = [f for f in required_fields if f not in data or data[f] is None]
+        if missing:
+            return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
+        
+        student_id = int(data.get('student_id'))
+        amount = float(data.get('amount'))
+        
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be greater than 0'}), 400
+        
+        # Check if student exists
         conn = get_db()
+        student = conn.execute("SELECT id FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not student:
+            return jsonify({'error': f'Student with ID {student_id} not found'}), 404
+        
+        # Insert payment
         conn.execute(
             """INSERT INTO payments (student_id, amount, payment_date, payment_method, 
                transaction_id, purpose, status, remarks, discount, late_fee) 
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (data.get('student_id'), data.get('amount'), data.get('payment_date'),
+            (student_id, amount, data.get('payment_date'),
              data.get('payment_method'), data.get('transaction_id'), data.get('purpose'),
              data.get('status', 'Completed'), data.get('remarks'),
              data.get('discount', 0), data.get('late_fee', 0))
@@ -1467,10 +1486,15 @@ def create_payment():
         conn.commit()
         payment_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.close()
-        data['id'] = payment_id
-        return jsonify(data), 201
+        
+        response_data = data.copy()
+        response_data['id'] = payment_id
+        
+        return jsonify(response_data), 201
+    except ValueError as ve:
+        return jsonify({'error': f'Invalid data format: {str(ve)}'}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': f'Database error: {str(e)}'}), 400
 
 @app.route('/api/payments', methods=['GET'])
 def get_payments():
