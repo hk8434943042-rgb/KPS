@@ -3121,6 +3121,8 @@ function initQuickPaymentBox(){
   const toggleViewBtn = qs('#qpToggleViewMode');
   const studentClassInput = qs('#qpStudentClass');
   const amountInput = qs('#qpAmount');
+  const adminFeeInput = qs('#qpAdminFeeInput');
+  const discountInput = qs('#qpDiscountInput');
   const methodSelect = qs('#qpMethod');
   const refInput = qs('#qpRef');
   const remarksInput = qs('#qpRemarks');
@@ -3133,6 +3135,7 @@ function initQuickPaymentBox(){
   const dueInfoDiv = qs('#qpStudentDueInfo');
   const unpaidMonthsDiv = qs('#qpUnpaidMonthsList');
   const totalDueSpan = qs('#qpTotalDue');
+  const adminFeeSpan = qs('#qpAdminFee');
   const payAmountSpan = qs('#qpPayAmount');
   const balanceSpan = qs('#qpBalance');
   const balanceRow = qs('#qpBalanceRow');
@@ -3155,24 +3158,28 @@ function initQuickPaymentBox(){
   // Update summary display
   function updateSummary() {
     const amount = parseFloat(amountInput.value) || 0;
+    const adminFee = parseFloat(adminFeeInput.value) || 0;
+    const discount = parseFloat(discountInput.value) || 0;
     const totalDue = selectedStudent ? calculateStudentDue(selectedStudent).totalDue : 0;
-    const balance = totalDue - amount;
+    const totalDueWithFees = totalDue + adminFee - discount;
+    const balance = totalDueWithFees - amount;
 
-    totalDueSpan.textContent = `â‚¹ ${(totalDue).toLocaleString()}`;
-    payAmountSpan.textContent = `â‚¹ ${(amount).toLocaleString()}`;
+    totalDueSpan.textContent = `₹ ${(totalDue).toLocaleString()}`;
+    adminFeeSpan.textContent = `₹ ${(adminFee).toLocaleString()}`;
+    payAmountSpan.textContent = `₹ ${(amount).toLocaleString()}`;
     
     if (balance > 0) {
-      balanceSpan.textContent = `â‚¹ ${(balance).toLocaleString()}`;
+      balanceSpan.textContent = `₹ ${(balance).toLocaleString()}`;
       balanceRow.style.display = 'flex';
     } else if (balance < 0) {
-      balanceSpan.textContent = `â‚¹ ${Math.abs(balance).toLocaleString()} (Overpaid)`;
+      balanceSpan.textContent = `₹ ${Math.abs(balance).toLocaleString()} (Overpaid)`;
       balanceRow.style.display = 'flex';
     } else {
       balanceRow.style.display = 'none';
     }
 
     // Enable/disable pay button
-    payBtn.disabled = !selectedStudent || amount <= 0 || amount > totalDue + 100; // Allow 100 buffer for fees
+    payBtn.disabled = !selectedStudent || amount <= 0 || amount > totalDueWithFees + 100; // Allow 100 buffer for fees
     previewBtn.disabled = !selectedStudent || amount <= 0;
   }
 
@@ -3412,6 +3419,14 @@ function initQuickPaymentBox(){
     amountInput.addEventListener('input', updateSummary);
   }
 
+  // Admin fee and discount inputs - real-time summary update
+  if (adminFeeInput) {
+    adminFeeInput.addEventListener('input', updateSummary);
+  }
+  if (discountInput) {
+    discountInput.addEventListener('input', updateSummary);
+  }
+
   // Quick amount buttons
   qsa('.qp-amt-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -3441,6 +3456,8 @@ function initQuickPaymentBox(){
       searchInput.value = '';
       studentClassInput.value = '';
       amountInput.value = '';
+      adminFeeInput.value = '0';
+      discountInput.value = '0';
       methodSelect.value = 'Cash';
       refInput.value = '';
       remarksInput.value = '';
@@ -3488,6 +3505,8 @@ function initQuickPaymentBox(){
       const method = methodSelect.value;
       const ref = refInput.value.trim();
       const remarks = remarksInput.value.trim();
+      const adminFee = parseFloat(adminFeeInput.value) || 0;
+      const discount = parseFloat(discountInput.value) || 0;
       const { totalDue } = calculateStudentDue(selectedStudent);
 
       // Validation
@@ -3526,8 +3545,9 @@ function initQuickPaymentBox(){
         purpose: 'Monthly Fees',
         status: 'Completed',
         remarks: remarks || 'Quick payment via fees portal',
-        discount: 0,
-        late_fee: 0
+        discount: Math.floor(discount),
+        late_fee: 0,
+        admin_fee: Math.floor(adminFee)
       };
 
       console.log('ðŸ”µ Recording payment:', JSON.stringify(paymentData, null, 2));
@@ -3544,7 +3564,8 @@ function initQuickPaymentBox(){
         method: method,
         ref: ref || null,
         heads: { 'Monthly Fees': amount },
-        discount: 0,
+        discount: Math.floor(discount),
+        admin_fee: Math.floor(adminFee),
         latefee: 0,
         status: 'completed'
       };
