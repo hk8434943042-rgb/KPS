@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Configure API URL</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 0; background: #0b1430; color: #e7ecff; display: grid; place-items: center; min-height: 100vh; }
+    .card { width: min(92vw, 640px); background: #101b3e; border: 1px solid #2a3c78; border-radius: 14px; padding: 20px; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+    h1 { margin: 0 0 10px; font-size: 22px; }
+    p { margin: 8px 0; line-height: 1.45; }
+    .ok { color: #7af7a8; }
+    .bad { color: #ff9f9f; }
+    .warn { color: #ffd38a; }
+    code { background: #0a1330; border: 1px solid #2a3c78; padding: 2px 6px; border-radius: 6px; }
+    a.btn { display: inline-block; margin-top: 12px; background: linear-gradient(90deg,#5d7bff,#8d60f3); color: #fff; text-decoration: none; padding: 10px 14px; border-radius: 9px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Backend API Setup</h1>
+    <p id="status">Applying configuration...</p>
+    <p id="api"></p>
+    <a id="go" class="btn" href="login.html">Open Login</a>
+  </div>
+
+  <script>
+    (function () {
+      const statusEl = document.getElementById('status');
+      const apiEl = document.getElementById('api');
+      const goEl = document.getElementById('go');
+      const params = new URLSearchParams(window.location.search);
+      const rawApi = (params.get('api') || '').trim();
+      const redirect = (params.get('redirect') || 'login.html').trim();
+
+      if (!rawApi) {
+        statusEl.className = 'bad';
+        statusEl.textContent = 'Missing api parameter.';
+        apiEl.innerHTML = 'Example: <code>?api=https://example.trycloudflare.com/api</code>';
+        return;
+      }
+
+      let normalized = rawApi.replace(/\/+$/, '');
+      if (!/\/api$/i.test(normalized)) {
+        normalized += '/api';
+      }
+
+      const checkUrl = normalized.replace(/\/api$/i, '') + '/health';
+
+      async function checkApiReachability() {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        try {
+          const response = await fetch(checkUrl, {
+            method: 'GET',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          return !!(response && response.ok);
+        } catch (_) {
+          return false;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      localStorage.setItem('API_URL_OVERRIDE', normalized);
+      statusEl.className = 'warn';
+      statusEl.textContent = 'API override saved. Checking server reachability...';
+      apiEl.innerHTML = `Current API: <code>${normalized}</code><br/>Health check: <code>${checkUrl}</code>`;
+      goEl.href = redirect;
+
+      checkApiReachability().then((reachable) => {
+        if (reachable) {
+          statusEl.className = 'ok';
+          statusEl.textContent = 'API is reachable. Redirecting...';
+          setTimeout(() => {
+            window.location.href = redirect;
+          }, 900);
+          return;
+        }
+
+        statusEl.className = 'bad';
+        statusEl.textContent = 'API URL saved but server is unreachable right now.';
+        apiEl.innerHTML =
+          `Current API: <code>${normalized}</code><br/>` +
+          'Please start backend or set a live tunnel URL, then click Open Login.';
+      });
+    })();
+  </script>
+</body>
+</html>

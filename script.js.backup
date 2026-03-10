@@ -1,0 +1,4126 @@
+/**
+ * @fileoverview School Admin Portal - Main Application Script
+ * Note: This file uses template literals with HTML. VS Code may show false 
+ * JSX errors which can be ignored - the code is valid JavaScript.
+ * 
+ * eslint-disable no-unused-expressions, no-undef
+ */
+/* eslint-disable */
+/* ============================
+   School Admin Portal — script.js
+   Author: Himanshu Kumar
+   ============================ */
+
+console.log('📜 script.js loading...');
+
+// global error catching (helps debug freezes)
+window.addEventListener('error', e => {
+  console.error('Global error caught:', e.message, e.filename + ':' + e.lineno);
+  // Don't show alert - it blocks the page
+  // alert('An error occurred: ' + e.message);
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled promise rejection:', e.reason);
+  // Don't show alert - it blocks the page  
+  // alert('An unhandled promise rejection occurred: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+
+// ===========================
+// AUTHENTICATION CHECK
+// ===========================
+window.addEventListener('load', () => {
+  // Check if user is authenticated
+  const isAuthenticated = localStorage.getItem('isAuthenticated');
+  if (isAuthenticated !== 'true') {
+    // Redirect to login page
+    window.location.href = 'login.html';
+  }
+});
+
+// ===========================
+// GLOBAL API CONFIGURATION
+// ===========================
+const API_URL = 'http://localhost:5000/api';
+
+// ---------- Global State ----------
+const AppState = {
+  theme: 'system',
+  view: 'dashboard',
+  selectedChildAdmissionNo: null, // For parent portal - tracks which child's data to display
+
+  // Core data
+  students: [],
+  fees: {},          // key: `${admission_no}|${YYYY-MM}` -> { heads, paid, discount, lateFee, lastReceipt? }
+  receipts: [],      // { no, date, roll (admission_no), name, method, amount, ref }
+
+  // KPIs used by dashboard
+  kpi: {
+    totalStudents: 0,
+    attendanceToday: 0.942,
+    feesCollectedMonth: 0,
+    issuesOpen: 0
+  },
+
+  // Pagination config
+  pagination: {
+    students: { page: 1, pageSize: 10, totalPages: 1, filtered: [] }
+  },
+
+  // Fee heads by class
+  feeHeadsByClass: {},
+
+  // Late fee rules (with sensible defaults)
+  lateFeeRules: {
+    cutoffDay: 10,
+    graceDays: 0,
+    cap: 200,
+    startAfter: 0,
+    slabs: [],                          // [{from:1, to:10, perDay:10}, {from:11, to:null, perDay:20}]
+    skipSat: false,
+    skipSun: false,
+    holidays: [],                       // ["2026-03-08", ...]
+    shiftRule: 'none',                  // 'none' | 'nextBusiness' | 'prevBusiness'
+    applyToHeads: {                     // when true → late fee applies only if that head is included
+      Tuition: true,
+      Transport: true,
+      Lab: false,
+      Activity: false,
+      Miscellaneous: true
+    },
+    classOverrides: {}                  // e.g., { "IX": { cap:300 }, "X": { cutoffDay:12 } }
+  },
+
+  // Settings (+ School profile)
+  settings: {
+    theme: 'system',
+    currency: '₹',
+    locale: 'en-IN',
+    studentsPageSize: 10,
+    defaultFeesMonth: null,
+    chartAnimation: false,
+    school: {
+      name: 'KHUSHI PUBLIC SCHOOL',
+      tagline: 'Admin Portal',
+      address: 'Sheikhpura, Bihar',
+      phone: '+91-XXXXXXXXXX',
+      email: '',
+      logo: 'assets/logo.png'
+    }
+  },
+
+  // Transport module
+  transport: {
+    routes: [],
+    vehicles: [],
+    assignments: [] // { roll (admission_no), routeId, stop, fee, status }
+  },
+
+  // Exams module
+  exams: [],
+  marks: {}, // key: `${examId}|${admission_no}` -> { obtainedMarks, status }
+
+  // Teachers module
+  teachers: [], // { id, name, phone, email, subjects, joinDate, salary, status }
+  teacherAttendance: {}, // key: `${teacherId}|${date}` -> { status: 'present'|'absent'|'leave', remarks }
+  salaryPayments: [], // { id, teacherId, month, amount, date, status }
+
+  // Classes module
+  classes: [], // { id, class, section, classTeacherId, subjects: {subjectName: teacherId}, capacity, status }
+
+  // Notices module
+  notices: [] // { id, title, description, author, date, priority, status, audience }
+};
+
+// ---------- Persistence ----------
+const STORAGE_KEY = 'khushi_school_admin';
+function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(AppState)); }
+
+// helper that performs fetch with a timeout (default 5s)
+async function fetchWithTimeout(url, opts = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { signal: controller.signal, ...opts });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+// Fetch students from backend API and update AppState.students
+async function fetchStudentsFromBackend() {
+  try {
+    console.log('[API] Fetching students from:', API_URL + '/students');
+    const response = await fetchWithTimeout(API_URL + '/students', {}, 8000);
+    if (!response || !response.ok) throw new Error(`Failed to fetch students: ${response?.status || 'no response'}`);
+    const students = await response.json();
+    
+    // Map database fields to AppState format
+    AppState.students = students.map(s => ({
+      id: s.id,
+      roll: s.roll_no,  // Map roll_no to roll
+      name: s.name,
+      email: s.email || '',
+      phone: s.phone || '',
+      class: s.class_name || '',  // Map class_name to class
+      section: s.section || '',
+      dob: s.date_of_birth || '',
+      address: s.address || '',
+      parent_name: s.parent_name || '',
+      parent_phone: s.parent_phone || '',
+      status: 'Active',  // Default status
+      created_at: s.created_at,
+      updated_at: s.updated_at
+    }));
+    
+    AppState.kpi.totalStudents = AppState.students.length;
+    console.log('Loaded students from backend:', AppState.students);
+    return AppState.students;
+  } catch (e) {
+    console.warn('Could not load students from backend:', e);
+    return [];
+  }
+}
+
+// ---------- Server Connection Check ----------
+let serverStatusCheckInterval = null;
+let isServerConnected = false;
+
+async function checkServerConnection() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    // Check root endpoint - always available if server is running
+    const response = await fetch('http://localhost:5000/', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    const isConnected = response && response.ok;
+    updateServerStatus(isConnected);
+    console.log('Server check:', isConnected ? 'Connected ✓' : 'Disconnected ✗');
+  } catch (e) {
+    console.warn('Server connection check failed:', e.message);
+    updateServerStatus(false);
+  }
+}
+
+function updateServerStatus(isConnected) {
+  isServerConnected = isConnected;
+  const statusTopbar = document.getElementById('serverStatusTopbar');
+  const statusDot = document.getElementById('serverStatusDot');
+  const statusLabel = document.getElementById('serverStatusLabel');
+  
+  // also update login page indicator if present
+  const loginStatusTopbar = document.getElementById('loginServerStatusTopbar');
+  const loginStatusDot = document.getElementById('loginServerStatusDot');
+  const loginStatusLabel = document.getElementById('loginServerStatusLabel');
+  
+  if (statusTopbar && statusDot && statusLabel) {
+    if (isConnected) {
+      statusDot.classList.add('connected');
+      statusDot.classList.remove('disconnected');
+      statusLabel.textContent = 'Online';
+      statusTopbar.classList.add('connected');
+      statusTopbar.classList.remove('disconnected');
+    } else {
+      statusDot.classList.remove('connected');
+      statusDot.classList.add('disconnected');
+      statusLabel.textContent = 'Offline';
+      statusTopbar.classList.remove('connected');
+      statusTopbar.classList.add('disconnected');
+    }
+  }
+  
+  if (loginStatusDot && loginStatusLabel) {
+    if (isConnected) {
+      loginStatusDot.classList.add('connected');
+      loginStatusDot.classList.remove('disconnected');
+      loginStatusLabel.textContent = 'Online';
+    } else {
+      loginStatusDot.classList.remove('connected');
+      loginStatusDot.classList.add('disconnected');
+      loginStatusLabel.textContent = 'Offline';
+    }
+  }
+}
+
+function startServerStatusCheck() {
+  // Initial check
+  checkServerConnection();
+  
+  // Check every 10 seconds
+  if (serverStatusCheckInterval) clearInterval(serverStatusCheckInterval);
+  serverStatusCheckInterval = setInterval(checkServerConnection, 10000);
+}
+
+function stopServerStatusCheck() {
+  if (serverStatusCheckInterval) {
+    clearInterval(serverStatusCheckInterval);
+    serverStatusCheckInterval = null;
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      Object.assign(AppState, stored);
+      // Check if stored data has all new classes, if not, reseed
+      const requiredClasses = ['Nursery', 'LKG', 'UKG', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+      const hasAllClasses = requiredClasses.every(cls => AppState.feeHeadsByClass[cls]);
+      if (!hasAllClasses) {
+        console.log('Updating to new class structure...');
+        seedDemoData();
+        saveState();
+      }
+    } else {
+      seedDemoData();
+      saveState();
+    }
+  } catch (e) {
+    console.warn('Failed to load state', e);
+    seedDemoData();
+    saveState();
+  }
+  // Always try to fetch students from backend (async, don't block)
+  fetchStudentsFromBackend().catch(e => console.warn('[WARN] Background data fetch failed:', e));
+}
+
+// ---------- Authentication ----------
+const AUTH_KEY = 'khushi_portal_auth';
+const ROLE_KEY = 'khushi_portal_role';
+const USER_KEY = 'khushi_portal_user';
+
+// Multi-role user credentials
+const VALID_USERS = {
+  admin: [
+    { username: 'H9m@nshu', password: 'admin123', name: 'Himanshu Kumar' },
+    { username: 'admin', password: 'admin123', name: 'Administrator' }
+  ],
+  parent: [
+    { username: 'parent1', password: 'parent123', name: 'Rajesh Sharma', rolls: ['1001', '1002'] },
+    { username: 'parent2', password: 'parent123', name: 'Priya Verma', rolls: ['1002'] },
+    { username: 'parent3', password: 'parent123', name: 'Amit Singh', rolls: ['1004'] }
+  ],
+  public: [
+    { username: 'public', password: 'public123', name: 'Visitor' }
+  ]
+};
+
+// ---------- Razorpay Configuration ----------
+// Note: Replace with your actual Razorpay Key ID from dashboard
+const RAZORPAY_CONFIG = {
+  keyId: 'rzp_test_1OfccbDDELVqHo',  // Replace with your live key ID
+  keySecret: 'test_key_secret',       // Store safely on backend - NEVER expose in frontend
+  serviceName: 'KHUSHI PUBLIC SCHOOL - Fee Payment'
+};
+
+// Razorpay payment state tracking
+const RazorpayState = {
+  currentPayment: null,
+  paymentInProgress: false
+};
+
+function isAuthenticated() {
+  return localStorage.getItem(AUTH_KEY) === 'true';
+}
+
+function getUserRole() {
+  return localStorage.getItem(ROLE_KEY) || 'public';
+}
+
+function getCurrentUser() {
+  return localStorage.getItem(USER_KEY) || '';
+}
+
+function accessPublicPortal() {
+  // Allow direct access to public portal without authentication
+  localStorage.setItem(AUTH_KEY, 'true');
+  localStorage.setItem(ROLE_KEY, 'public');
+  localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) loginPage.classList.add('hidden');
+  document.body.style.overflow = 'auto';
+  // Reset all forms (if any)
+  document.querySelectorAll('.login-form').forEach(f => f.reset());
+  switchRole('public');
+}
+
+function handleLogin(event, role) {
+  console.log('handleLogin invoked', role, event);
+  event.preventDefault();
+  
+  // Get form fields for this specific role
+  const form = event.target;
+  const usernameInput = form.querySelector('.loginUsername');
+  const passwordInput = form.querySelector('.loginPassword');
+  const errorDiv = form.querySelector('.login-error');
+  
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+  
+  if (!username || !password) {
+    errorDiv.textContent = 'Please enter username and password';
+    errorDiv.classList.add('show');
+    return;
+  }
+
+  // Allow public role without strict credential checking
+  if (role === 'public') {
+    localStorage.setItem(AUTH_KEY, 'true');
+    localStorage.setItem(ROLE_KEY, 'public');
+    localStorage.setItem(USER_KEY, JSON.stringify({ username: 'visitor', name: 'Visitor', role: 'public' }));
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    document.querySelectorAll('.login-form').forEach(f => f.reset());
+    switchRole('public');
+    return;
+  }
+
+  const users = VALID_USERS[role] || [];
+  const user = users.find(u => u.username === username && u.password === password);
+  
+  if (user) {
+    localStorage.setItem(AUTH_KEY, 'true');
+    localStorage.setItem(ROLE_KEY, role);
+    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, role }));
+    errorDiv.classList.remove('show');
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    document.querySelectorAll('.login-form').forEach(f => f.reset());
+    switchRole(role);
+  } else {
+    errorDiv.textContent = 'Invalid credentials';
+    errorDiv.classList.add('show');
+  }
+}
+
+function handleLogout() {
+  if (confirm('Are you sure you want to logout?')) {
+    stopServerStatusCheck();
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(ROLE_KEY);
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('user');
+    
+    // Call backend logout endpoint
+    fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    }).catch(err => console.error('Logout error:', err)).finally(() => {
+      // Redirect to login page
+      window.location.href = 'login.html';
+    });
+  }
+}
+
+function initializeAuth() {
+  // always treat the user as admin-authenticated; remove login page if it exists
+  localStorage.setItem(AUTH_KEY, 'true');
+  localStorage.setItem(ROLE_KEY, 'admin');
+
+  const loginPage = document.getElementById('loginPage');
+  if (loginPage) {
+    // remove from DOM entirely, no need for hidden toggling
+    loginPage.parentNode.removeChild(loginPage);
+  }
+  document.body.style.overflow = 'auto';
+
+  // Display logged-in user's name in topbar
+  try {
+    displayUserInfo();
+  } catch (e) {
+    console.warn('⚠️ displayUserInfo error:', e);
+  }
+
+  // Setup logout button (still works if present)
+  const logoutBtn = document.getElementById('btnLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+    console.log('✓ Logout button handler attached');
+  }
+
+  // Setup server status topbar click to manually check
+  const serverStatusTopbar = document.getElementById('serverStatusTopbar');
+  if (serverStatusTopbar) {
+    serverStatusTopbar.addEventListener('click', checkServerConnection);
+    console.log('✓ Server status topbar handler attached');
+  }
+  
+  // Auto-check server connection on initialization
+  console.log('Starting auto server connection check...');
+  checkServerConnection();
+}
+
+function displayUserInfo() {
+  const userDisplayEl = document.getElementById('userDisplayName');
+  const userStr = localStorage.getItem('user');
+  if (userDisplayEl && userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      const displayName = user.full_name || user.username || 'Admin';
+      userDisplayEl.textContent = displayName;
+    } catch (e) {
+      userDisplayEl.textContent = 'Admin';
+    }
+  }
+}
+
+// ---------- Login helpers ----------
+function initLoginHandlers() {
+  // attach submit listeners to forms; rely on data-role attribute
+  document.querySelectorAll('.login-form').forEach(form => {
+    const role = form.dataset.role;
+    if (!role) return;
+    form.addEventListener('submit', e => {
+      console.log('login form submit for role', role, e);
+      handleLogin(e, role);
+    });
+  });
+
+  // as a safety net, also watch the login buttons directly so we can log clicks
+  document.querySelectorAll('.login-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      console.log('login button clicked', btn);
+      // ensure the surrounding form is submitted in case default prevented
+      const form = btn.closest('form');
+      if (form) {
+        const role = form.dataset.role;
+        if (role) {
+          handleLogin({ preventDefault: () => {}, target: form }, role);
+        }
+      }
+    });
+  });
+
+  // server check button on login page
+  const loginCheckBtn = document.getElementById('btnLoginCheckServer');
+  if (loginCheckBtn) {
+    loginCheckBtn.addEventListener('click', async () => {
+      await checkServerConnection();
+      alert(isServerConnected ? 'Server is Online' : 'Server is Offline');
+    });
+  }
+}
+
+// ---------- Role-based Switching ----------
+function switchRole(role) {
+  const role_val = role || getUserRole();
+  
+  // Get key elements
+  const sidebar = document.querySelector('.sidebar');
+  const app = document.querySelector('.app');
+  
+  // Hide all views
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  
+  if (role_val === 'admin') {
+    // Show admin interface
+    if (sidebar) sidebar.classList.remove('hidden');
+    if (app) app.classList.remove('hidden');
+    // Start server status monitoring for admin
+    startServerStatusCheck();
+    switchView('dashboard');
+  } else if (role_val === 'parent') {
+    // Hide admin UI, show parent portal
+    stopServerStatusCheck();
+    if (sidebar) sidebar.classList.add('hidden');
+    if (app) app.classList.add('hidden');
+    renderParentPortal();
+  } else if (role_val === 'public') {
+    // Hide admin UI, show public portal
+    stopServerStatusCheck();
+    if (sidebar) sidebar.classList.add('hidden');
+    if (app) app.classList.add('hidden');
+    renderPublicPortal();
+  }
+}
+
+function renderParentPortal() {
+  const view = document.getElementById('view-parent');
+  if (view) view.classList.remove('hidden');
+  
+  const currentUser = JSON.parse(getCurrentUser() || '{}');
+  const parentRolls = currentUser.rolls || [currentUser.roll]; // Handle both old (single) and new (multiple) format
+  
+  // Initialize selected child if not set
+  if (!AppState.selectedChildRoll || !parentRolls.includes(AppState.selectedChildRoll)) {
+    AppState.selectedChildRoll = parentRolls[0] || null;
+  }
+  
+  if (!AppState.selectedChildRoll) return;
+  
+  // Update welcome message
+  const welcome = document.getElementById('parentWelcome');
+  if (welcome) welcome.textContent = `Welcome, ${currentUser.name}!`;
+  
+  // Setup child selector if multiple children
+  const childSelectorDiv = document.getElementById('parentChildSelector');
+  if (childSelectorDiv && parentRolls.length > 1) {
+    childSelectorDiv.classList.remove('hidden');
+    const selector = document.getElementById('parentChildSelect');
+    if (selector) {
+      // Clear and populate selector
+      selector.innerHTML = parentRolls.map(roll => {
+        const student = AppState.students.find(s => s.roll === roll);
+        return `<option value="${roll}">${student ? student.name + ' (' + student.roll + ')' : 'Admission No. ' + roll}</option>`;
+      }).join('');
+      selector.value = AppState.selectedChildRoll;
+      selector.onchange = (e) => {
+        AppState.selectedChildRoll = e.target.value;
+        renderParentPortal();
+      };
+    }
+  } else if (childSelectorDiv) {
+    childSelectorDiv.classList.add('hidden');
+  }
+  
+  // Get selected student
+  const student = AppState.students.find(s => s.roll === AppState.selectedChildRoll);
+  if (!student) return;
+  
+  // Update student info
+  document.getElementById('parentChildName').textContent = student.name;
+  document.getElementById('parentChildClass').textContent = `${student.class}-${student.section}`;
+  document.getElementById('parentRoll').textContent = student.roll;
+  document.getElementById('parentName').textContent = student.name;
+  document.getElementById('parentClass').textContent = student.class;
+  document.getElementById('parentSection').textContent = student.section;
+  document.getElementById('parentStatus').textContent = student.status;
+  document.getElementById('parentPhone').textContent = student.phone;
+  
+  // Calculate fees
+  const lastNMonths = genLastNMonths(3);
+  let totalDue = 0;
+  lastNMonths.forEach(month => {
+    const key = `${student.roll}|${month}`;
+    const fee = AppState.fees[key];
+    if (fee) {
+      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
+      totalDue += Math.max(0, headTotal - fee.paid);
+    }
+  });
+  document.getElementById('parentFeesDue').textContent = fmtINR(totalDue);
+  
+  // Render fees table
+  const feesTable = document.getElementById('parentFeesTable');
+  if (feesTable) {
+    feesTable.innerHTML = lastNMonths.map(month => {
+      const key = `${student.roll}|${month}`;
+      const fee = AppState.fees[key];
+      if (!fee) return '';
+      
+      // Extract individual fee heads
+      const tuition = fee.heads.Tuition || 0;
+      const transport = fee.heads.Transport || 0;
+      const miscellaneous = fee.heads.Miscellaneous || 0;
+      
+      // Calculate Other as sum of remaining heads (excluding Tuition, Transport, Miscellaneous)
+      let other = 0;
+      for (const [key, value] of Object.entries(fee.heads)) {
+        if (!['Tuition', 'Transport', 'Miscellaneous'].includes(key)) {
+          other += value;
+        }
+      }
+      
+      const headTotal = Object.values(fee.heads).reduce((a,b) => a+b, 0);
+      const due = Math.max(0, headTotal - fee.paid);
+      return `
+        <tr>
+          <td>${month}</td>
+          <td>${fmtINR(tuition)}</td>
+          <td>${fmtINR(transport)}</td>
+          <td>${fmtINR(miscellaneous)}</td>
+          <td>${fmtINR(other)}</td>
+          <td><strong>${fmtINR(headTotal)}</strong></td>
+          <td>${fmtINR(fee.paid)}</td>
+          <td>${fmtINR(due)}</td>
+          <td><span class="badge ${due > 0 ? 'danger' : 'success'}">${due > 0 ? 'Due' : 'Paid'}</span></td>
+        </tr>
+      `;
+    }).join('');
+  }
+  
+  // Render parent notices
+  const parentNoticesList = document.getElementById('parentNoticesList');
+  if (parentNoticesList) {
+    const noticesHTML = AppState.notices
+      .filter(n => n.status === 'active' && (n.audience === 'all' || n.audience === 'parents'))
+      .map(n => `
+        <div style="padding:12px; border-bottom:1px solid var(--border);">
+          <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • by ${escapedText(n.author)}</p>
+          <p style="margin:8px 0;">${escapedText(n.description)}</p>
+        </div>
+      `).join('');
+    parentNoticesList.innerHTML = noticesHTML || '<p>No notices to display.</p>';
+  }
+  
+  // Setup pay fee button
+  const payFeeBtn = document.getElementById('parentBtnPayFee');
+  if (payFeeBtn) {
+    payFeeBtn.onclick = () => {
+      if (openModal('#modalParentPayFee')) {
+        initParentPayFeeModal(student);
+      }
+    };
+  }
+  
+  // Setup tab switching
+  setupTabSwitching('parent');
+  
+  // Setup logout button
+  const logoutBtn = document.getElementById('parentBtnLogout');
+  if (logoutBtn) logoutBtn.onclick = handleLogout;
+}
+
+function renderPublicPortal() {
+  const view = document.getElementById('view-public');
+  if (view) view.classList.remove('hidden');
+  
+  // Render public notices
+  const publicNoticesList = document.getElementById('publicNoticesList');
+  if (publicNoticesList) {
+    const noticesHTML = AppState.notices
+      .filter(n => n.status === 'active')
+      .slice(0, 5)
+      .map(n => `
+        <div style="padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+          <h4 style="margin:0;">${escapedText(n.title)} <span class="badge" style="margin-left:8px;">${n.priority}</span></h4>
+          <p style="margin:4px 0; color:var(--text-muted); font-size:12px;">${n.date} • ${n.audience}</p>
+          <p style="margin:8px 0;">${escapedText(n.description)}</p>
+        </div>
+      `).join('');
+    publicNoticesList.innerHTML = noticesHTML || '<p>No announcements at this time.</p>';
+  }
+  
+  // Setup logout button
+  const logoutBtn = document.getElementById('publicBtnLogout');
+  if (logoutBtn) logoutBtn.onclick = handleLogout;
+}
+
+function setupTabSwitching(portal) {
+  const tabBtns = document.querySelectorAll(`#view-${portal} .tab-btn`);
+  const tabContents = document.querySelectorAll(`#view-${portal} .tab-content`);
+  
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabBtns.forEach(b => b.classList.remove('active'));
+      tabContents.forEach(t => t.classList.add('hidden'));
+      
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-tab');
+      const tabContent = document.getElementById(tabId);
+      if (tabContent) tabContent.classList.remove('hidden');
+    });
+  });
+}
+
+// ---------- Parent Payment Functions ----------
+function initParentPayFeeModal(student) {
+  const form = qs('#formParentPayFee');
+  const modal = qs('#modalParentPayFee');
+  const currentUser = JSON.parse(getCurrentUser() || '{}');
+  if (!form || !student) return;
+  
+  // Calculate total due for this month
+  const month = monthOfToday();
+  const key = `${student.roll}|${month}`;
+  const fee = AppState.fees[key];
+  const headTotal = fee ? Object.values(fee.heads).reduce((a,b) => a+b, 0) : 0;
+  const paid = fee ? (fee.paid || 0) : 0;
+  const due = Math.max(0, headTotal - paid);
+  
+  // Populate modal
+  document.getElementById('payFeeStudentName').textContent = student.name;
+  document.getElementById('payFeeRoll').textContent = student.roll;
+  document.getElementById('payFeeTotalDue').textContent = fmtINR(due);
+  
+  const amountField = document.getElementById('payFeeAmount');
+  if (amountField) amountField.value = due;
+  
+  // Pre-fill parent's details
+  const nameField = document.getElementById('payFeeFullName');
+  const emailField = document.getElementById('payFeeEmail');
+  const phoneField = document.getElementById('payFeePhone');
+  
+  if (nameField) nameField.value = currentUser.name || '';
+  if (emailField) emailField.value = currentUser.email || '';
+  if (phoneField) phoneField.value = '';
+  
+  // Handle form submission
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const amount = Number(document.getElementById('payFeeAmount')?.value || 0);
+    const fullName = document.getElementById('payFeeFullName')?.value?.trim() || '';
+    const email = document.getElementById('payFeeEmail')?.value?.trim() || '';
+    const phone = document.getElementById('payFeePhone')?.value?.trim() || '';
+    
+    if (!amount || amount <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    if (!fullName) {
+      alert('Please enter your full name');
+      return;
+    }
+    if (!email) {
+      alert('Please enter your email address');
+      return;
+    }
+    if (!phone) {
+      alert('Please enter your phone number');
+      return;
+    }
+    
+    // Initiate Razorpay payment
+    initiateRazorpayPayment(student, amount, fullName, email, phone, modal);
+  };
+}
+
+// ---------- Razorpay Payment Integration ----------
+function initiateRazorpayPayment(student, amount, fullName, email, phone, modal) {
+  if (RazorpayState.paymentInProgress) {
+    alert('A payment is already in progress. Please wait.');
+    return;
+  }
+  
+  RazorpayState.paymentInProgress = true;
+  
+  // Store current payment details
+  RazorpayState.currentPayment = {
+    student,
+    amount,
+    fullName,
+    email,
+    phone,
+    modal,
+    orderId: 'order_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+  };
+  
+  // Razorpay options
+  const options = {
+    key: RAZORPAY_CONFIG.keyId,
+    amount: amount * 100,  // Amount in paise (smallest currency unit)
+    currency: 'INR',
+    name: RAZORPAY_CONFIG.serviceName,
+    description: `Fee payment for ${student.name} (Admission No.: ${student.roll})`,
+    order_id: RazorpayState.currentPayment.orderId,
+    prefill: {
+      name: fullName,
+      email: email,
+      contact: phone
+    },
+    notes: {
+      studentName: student.name,
+      studentRoll: student.roll,
+      studentClass: student.class,
+      orderId: RazorpayState.currentPayment.orderId
+    },
+    theme: {
+      color: '#2563eb'
+    },
+    handler: handleRazorpaySuccess,
+    modal: {
+      ondismiss: handleRazorpayCancel
+    }
+  };
+  
+  // Open Razorpay checkout
+  const razorpay = new Razorpay(options);
+  razorpay.open();
+  
+  razorpay.on('payment.failed', handleRazorpayError);
+}
+
+function handleRazorpaySuccess(response) {
+  const payment = RazorpayState.currentPayment;
+  if (!payment) {
+    alert('Payment session lost. Please try again.');
+    RazorpayState.paymentInProgress = false;
+    return;
+  }
+  
+  // Process successful payment
+  const receiptData = {
+    razorpayPaymentId: response.razorpay_payment_id,
+    razorpayOrderId: response.razorpay_order_id,
+    razorpaySignature: response.razorpay_signature,
+    studentName: payment.student.name,
+    studentRoll: payment.student.roll,
+    paidBy: payment.fullName,
+    email: payment.email,
+    phone: payment.phone
+  };
+  
+  processRazorpayPayment(payment.student, payment.amount, receiptData, payment.modal);
+  RazorpayState.paymentInProgress = false;
+}
+
+function handleRazorpayError(error) {
+  RazorpayState.paymentInProgress = false;
+  alert('❌ Payment Failed!\n\nCode: ' + error.code + '\nDescription: ' + error.description + '\n\nPlease try again.');
+}
+
+function handleRazorpayCancel() {
+  RazorpayState.paymentInProgress = false;
+  console.log('Payment cancelled by user');
+}
+
+function processRazorpayPayment(student, amount, receiptData, modal) {
+  const month = monthOfToday();
+  const key = `${student.roll}|${month}`;
+  
+  // Update fee data
+  if (!AppState.fees[key]) {
+    AppState.fees[key] = { heads: {}, paid: 0, discount: 0, lateFee: 0 };
+  }
+  AppState.fees[key].paid = (AppState.fees[key].paid || 0) + amount;
+  
+  // Create receipt with Razorpay details
+  const receipt = {
+    no: 'R-' + String(AppState.receipts.length + 1).padStart(4, '0'),
+    date: todayYYYYMMDD(),
+    roll: student.roll,
+    name: student.name,
+    method: 'razorpay',
+    amount: amount,
+    ref: receiptData.razorpayPaymentId,
+    razorpayData: receiptData,
+    status: 'completed'
+  };
+  
+  AppState.receipts.push(receipt);
+  saveState();
+  
+  // Show success message with Razorpay details
+  const successMsg = `✅ Payment Successful!\n\nReceipt No: ${receipt.no}\nAmount: ₹${amount}\nPayment ID: ${receiptData.razorpayPaymentId}\n\nThank you for the payment!`;
+  alert(successMsg);
+  
+  // Close modal and refresh
+  if (modal) modal.close();
+  renderParentPortal();
+}
+
+// ========== THERMAL PRINTER RECEIPT FUNCTIONS ==========
+
+/**
+ * Print receipt on thermal printer (ESC/POS format)
+ * Works with thermal printers like the ones used in petrol pumps
+ */
+async function printThermalReceipt(paymentId, studentName, rollNo, amount, paymentMethod, purpose) {
+  try {
+    const receiptData = {
+      payment_id: paymentId,
+      student_name: studentName,
+      roll_no: rollNo,
+      amount: parseFloat(amount),
+      payment_method: paymentMethod,
+      purpose: purpose || 'School Fee',
+      receipt_number: 'RCP-' + String(AppState.receipts.length + 1).padStart(5, '0'),
+      payment_date: todayYYYYMMDD()
+    };
+    
+    const response = await fetch('http://localhost:5000/api/receipt/thermal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate receipt');
+    
+    const result = await response.json();
+    
+    // Convert string back to bytes and send to printer
+    if (result.receipt) {
+      // Check if Web Serial API is available (for direct USB/Serial thermal printer)
+      if (navigator.serial) {
+        await sendToSerialPrinter(result.receipt);
+      } else {
+        alert('⚠️ Web Serial API not available.\n\nReceipt generated. Please use the Print option from your printer settings.');
+        printHTMLReceipt(receiptData);
+      }
+    }
+  } catch (error) {
+    console.error('Thermal receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Print receipt via browser print dialog (for thermal printer connected via USB)
+ */
+async function printHTMLReceipt(receiptData) {
+  try {
+    const response = await fetch('http://localhost:5000/api/receipt/html', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receiptData)
+    });
+    
+    if (!response.ok) throw new Error('Failed to generate HTML receipt');
+    
+    const htmlContent = await response.text();
+    
+    // Open in new window for printing
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+    
+  } catch (error) {
+    console.error('HTML receipt error:', error);
+    alert('Error generating receipt: ' + error.message);
+  }
+}
+
+/**
+ * Send ESC/POS commands directly to serial thermal printer
+ * Requires Web Serial API and appropriate permissions
+ */
+async function sendToSerialPrinter(receiptData) {
+  try {
+    // Request serial port access
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    
+    const writer = port.writable.getWriter();
+    
+    // Convert string to bytes
+    const encoder = new TextEncoder();
+    const data = encoder.encode(receiptData);
+    
+    // Send to printer
+    await writer.write(data);
+    writer.releaseLock();
+    
+    // Close port
+    await port.close();
+    
+    alert('✅ Receipt sent to thermal printer!');
+  } catch (error) {
+    console.error('Serial printer error:', error);
+    alert('Could not connect to printer. Error: ' + error.message);
+  }
+}
+
+/**
+ * Quick print button for admin dashboard
+ * Prints receipt for any payment transaction
+ */
+function printPaymentReceipt(paymentIndex) {
+  const payment = AppState.receipts[paymentIndex];
+  if (!payment) {
+    alert('Payment not found');
+    return;
+  }
+  
+  printThermalReceipt(
+    paymentIndex,
+    payment.name,
+    payment.roll,
+    payment.amount,
+    payment.method,
+    'School Fee'
+  );
+}
+
+// ---------- Demo Seed Data ----------
+function seedDemoData() {
+  // Students
+  AppState.students = [
+    { roll: '1001', admission_date: '2020-06-10', name: 'Priya Kumari', dob: '2015-03-15', aadhar: '123456789012', father_name: 'Rajesh Kumari', mother_name: 'Anita Kumari', class: 'IX',  section: 'A', phone: '+91-98765 43210', status: 'Active' },
+    { roll: '1002', admission_date: '2019-05-20', name: 'Rahul Raj',    dob: '2014-07-22', aadhar: '234567890123', father_name: 'Vikram Raj', mother_name: 'Priya Raj', class: 'X',   section: 'B', phone: '+91-98765 11111', status: 'Active' },
+    { roll: '1003', admission_date: '2018-04-12', name: 'Anita Singh',  dob: '2013-11-08', aadhar: '345678901234', father_name: 'Arjun Singh', mother_name: 'Meera Singh', class: 'XII', section: 'A', phone: '+91-98765 22222', status: 'Pending' },
+    { roll: '1004', admission_date: '2021-03-15', name: 'Aman Kumar',   dob: '2016-01-30', aadhar: '456789012345', father_name: 'Suresh Kumar', mother_name: 'Divya Kumar', class: 'VIII',section: 'C', phone: '+91-98765 33333', status: 'Active' },
+  ];
+  AppState.kpi.totalStudents = AppState.students.length;
+
+  // Fee heads per class
+  AppState.feeHeadsByClass = {
+    'Nursery': { Tuition: 300, Transport: 100, Activity: 20, Miscellaneous: 50 },
+    'LKG':     { Tuition: 350, Transport: 120, Activity: 25, Miscellaneous: 60 },
+    'UKG':     { Tuition: 400, Transport: 150, Activity: 30, Miscellaneous: 70 },
+    'I':       { Tuition: 450, Transport: 150, Activity: 35, Miscellaneous: 75 },
+    'II':      { Tuition: 500, Transport: 180, Activity: 40, Miscellaneous: 85 },
+    'III':     { Tuition: 550, Transport: 200, Activity: 45, Miscellaneous: 95 },
+    'IV':      { Tuition: 600, Transport: 220, Activity: 50, Miscellaneous: 100 },
+    'V':       { Tuition: 650, Transport: 250, Lab: 75, Miscellaneous: 110 },
+    'VI':      { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
+    'VII':     { Tuition: 700, Transport: 250, Lab: 100, Miscellaneous: 120 },
+    'VIII':    { Tuition: 700, Transport: 250, Activity: 50, Miscellaneous: 120 },
+    'IX':      { Tuition: 800, Transport: 300, Lab: 100, Miscellaneous: 130 },
+    'X':       { Tuition: 900, Transport: 300, Lab: 120, Miscellaneous: 130 }
+  };
+
+  // Fees (create for last 3 months showing up in parent portal)
+  // Uses getFeesForStudentMonth to dynamically include/exclude Miscellaneous fee based on month
+  const lastNMonths = genLastNMonths(3);
+  AppState.students.forEach(s => {
+    lastNMonths.forEach(month => {
+      const key = `${s.roll}|${month}`;
+      // Only create if doesn't exist
+      if (!AppState.fees[key]) {
+        const heads = getFeesForStudentMonth(s, month);
+        AppState.fees[key] = { heads, paid: 0, discount: 0, lateFee: 0 };
+      }
+    });
+  });
+
+  // One sample receipt
+  AppState.receipts = [
+    { no: 'R-0001', date: todayYYYYMMDD(), roll: '1001', name: 'Priya Kumari', method: 'UPI', amount: 500, ref: 'TXN123' }
+  ];
+
+  // KPIs
+  AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+  AppState.kpi.issuesOpen = 6;
+
+  // Transport seed (only if empty)
+  if (AppState.transport.routes.length === 0) {
+    AppState.transport.routes.push({
+      id: 'R1',
+      name: 'Ariari Morning',
+      stops: ['Ariari Chowk', 'Khushalganj'],
+      pickup: '07:15',
+      drop: '14:30',
+      status: 'active'
+    });
+  }
+  if (AppState.transport.vehicles.length === 0) {
+    AppState.transport.vehicles.push({
+      id: 'V1',
+      label: 'Bus #1',
+      reg: 'BR-01-AB-1234',
+      capacity: 40,
+      driverName: 'Suresh',
+      driverPhone: '+91-9XXXXXXX',
+      routeId: 'R1',
+      status: 'active'
+    });
+  }
+  if (AppState.transport.assignments.length === 0) {
+    AppState.transport.assignments.push({
+      roll: '1001',
+      routeId: 'R1',
+      stop: 'Ariari Chowk',
+      fee: 300,
+      status: 'active'
+    });
+  }
+
+  // Notices seed (only if empty)
+  if (AppState.notices.length === 0) {
+    AppState.notices.push(
+      {
+        id: 'notice-1',
+        title: 'Parent-Teacher Meeting',
+        description: 'A parent-teacher meeting is scheduled on March 2nd, 2026 at 3:00 PM in the school auditorium. Parents are requested to bring their ward\'s report card.',
+        author: 'Principal',
+        date: '2026-02-15',
+        priority: 'high',
+        audience: 'parents',
+        status: 'active'
+      },
+      {
+        id: 'notice-2',
+        title: 'Annual Sports Day',
+        description: 'Our Annual Sports Day will be held on March 15th, 2026. Students are requested to participate in various events. Interested students can register with their class teacher.',
+        author: 'Sports Coordinator',
+        date: '2026-02-10',
+        priority: 'medium',
+        audience: 'students',
+        status: 'active'
+      },
+      {
+        id: 'notice-3',
+        title: 'Exam Schedule Released',
+        description: 'The final examination schedule for classes VIII to X has been released. Students can view the schedule on the school portal. All students must be present on their exam dates.',
+        author: 'Academic Head',
+        date: '2026-02-05',
+        priority: 'high',
+        audience: 'all',
+        status: 'active'
+      },
+      {
+        id: 'notice-4',
+        title: 'School Closed for Holi',
+        description: 'School will remain closed on March 8th and 9th for Holi celebration. Regular classes will resume on March 10th, 2026.',
+        author: 'Administration',
+        date: '2026-02-01',
+        priority: 'medium',
+        audience: 'all',
+        status: 'active'
+      },
+      {
+        id: 'notice-5',
+        title: 'Fee Payment Reminder',
+        description: 'Please note that the monthly fees for February 2026 are due by February 10th. Late submission will attract a 5% penalty.',
+        author: 'Finance Office',
+        date: '2026-02-01',
+        priority: 'low',
+        audience: 'parents',
+        status: 'inactive'
+      }
+    );
+  }
+}
+
+// ---------- Utilities ----------
+const qs  = sel => document.querySelector(sel);
+const qsa = sel => Array.from(document.querySelectorAll(sel));
+
+function fmtINR(n) {
+  const val = Number(n || 0);
+  const sym = AppState.settings?.currency || '₹';
+  const loc = AppState.settings?.locale || 'en-IN';
+  return sym + ' ' + val.toLocaleString(loc, { maximumFractionDigits: 0 });
+}
+
+function todayYYYYMMDD() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+function monthOfToday() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  return `${yyyy}-${mm}`;
+}
+
+// ===== MISCELLANEOUS FEE HELPER =====
+// Miscellaneous fee is collected 4 times per year at 3-month intervals
+// Collection months: January (1), April (4), July (7), October (10)
+function isMiscellaneousFeeMonth(monthStr) {
+  try {
+    const parts = monthStr.split('-');
+    const monthNum = parseInt(parts[1], 10);
+    return [1, 4, 7, 10].includes(monthNum);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Get fee heads for a student in a specific month
+// This dynamically adds/removes miscellaneous fee based on the month
+// Get fee heads for a student in a specific month.
+// Accepts either (studentClass, month) or (studentObject, month) or (rollString, month).
+// Behavior:
+// - Removes Miscellaneous if month not one of collection months
+// - If student is provided and admission_date is present, do not charge for months before admission.
+// - If admission happens during the month, prorate each head based on days remaining in that month (inclusive).
+function getFeesForStudentMonth(studentClassOrStudent, month) {
+  // Resolve student/class
+  let student = null;
+  let studentClass = studentClassOrStudent;
+  if (typeof studentClassOrStudent === 'object' && studentClassOrStudent !== null) {
+    student = studentClassOrStudent;
+    studentClass = student.class;
+  } else if (typeof studentClassOrStudent === 'string') {
+    // could be a roll or a class name; prefer matching a student roll first
+    const s = AppState.students.find(x => x.roll === studentClassOrStudent);
+    if (s) { student = s; studentClass = s.class; }
+  }
+
+  const baseHeads = AppState.feeHeadsByClass[studentClass] || { Tuition: 800 };
+  let heads = { ...baseHeads };
+
+  // If this month is NOT a miscellaneous fee month, remove it
+  if (!isMiscellaneousFeeMonth(month)) {
+    delete heads.Miscellaneous;
+  }
+
+  // If we have a student with admission_date, adjust charges based on admission
+  if (student && student.admission_date) {
+    // admission_date expected as YYYY-MM-DD
+    const adm = new Date(student.admission_date);
+    if (!adm || isNaN(adm.getTime())) return heads;
+
+    const [yStr, mStr] = month.split('-');
+    const year = Number(yStr);
+    const mon = Number(mStr);
+    if (!year || !mon) return heads;
+
+    const monthStart = new Date(year, mon - 1, 1);
+    const monthDays = daysInMonth(year, mon);
+    const monthEnd = new Date(year, mon - 1, monthDays);
+
+    // If admission is after the end of this month => not admitted yet => no heads
+    if (adm > monthEnd) return {};
+
+    // If admission is on or before the first day of month => full heads
+    if (adm <= monthStart) return heads;
+
+    // Admission happened during this month => prorate heads
+    const admDay = adm.getDate();
+    const daysRemaining = monthDays - admDay + 1; // inclusive of admission day
+    const ratio = daysRemaining / monthDays;
+
+    const prorated = {};
+    for (const [h, amt] of Object.entries(heads)) {
+      prorated[h] = Math.round(Number(amt || 0) * ratio);
+    }
+    return prorated;
+  }
+
+  return heads;
+}
+
+// ===== END MISCELLANEOUS FEE HELPER =====
+function genLastNMonths(n) {
+  const list=[]; const d=new Date();
+  for (let i=n-1;i>=0;i--) {
+    const d2=new Date(d.getFullYear(), d.getMonth()-i, 1);
+    const yyyy=d2.getFullYear(); const mm=String(d2.getMonth()+1).padStart(2,'0');
+    list.push(`${yyyy}-${mm}`);
+  }
+  return list;
+}
+function arrayToCSV(rows){
+  return rows.map(r => r.map(val => {
+    const v=(val??'').toString().replace(/"/g,'""');
+    return `"${v}"`;
+  }).join(',')).join('\n');
+}
+function downloadFile(filename, content, mime='text/csv'){
+  const blob=new Blob([content],{type:mime});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},0);
+}
+
+// ===== Late Fee Helpers =====
+function parseYearMonth(yyyyMM){ if(!yyyyMM||!/^(\d{4})-(\d{2})$/.test(yyyyMM)) return null; const [y,m]=yyyyMM.split('-').map(Number); return {year:y,month:m}; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function ymd(d){ const yyyy=d.getFullYear(); const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${yyyy}-${mm}-${dd}`; }
+function isWeekend(d){ const day=d.getDay(); return day===0||day===6; }
+function makeHolidaySet(holidays){ const set=new Set(); (holidays||[]).forEach(h=>{ if(h&&/^\d{4}-\d{2}-\d{2}$/.test(h)) set.add(h); }); return set; }
+function isHoliday(d,holidaySet){ return holidaySet.has(ymd(d)); }
+function isBusinessDay(d,rules,holidaySet){ if(rules.skipSun && d.getDay()===0) return false; if(rules.skipSat && d.getDay()===6) return false; if(isHoliday(d,holidaySet)) return false; return true; }
+function effectiveLateRulesForClass(klass){ const base=AppState.lateFeeRules||{}; const ovr=(base.classOverrides&&base.classOverrides[klass])||{}; return { ...base, cutoffDay: ovr.cutoffDay??base.cutoffDay, graceDays: ovr.graceDays??base.graceDays, cap: ovr.cap??base.cap, startAfter: ovr.startAfter??base.startAfter }; }
+function daysInMonth(year,month){ return new Date(year,month,0).getDate(); }
+function computeDueDate(yyyyMM,rules){
+  const parsed=parseYearMonth(yyyyMM); if(!parsed) return null;
+  const {year,month}=parsed;
+  const cutoff=Math.max(1,Math.min(rules.cutoffDay||1, daysInMonth(year,month)));
+  let due=new Date(year,month-1,cutoff);
+  const holidaySet=makeHolidaySet(rules.holidays||[]);
+  const needsShift=(rules.skipSun||rules.skipSat)?isWeekend(due):false;
+  const isHol=isHoliday(due,holidaySet);
+  if((rules.shiftRule&&rules.shiftRule!=='none')&&(needsShift||isHol)){
+    if(rules.shiftRule==='nextBusiness'){
+      do{ due=addDays(due,1);} while(!isBusinessDay(due,rules,holidaySet));
+    } else if(rules.shiftRule==='prevBusiness'){
+      do{ due=addDays(due,-1);} while(!isBusinessDay(due,rules,holidaySet));
+    }
+  }
+  return due;
+}
+function countChargeableDays(startDateExclusive,endDateInclusive,rules){
+  const holidaySet=makeHolidaySet(rules.holidays||[]);
+  let d=addDays(startDateExclusive,1);
+  const end=new Date(endDateInclusive);
+  let days=0;
+  while(d<=end){ if(isBusinessDay(d,rules,holidaySet)) days++; d=addDays(d,1); }
+  return days;
+}
+function applySlabs(totalDays,slabs){
+  if(!Array.isArray(slabs)||slabs.length===0||totalDays<=0) return 0;
+  let amount=0;
+  for(let i=1;i<=totalDays;i++){
+    const slab=slabs.find(s=> i>=(s.from||1) && (s.to? i<=s.to : true));
+    amount+=Number(slab?.perDay||0);
+  }
+  return amount;
+}
+function computeLateFee(roll,yyyyMM,today=new Date()){
+  const student=AppState.students.find(s=>s.roll===roll); if(!student) return 0;
+  const rules=effectiveLateRulesForClass(student.class);
+  const appliesToHeads=rules.applyToHeads||{};
+  const applicableHeadNames=Object.entries(appliesToHeads).filter(([_,on])=>!!on).map(([h])=>h);
+
+  // Only if any applicable head is included (if rule restricts)
+  // If the user has unchecked all heads (intent: pay only late fee), allow late fee calculation.
+  let hasApplicableHeadIncluded = true;
+  const headsWrap = document.querySelector('#rpHeads');
+  if (headsWrap) {
+    const includedAll = Array.from(headsWrap.querySelectorAll('input[type="checkbox"][data-include]'));
+    const included = includedAll.filter(x => x.checked).map(x => x.getAttribute('data-include'));
+    // If no checkboxes are checked at all, assume admin intends to add only late fee — allow calculation
+    if (included.length === 0) {
+      hasApplicableHeadIncluded = true;
+    } else {
+      hasApplicableHeadIncluded = included.some(h => applicableHeadNames.includes(h));
+    }
+  }
+  if (!hasApplicableHeadIncluded && applicableHeadNames.length > 0) return 0;
+
+  const parsed=parseYearMonth(yyyyMM); if(!parsed) return 0;
+  const mStrToday=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  if(yyyyMM>mStrToday) return 0;
+
+  const due=computeDueDate(yyyyMM,rules); if(!due) return 0;
+  let startChargeDate=addDays(due, Number(rules.graceDays||0)+Number(rules.startAfter||0));
+  const todayYMD=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+  if(todayYMD<=startChargeDate) return 0;
+
+  const chargeDays=countChargeableDays(startChargeDate,todayYMD,rules);
+  if(chargeDays<=0) return 0;
+
+  const slabs=Array.isArray(rules.slabs)?rules.slabs:[];
+  let fee=applySlabs(chargeDays,slabs);
+  const cap=Number(rules.cap||0);
+  if(cap>0) fee=Math.min(fee,cap);
+  return Math.max(0,Math.round(fee));
+}
+
+// ---------- Theme ----------
+function applyThemeFromSettings() {
+  const t = AppState.settings?.theme || 'system';
+  AppState.theme = t; // keep in sync if used elsewhere
+  document.documentElement.setAttribute('data-theme', t);
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.textContent = (t === 'dark') ? '🌞' : '🌙';
+}
+function initThemeToggle(){
+  const btn=qs('#themeToggle');
+  const nextTheme = (t) => t==='dark'?'light':'dark';
+  if (!btn) return;
+  btn.addEventListener('click',()=>{
+    AppState.settings.theme = nextTheme(AppState.settings.theme || 'light');
+    applyThemeFromSettings();
+    saveState();
+  });
+}
+
+// ---------- Branding ----------
+function applySchoolBranding() {
+  const sch = AppState.settings.school;
+  const brandLogo = document.querySelector('.sidebar .brand-logo');
+  const brandTextStrong = document.querySelector('.sidebar .brand-text strong');
+  const brandTextSmall  = document.querySelector('.sidebar .brand-text small');
+  if (brandLogo) brandLogo.src = sch.logo || 'assets/logo.png';
+  if (brandTextStrong) brandTextStrong.textContent = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  if (brandTextSmall)  brandTextSmall.textContent  = sch.tagline || 'Admin Portal';
+}
+
+// ---------- Sidebar & Routing ----------
+function initSidebarNavigation(){
+  const sidebar = qs('#sidebar');
+  const sidebarOpen = qs('#sidebarOpen');
+  const sidebarClose = qs('#sidebarClose');
+  
+  if (sidebarOpen) sidebarOpen.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebar?.classList.add('open');
+  });
+  
+  if (sidebarClose) sidebarClose.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebar?.classList.remove('open');
+  });
+
+  const menuItems = qsa('.menu__item');
+  menuItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const view = item.getAttribute('data-view');
+      if (!view) return;
+      
+      // Remove active from all items
+      menuItems.forEach(i => i.classList.remove('active'));
+      // Add active to clicked item
+      item.classList.add('active');
+      
+      // Close mobile sidebar
+      if (sidebar) sidebar.classList.remove('open');
+      
+      // Switch view
+      switchView(view);
+    });
+  });
+
+  // initial view
+  switchView(AppState.view || 'dashboard');
+}
+
+// ---------- Performance Optimization ----------
+let viewSwitchInProgress = false;
+let switchViewTimeout;
+
+function switchView(viewId) {
+  // Debounce rapid view switches
+  if (viewSwitchInProgress) return;
+  viewSwitchInProgress = true;
+  
+  clearTimeout(switchViewTimeout);
+  switchViewTimeout = setTimeout(() => {
+    viewSwitchInProgress = false;
+  }, 300);
+
+  AppState.view = viewId;
+  const views = document.querySelectorAll('.view');
+  views.forEach(v => v.classList.add('hidden'));
+  const target = document.getElementById(`view-${viewId}`);
+  if (target) target.classList.remove('hidden');
+
+  // Use requestAnimationFrame for smooth rendering
+  requestAnimationFrame(() => {
+    if (viewId === 'dashboard') renderDashboard();
+    else if (viewId === 'students')  renderStudents();
+    else if (viewId === 'fees')      renderFees();
+    else if (viewId === 'exams')     renderExams();
+    else if (viewId === 'classes')   renderClasses();
+    else if (viewId === 'teachers')  renderTeachers();
+    else if (viewId === 'transport') renderTransport();
+    else if (viewId === 'notices')   renderNotices();
+    else if (viewId === 'settings')  renderSettings();
+  });
+}
+
+// ---------- Dashboard ----------
+let admissionsChart, attendanceChart;
+let chartRenderInProgress = false;
+
+// Fetch dashboard statistics from database
+async function fetchDashboardStats() {
+  try {
+    const response = await fetch('http://localhost:5000/api/stats/dashboard');
+    if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+    const stats = await response.json();
+    return stats;
+  } catch (e) {
+    console.error('Error fetching dashboard stats:', e);
+    return null;
+  }
+}
+
+// Fetch attendance data for today
+async function fetchTodayAttendance() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const response = await fetch(`http://localhost:5000/api/attendance?date=${today}`);
+    if (!response.ok) throw new Error('Failed to fetch attendance');
+    const attendance = await response.json();
+    return attendance;
+  } catch (e) {
+    console.error('Error fetching attendance:', e);
+    return [];
+  }
+}
+
+// Fetch all students
+async function fetchAllStudents() {
+  try {
+    const response = await fetchWithTimeout('http://localhost:5000/api/students');
+    if (!response || !response.ok) throw new Error('Failed to fetch students');
+    const students = await response.json();
+    return students;
+  } catch (e) {
+    console.error('Error fetching students:', e);
+    return [];
+  }
+}
+
+// Fetch all payments
+async function fetchAllPayments() {
+  try {
+    const response = await fetchWithTimeout('http://localhost:5000/api/payments');
+    if (!response || !response.ok) throw new Error('Failed to fetch payments');
+    const payments = await response.json();
+    return payments;
+  } catch (e) {
+    console.error('Error fetching payments:', e);
+    return [];
+  }
+}
+
+function renderDashboard(){
+  if (chartRenderInProgress) return;
+  
+  // Initialize server status check
+  startServerStatusCheck();
+  
+  // Load data from database
+  loadDashboardData();
+  
+  // Setup refresh button
+  const btnRefresh = qs('#btnRefreshDash');
+  if (btnRefresh) {
+    btnRefresh.onclick = async () => {
+      btnRefresh.disabled = true;
+      btnRefresh.textContent = '⏳ Syncing...';
+      await loadDashboardData();
+      btnRefresh.disabled = false;
+      btnRefresh.textContent = '🔄 Refresh';
+    };
+  }
+  
+  const btnExportCSV = qs('#btnExportCSV');
+  if (btnExportCSV) btnExportCSV.onclick = exportStudentsCSV;
+  const btnPrint = qs('#btnPrint');
+  if (btnPrint) btnPrint.onclick = ()=> window.print();
+}
+
+async function loadDashboardData() {
+  // Fetch all data in parallel
+  const [stats, todayAttendance, allStudents, allPayments] = await Promise.all([
+    fetchDashboardStats(),
+    fetchTodayAttendance(),
+    fetchAllStudents(),
+    fetchAllPayments()
+  ]);
+
+  // Update KPI cards with real data
+  const kpiStudents = qs('#kpiStudents');
+  const kpiAttendance = qs('#kpiAttendance');
+  const kpiFees = qs('#kpiFees');
+  const kpiIssues = qs('#kpiIssues');
+  
+  if (stats) {
+    if (kpiStudents) kpiStudents.textContent = stats.total_students.toLocaleString('en-IN');
+    if (kpiFees) kpiFees.textContent = fmtINR(stats.total_revenue);
+    if (kpiIssues) kpiIssues.textContent = stats.pending_payments;
+  } else {
+    if (kpiStudents) kpiStudents.textContent = AppState.kpi.totalStudents;
+    if (kpiFees) kpiFees.textContent = fmtINR(AppState.kpi.feesCollectedMonth);
+    if (kpiIssues) kpiIssues.textContent = AppState.kpi.issuesOpen;
+  }
+
+  // Calculate attendance percentage
+  if (todayAttendance && todayAttendance.length > 0 && allStudents.length > 0) {
+    const presentCount = todayAttendance.filter(a => a.status === 'Present').length;
+    const attendancePercent = (presentCount / allStudents.length) * 100;
+    if (kpiAttendance) kpiAttendance.textContent = attendancePercent.toFixed(1) + '%';
+  } else if (kpiAttendance) {
+    kpiAttendance.textContent = '0%';
+  }
+
+  // Render charts with real data
+  requestAnimationFrame(() => {
+    chartRenderInProgress = true;
+    initAdmissionsChart(allStudents);
+    initAttendanceChart(allStudents, todayAttendance);
+    chartRenderInProgress = false;
+  });
+}
+
+function initAdmissionsChart(students = []){
+  const ctx = qs('#chartAdmissions');
+  if (!ctx) return;
+  
+  try {
+    if (admissionsChart) {
+      admissionsChart.destroy();
+      admissionsChart = null;
+    }
+
+    // Group students by class to show distribution
+    const classDistribution = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      classDistribution[cls] = (classDistribution[cls] || 0) + 1;
+    });
+
+    const classes = Object.keys(classDistribution).sort();
+    const data = classes.map(cls => classDistribution[cls]);
+    const animate = !!(AppState.settings?.chartAnimation);
+
+    admissionsChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: classes,
+        datasets: [{
+          label: 'Students per Class',
+          data,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,0.1)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: animate ? { duration: 300 } : false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    const rangeSel = qs('#admissionsRange');
+    if (rangeSel) {
+      rangeSel.onchange = (e) => {
+        // For now, just redraw the same chart
+        initAdmissionsChart(students);
+      };
+    }
+  } catch (e) {
+    console.error('Error rendering admissions chart:', e);
+  }
+}
+
+function initAttendanceChart(students = [], attendanceData = []){
+  const ctx = qs('#chartAttendance');
+  if (!ctx) return;
+
+  try {
+    if (attendanceChart) {
+      attendanceChart.destroy();
+      attendanceChart = null;
+    }
+
+    // Group attendance by class
+    const classAttendance = {};
+    students.forEach(s => {
+      const cls = s.class_name || 'Unknown';
+      if (!classAttendance[cls]) {
+        classAttendance[cls] = { present: 0, total: 0 };
+      }
+      classAttendance[cls].total++;
+    });
+
+    // Count present students by class
+    attendanceData.forEach(a => {
+      const student = students.find(s => s.id === a.student_id);
+      if (student) {
+        const cls = student.class_name || 'Unknown';
+        if (classAttendance[cls] && a.status === 'Present') {
+          classAttendance[cls].present++;
+        }
+      }
+    });
+
+    const classes = Object.keys(classAttendance).sort();
+    const data = classes.map(cls => 
+      classAttendance[cls].total > 0 
+        ? Math.round((classAttendance[cls].present / classAttendance[cls].total) * 100)
+        : 0
+    );
+    
+    const animate = !!(AppState.settings?.chartAnimation);
+
+    attendanceChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: classes,
+        datasets: [{
+          label: 'Attendance %',
+          data,
+          backgroundColor: '#10b981'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: animate ? { duration: 300 } : false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, max: 100 },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 10 } }
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Error rendering attendance chart:', e);
+
+// ---------- Students View ----------
+function renderStudents(){
+  const filterClass=qs('#filterClass');
+  const filterSection=qs('#filterSection');
+  const filterStatus=qs('#filterStatus');
+  const searchInput=qs('#searchStudent');
+  const tbody=qs('#studentsBody');
+  const pagination=qs('#pagination');
+
+  if (!filterClass || !filterSection || !filterStatus || !searchInput || !tbody || !pagination) {
+    console.error('Missing required student view elements');
+    return;
+  }
+
+  function applyFilters(){
+    let rows=[...AppState.students];
+    const fc=filterClass.value;
+    const fs=filterSection.value;
+    const fstatus=filterStatus.value;
+    const q=(searchInput.value||'').trim().toLowerCase();
+
+    if(fc) rows=rows.filter(r=> r.class===fc);
+    if(fs) rows=rows.filter(r=> r.section===fs);
+    if(fstatus) rows=rows.filter(r=> r.status===fstatus);
+    if(q){
+      rows=rows.filter(r=> r.name.toLowerCase().includes(q)|| r.roll.toLowerCase().includes(q)|| r.phone.toLowerCase().includes(q));
+    }
+
+    AppState.pagination.students.filtered=rows;
+    const pageSize=AppState.pagination.students.pageSize;
+    AppState.pagination.students.totalPages=Math.max(1, Math.ceil(rows.length/pageSize));
+    renderStudentsTable(); renderStudentsPagination();
+  }
+
+  function estimateMonthlyFee(student){
+    // Use getFeesForStudentMonth for current month so admission date is considered
+    const month = monthOfToday();
+    const heads = getFeesForStudentMonth(student, month) || {};
+    return Object.values(heads).reduce((a,b)=> a+Number(b||0),0);
+  }
+
+  function renderStudentsTable(){
+    const {page,pageSize,filtered}=AppState.pagination.students;
+    const start=(page-1)*pageSize;
+    const pageRows=filtered.slice(start,start+pageSize);
+    tbody.innerHTML=pageRows.map(r=> `
+      <tr>
+        <td><input type="checkbox" aria-label="Select row" /></td>
+        <td>${r.roll}</td>
+        <td>${r.name}</td>
+        <td>${r.class}</td>
+        <td>${r.section}</td>
+        <td>${r.phone}</td>
+        <td><span class="badge">${r.status}</span></td>
+        <td>${fmtINR(estimateMonthlyFee(r))}</td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost small" data-act="edit" data-roll="${r.roll}">Edit</button>
+          <button class="btn btn-ghost small" data-act="delete" data-roll="${r.roll}">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+    qsa('button[data-act="edit"]').forEach(btn=>{
+      btn.onclick=()=> openEditStudent(btn.getAttribute('data-roll'));
+    });
+    qsa('button[data-act="delete"]').forEach(btn=>{
+      btn.onclick=()=>{
+        const roll=btn.getAttribute('data-roll');
+        const student=AppState.students.find(s=> s.roll===roll);
+        if(!student) return;
+        if(!confirm(`Delete student ${student.name} (Roll: ${roll})? This action cannot be undone.`)) return;
+        AppState.students=AppState.students.filter(s=> s.roll!==roll);
+        AppState.kpi.totalStudents=AppState.students.length;
+        saveState();
+        renderStudents();
+      };
+    });
+  }
+
+  function renderStudentsPagination(){
+    const {page,totalPages}=AppState.pagination.students;
+    let html='';
+    html+=`<button class="btn btn-ghost small" ${page<=1?'disabled':''} data-pg="prev">◀ Prev</button>`;
+    html+=`<span class="muted"> Page ${page} of ${totalPages} </span>`;
+    html+=`<button class="btn btn-ghost small" ${page>=totalPages?'disabled':''} data-pg="next">Next ▶</button>`;
+    pagination.innerHTML=html;
+    qsa('button[data-pg]').forEach(b=>{
+      b.onclick=()=>{
+        const act=b.getAttribute('data-pg');
+        if(act==='prev'&&AppState.pagination.students.page>1) AppState.pagination.students.page--;
+        if(act==='next'&&AppState.pagination.students.page<AppState.pagination.students.totalPages) AppState.pagination.students.page++;
+        renderStudentsTable(); renderStudentsPagination();
+      };
+    });
+  }
+
+  // Page size from settings
+  AppState.pagination.students.page=1;
+  AppState.pagination.students.pageSize = AppState.settings.studentsPageSize || 10;
+
+  applyFilters();
+  filterClass.onchange=applyFilters;
+  filterSection.onchange=applyFilters;
+  filterStatus.onchange=applyFilters;
+  searchInput.oninput=applyFilters;
+
+  const btnAddStudent = qs('#btnAddStudent');
+  if (btnAddStudent) btnAddStudent.onclick = ()=> openModal('#modalAddStudent');
+  const btnImportCSV = qs('#btnImportCSV');
+  if (btnImportCSV) btnImportCSV.onclick = ()=> openModal('#modalImportCSV');
+  const btnBulkExport = qs('#btnBulkExport');
+  if (btnBulkExport) btnBulkExport.onclick = exportStudentsCSV;
+  const btnBulkSMS = qs('#btnBulkSMS');
+  if (btnBulkSMS) btnBulkSMS.onclick = ()=> alert('SMS integration to be added (e.g., Twilio/Msg91).');
+}
+function openEditStudent(roll){ 
+  const student=AppState.students.find(s=> s.roll===roll);
+  if(!student) { alert('Student not found'); return; }
+  
+  // Set form to edit mode
+  const form=qs('#formAddStudent');
+  form.dataset.editRoll=roll;
+  
+  // Populate form with student data
+  qs('input[name="name"]', form).value=student.name;
+  qs('input[name="roll"]', form).value=student.roll;
+  qs('input[name="admission_date"]', form).value=student.admission_date || '';
+  qs('input[name="dob"]', form).value=student.dob || '';
+  qs('input[name="aadhar"]', form).value=student.aadhar || '';
+  qs('input[name="father_name"]', form).value=student.father_name || '';
+  qs('input[name="mother_name"]', form).value=student.mother_name || '';
+  qs('select[name="class"]', form).value=student.class;
+  qs('select[name="section"]', form).value=student.section;
+  qs('input[name="phone"]', form).value=student.phone;
+  qs('select[name="status"]', form).value=student.status;
+  
+  // Change modal title
+  const header=qs('#modalAddStudent .modal__header h3');
+  header.textContent='Edit Student';
+  
+  // Change submit button text
+  const submitBtn=qs('#modalAddStudent .modal__footer button[value="submit"]');
+  submitBtn.textContent='Update';
+  
+  openModal('#modalAddStudent');
+}
+
+// ---------- Fees View ----------
+function renderFees(){
+  const feesKpiCollected = qs('#feesKpiCollected');
+  if (feesKpiCollected) feesKpiCollected.textContent = fmtINR(sumReceiptsThisMonth());
+  const feesKpiOutstanding = qs('#feesKpiOutstanding');
+  if (feesKpiOutstanding) feesKpiOutstanding.textContent = fmtINR(sumOutstandingThisMonth());
+  const feesKpiOverdue = qs('#feesKpiOverdue');
+  if (feesKpiOverdue) feesKpiOverdue.textContent = fmtINR(sumOverdue());
+  const feesKpiReceipts = qs('#feesKpiReceipts');
+  if (feesKpiReceipts) feesKpiReceipts.textContent = String(countReceiptsThisMonth());
+
+  const feesBtnCollect = qs('#feesBtnCollect');
+  if (feesBtnCollect) feesBtnCollect.onclick = ()=> openModal('#modalRecordPayment');
+  const feesBtnHeads = qs('#feesBtnHeads');
+  if (feesBtnHeads) feesBtnHeads.onclick = ()=> openModal('#modalFeeHeads');
+  const feesBtnConcession = qs('#feesBtnConcession');
+  if (feesBtnConcession) feesBtnConcession.onclick = ()=> openModal('#modalConcession');
+  const feesBtnImport = qs('#feesBtnImport');
+  if (feesBtnImport) feesBtnImport.onclick = ()=> openModal('#modalFeesImport');
+  const feesBtnAging = qs('#feesBtnAging');
+  if (feesBtnAging) feesBtnAging.onclick = ()=> alert('Aging report coming soon.');
+
+  renderRecentReceipts();
+}
+
+function sumReceiptsThisMonth(){
+  const m=monthOfToday();
+  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m)
+    .reduce((sum,r)=> sum+Number(r.amount||0),0);
+}
+function countReceiptsThisMonth(){
+  const m=monthOfToday();
+  return AppState.receipts.filter(r=> (r.date||'').slice(0,7)===m).length;
+}
+function sumOutstandingThisMonth(){
+  const m=monthOfToday();
+  let totalDue=0,totalPaid=0,totalDiscount=0,totalLate=0;
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [,month]=key.split('|'); if(month!==m) return;
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    totalDue+=headsTotal; totalPaid+=Number(v.paid||0);
+    totalDiscount+=Number(v.discount||0); totalLate+=Number(v.lateFee||0);
+  });
+  return Math.max(0, totalDue+totalLate-totalDiscount-totalPaid);
+}
+function sumOverdue(){
+  const m=monthOfToday();
+  let total=0;
+  Object.entries(AppState.fees).forEach(([key,v])=>{
+    const [,month]=key.split('|'); if(month>=m) return;
+    const headsTotal=Object.values(v.heads||{}).reduce((a,b)=> a+Number(b||0),0);
+    const bal=Math.max(0, headsTotal+(v.lateFee||0)-(v.discount||0)-(v.paid||0));
+    total+=bal;
+  });
+  return total;
+}
+function renderRecentReceipts(){
+  const tbody=qs('#feesReceiptsBody');
+  const rows=[...AppState.receipts].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,10);
+  tbody.innerHTML=rows.map(r=> `
+    <tr>
+      <td>${r.no}</td>
+      <td>${r.date}</td>
+      <td>${r.roll}</td>
+      <td>${r.name}</td>
+      <td>${r.method}</td>
+      <td>${fmtINR(r.amount)}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="print" data-no="${r.no}">🖨️ Print</button>
+        <button class="btn btn-ghost small" data-act="pdf" data-no="${r.no}" title="Download as PDF">📄 PDF</button>
+      </td>
+    </tr>
+  `).join('');
+  qsa('button[data-act="print"]').forEach(b=>{
+    b.onclick=()=> printReceipt(b.getAttribute('data-no'));
+  });
+  qsa('button[data-act="pdf"]').forEach(b=>{
+    b.onclick=()=> generateReceiptPDF(b.getAttribute('data-no'));
+  });
+  qs('#feesBtnReceiptsExport').onclick=exportReceiptsCSV;
+}
+
+// ---------- CSV Export (Core) ----------
+function exportStudentsCSV(){
+  const header=['roll','admission_date','name','dob','aadhar','father_name','mother_name','class','section','phone','status'];
+  const rows=AppState.students.map(s=> [s.roll,s.admission_date||'',s.name,s.dob||'',s.aadhar||'',s.father_name||'',s.mother_name||'',s.class,s.section,s.phone,s.status]);
+  const csv=arrayToCSV([header,...rows]);
+  downloadFile('students.csv',csv);
+}
+function exportReceiptsCSV(){
+  const header=['no','date','roll','name','method','amount','ref'];
+  const rows=AppState.receipts.map(r=> [r.no,r.date,r.roll,r.name,r.method,r.amount,r.ref||'']);
+  const csv=arrayToCSV([header,...rows]);
+  downloadFile('receipts.csv',csv);
+}
+
+// ---------- Modals (Core) ----------
+function openModal(sel){
+  const dlg=qs(sel);
+  if (!dlg) { console.error('Modal not found:', sel); return false; }
+  if (typeof dlg.showModal!=='function'){ alert('Your browser does not support <dialog>.'); return false;}
+  dlg.showModal();
+
+  // Add click handlers to all cancel and close buttons to close the dialog
+  const cancelButtons = dlg.querySelectorAll('button[value="cancel"], button[type="button"][value="cancel"], .icon-btn[value="cancel"]');
+  cancelButtons.forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      dlg.close();
+    };
+  });
+
+  if(sel==='#modalAddStudent')     initAddStudentModal();
+  if(sel==='#modalImportCSV')      initImportCSVModal();
+  if(sel==='#modalRecordPayment')  initRecordPaymentModal();
+  if(sel==='#modalFeeHeads')       initFeeHeadsModal();
+  if(sel==='#modalLateRules')      initLateRulesModal();
+  if(sel==='#modalConcession')     initConcessionModal();
+  if(sel==='#modalAddTeacher')     initAddTeacherModal();
+  if(sel==='#modalCreateClass')    initCreateClassModal();
+
+  return true;
+}
+
+function initAddStudentModal(){
+  const form=qs('#formAddStudent');
+  const isEditMode=form.dataset.editRoll;
+  
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    const data=Object.fromEntries(new FormData(form).entries());
+    const student={
+      roll:data.roll.trim(),
+      admission_date:data.admission_date?.trim() || null,
+      name:data.name.trim(),
+      dob:data.dob.trim() || null,
+      aadhar:data.aadhar.trim() || null,
+      father_name:data.father_name.trim() || null,
+      mother_name:data.mother_name.trim() || null,
+      class:data.class,
+      section:data.section,
+      phone:data.phone.trim(),
+      status:data.status
+    };
+    
+    if(isEditMode){
+      // Update existing student
+      const idx=AppState.students.findIndex(s=> s.roll===form.dataset.editRoll);
+      if(idx===-1){ alert('Student not found.'); return; }
+      
+      // Check if admission no. changed and if new one already exists
+      if(student.roll!==form.dataset.editRoll && AppState.students.some(s=> s.roll===student.roll)){
+        alert('New admission no. already exists.'); return;
+      }
+      
+      AppState.students[idx]=student;
+    } else {
+      // Add new student
+      if(AppState.students.some(s=> s.roll===student.roll)){
+        alert('Admission no. already exists.'); return;
+      }
+      AppState.students.push(student);
+    }
+    
+    AppState.kpi.totalStudents=AppState.students.length;
+    saveState();
+    
+    // Reset modal to add mode
+    delete form.dataset.editRoll;
+    qs('#modalAddStudent .modal__header h3').textContent='Add Student';
+    qs('#modalAddStudent .modal__footer button[value="submit"]').textContent='Save';
+    
+    form.parentElement.close();
+    if(AppState.view==='students') renderStudents();
+  };
+}
+
+function initImportCSVModal(){
+  const form=qs('#formImportCSV');
+  const fileInput=form.querySelector('input[type="file"]');
+  form.onsubmit=async (e)=>{
+    e.preventDefault();
+    const file=fileInput.files?.[0];
+    if(!file){ alert('Please select a CSV file.'); return; }
+    const text=await file.text();
+    const rows=text.trim().split(/\r?\n/).map(line=>
+      line.split(',').map(cell=> cell.replace(/^"|"$/g,'').replace(/""/g,'"'))
+    );
+    const [header,...dataRows]=rows;
+    const idx=Object.fromEntries(header.map((h,i)=> [h.trim().toLowerCase(), i]));
+    const required=['roll','name','class','section','phone','status'];
+    if(!required.every(r=> idx[r]!==undefined)){
+      alert('Invalid CSV header. Expected: '+required.join(', ')); return;
+    }
+    const newStudents=dataRows.map(r=> ({
+      roll:r[idx['roll']].trim(),
+      admission_date:r[idx['admission_date']]?.trim() || null,
+      name:r[idx['name']].trim(),
+      dob:r[idx['dob']]?.trim() || null,
+      aadhar:r[idx['aadhar']]?.trim() || null,
+      father_name:r[idx['father_name']]?.trim() || null,
+      mother_name:r[idx['mother_name']]?.trim() || null,
+      class:r[idx['class']].trim(),
+      section:r[idx['section']].trim(),
+      phone:r[idx['phone']].trim(),
+      status:r[idx['status']].trim()
+    }));
+    const rolls=new Set(AppState.students.map(s=> s.roll));
+    newStudents.forEach(s=>{ if(!rolls.has(s.roll)) AppState.students.push(s); });
+    AppState.kpi.totalStudents=AppState.students.length;
+    saveState(); form.parentElement.close();
+    if(AppState.view==='students') renderStudents();
+  };
+}
+
+// === Record Payment with Auto Late Fee ===
+function initRecordPaymentModal(){
+  const form=qs('#formRecordPayment');
+  const search=qs('#rpStudentSearch');
+  const list=qs('#rpStudentList');
+  const rpRoll=qs('#rpRoll');
+  const rpMonth=qs('#rpMonth');
+  const rpName=qs('#rpName');
+  const rpClass=qs('#rpClass');
+  const rpMethod=qs('#rpMethod');
+  const rpRef=qs('#rpRef');
+  const rpHeadsWrap=qs('#rpHeads');
+  const rpDiscount=qs('#rpDiscount');
+  const rpLateFee=qs('#rpLateFee');
+  const rpSubtotal=qs('#rpSubtotal');
+  const rpTotalDue=qs('#rpTotalDue');
+  const rpPayNow=qs('#rpPayNow');
+  const rpError=qs('#rpError');
+  const rpStatus=qs('#rpStatus');
+
+  // set default month from settings or today
+  rpMonth.value = AppState.settings.defaultFeesMonth || monthOfToday();
+
+  // add recalc button once
+  if(!qs('#rpLateFeeRecalc')){
+    const recalcBtn=document.createElement('button');
+    recalcBtn.id='rpLateFeeRecalc';
+    recalcBtn.type='button';
+    recalcBtn.className='btn btn-ghost small';
+    recalcBtn.style.marginLeft='6px';
+    recalcBtn.textContent='↻ Recalculate';
+    rpLateFee.parentElement.appendChild(recalcBtn);
+    recalcBtn.onclick=()=> autoCalcLateFee();
+  }
+
+  // Wire discounts/late fee/pay-now inputs to update totals immediately
+  if (rpDiscount) rpDiscount.oninput = () => updateTotals();
+  if (rpLateFee) rpLateFee.oninput = () => updateTotals();
+  if (rpPayNow) rpPayNow.oninput = () => validatePayNow();
+
+  // Search dropdown (safe: handle missing fields) and keyboard shortcuts
+  search.oninput = () => {
+    const q = (search.value || '').trim().toLowerCase();
+    if (!q) { list.style.display = 'none'; return; }
+    const matches = AppState.students.filter(s =>
+      ((s.roll || '') + '').toLowerCase().includes(q) ||
+      ((s.name || '') + '').toLowerCase().includes(q) ||
+      ((s.phone || '') + '').toLowerCase().includes(q)
+    ).slice(0, 8);
+    list.innerHTML = matches.map(s => ` <button type="button" class="dropdown__item" data-roll="${s.roll}">${s.roll || ''} · ${s.name || ''} · ${s.class || ''}-${s.section || ''}</button>`).join('');
+    list.style.display = matches.length ? 'block' : 'none';
+    qsa('#rpStudentList .dropdown__item').forEach(btn => {
+      btn.onclick = () => { rpRoll.value = btn.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; };
+    });
+  };
+
+  // Open list with ArrowDown and select with Enter (when focused on search)
+  search.onkeydown = (e) => {
+    if (e.key === 'ArrowDown') {
+      const first = list.querySelector('.dropdown__item');
+      if (first) { first.focus(); }
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      const first = list.querySelector('.dropdown__item');
+      if (first) { rpRoll.value = first.getAttribute('data-roll'); fillStudentInfo(); list.style.display = 'none'; }
+      e.preventDefault();
+    }
+  };
+
+  rpRoll.onchange=()=>{ fillStudentInfo(); };
+  rpMonth.onchange=()=>{ loadHeads(); autoCalcLateFee(); };
+
+  function fillStudentInfo(){
+    const s=AppState.students.find(x=> x.roll===rpRoll.value.trim());
+    if(!s){ rpName.value=''; rpClass.value=''; return; }
+    rpName.value=s.name; rpClass.value=s.class; loadHeads(); autoCalcLateFee();
+  }
+
+  function loadHeads(){
+    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    if(!roll||!month) return;
+    const key=`${roll}|${month}`;
+    let fee=AppState.fees[key];
+
+    if(!fee){
+      const s=AppState.students.find(x=> x.roll===roll);
+
+      // Use getFeesForStudentMonth to dynamically include/exclude Miscellaneous and handle admission_date
+      let defHeads = {...(getFeesForStudentMonth(s, month) || { Tuition:800 })};
+
+      // include Transport head from Transport assignment if active
+      const a = AppState.transport.assignments.find(x => x.roll===roll && x.status==='active');
+      if (a) defHeads = { ...defHeads, Transport: Number(a.fee || 0) };
+
+      fee = AppState.fees[key] = { heads: defHeads, paid:0, discount:0, lateFee:0 };
+    }
+
+    rpHeadsWrap.innerHTML=Object.entries(fee.heads).map(([head,amt])=>`
+      <div class="grid-2">
+        <label><span>${head} (₹)</span><input type="number" min="0" step="1" data-head="${head}" value="${amt}"/></label>
+        <label><span>Include</span><input type="checkbox" data-include="${head}" checked/></label>
+      </div>`).join('');
+
+    qsa('#rpHeads input[type="number"]').forEach(inp=> inp.oninput=()=>{ updateTotals(); autoCalcLateFee(); });
+    qsa('#rpHeads input[type="checkbox"]').forEach(inp=> inp.onchange=()=>{ updateTotals(); autoCalcLateFee(); });
+
+    rpDiscount.value=String(fee.discount||0);
+    rpLateFee.value=String(fee.lateFee||0);
+    updateTotals();
+  }
+
+  function updateTotals(){
+    const amounts=qsa('#rpHeads input[type="number"]').map(inp=>{
+      const head=inp.getAttribute('data-head');
+      const include=qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`).checked;
+      return include? Number(inp.value||0):0;
+    });
+    const subtotal=amounts.reduce((a,b)=> a+b,0);
+    const discount=Number(rpDiscount.value||0);
+    const lateFee=Number(rpLateFee.value||0);
+    const totalDue=Math.max(0, subtotal+lateFee-discount);
+    rpSubtotal.textContent=fmtINR(subtotal);
+    rpTotalDue.textContent=fmtINR(totalDue);
+    qs('#rpBtnExact').onclick=()=>{ rpPayNow.value=String(totalDue); validatePayNow(); };
+    qs('#rpBtnHalf').onclick =()=>{ rpPayNow.value=String(Math.round(totalDue/2)); validatePayNow(); };
+    qs('#rpBtnClear').onclick=()=>{ rpPayNow.value='0'; validatePayNow(); };
+    validatePayNow();
+  }
+  function validatePayNow(){
+    rpError.style.display='none';
+    const pay=Number(rpPayNow.value||0);
+    if(pay<0){ rpError.textContent='Amount cannot be negative.'; rpError.style.display='block'; return false; }
+    return true;
+  }
+
+  function autoCalcLateFee(){
+    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    if(!roll||!month) return;
+    const autoFee=computeLateFee(roll,month,new Date());
+    const current=Number(rpLateFee.value||0);
+    if(current!==autoFee){ rpLateFee.value=String(autoFee); updateTotals(); }
+  }
+
+  qs('#rpSaveNoPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(false)) return; form.parentElement.close(); renderFees(); };
+  qs('#rpSaveAndPrint').onclick=(e)=>{ e.preventDefault(); if(!savePayment(true))  return; form.parentElement.close(); renderFees(); };
+
+  function savePayment(printAfter){
+    const roll=rpRoll.value.trim(); const month=rpMonth.value;
+    const s=AppState.students.find(x=> x.roll===roll);
+    if(!s){ rpError.textContent='Invalid roll.'; rpError.style.display='block'; return false; }
+    if(!month){ rpError.textContent='Please select a month.'; rpError.style.display='block'; return false; }
+
+    const heads={};
+    qsa('#rpHeads input[type="number"]').forEach(inp=>{
+      const head=inp.getAttribute('data-head');
+      const include=qs(`#rpHeads input[type="checkbox"][data-include="${head}"]`).checked;
+      heads[head]=include? Number(inp.value||0):0;
+    });
+
+    const discount=Number(rpDiscount.value||0);
+    const autoFee=computeLateFee(roll,month,new Date());
+    rpLateFee.value=String(autoFee);
+    const lateFee=autoFee;
+    const payNow=Number(rpPayNow.value||0);
+    if(payNow<0){ rpError.textContent='Pay Now cannot be negative.'; rpError.style.display='block'; return false; }
+
+    const key=`${roll}|${month}`;
+    const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
+    const netDue=Math.max(0, subtotal+lateFee-discount);
+
+    AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0 };
+    AppState.fees[key].heads=heads;
+    AppState.fees[key].discount=discount;
+    AppState.fees[key].lateFee=lateFee;
+    AppState.fees[key].paid=(AppState.fees[key].paid||0)+payNow;
+
+    if(payNow>0){
+      const recNo='R-'+String(AppState.receipts.length+1).padStart(4,'0');
+      AppState.fees[key].lastReceipt=recNo;
+      AppState.receipts.push({
+        no:recNo, date:todayYYYYMMDD(), roll, name:s.name, method:rpMethod.value,
+        amount:payNow, ref:(rpRef.value||'').trim()
+      });
+      if(printAfter) printReceipt(recNo);
+    }
+
+    // Update KPI collected month if same month
+    if (monthOfToday() === month) AppState.kpi.feesCollectedMonth = sumReceiptsThisMonth();
+
+    saveState();
+    rpStatus.textContent=`Saved. Balance now: ${fmtINR(Math.max(0, netDue-(AppState.fees[key].paid||0)))}`;
+    return true;
+  }
+
+  if(rpRoll.value) fillStudentInfo(); else rpHeadsWrap.innerHTML='';
+  autoCalcLateFee();
+}
+
+function initFeeHeadsModal(){
+  const form=qs('#formFeeHeads');
+  const wrap=qs('#fhEditor');
+  wrap.innerHTML=Object.entries(AppState.feeHeadsByClass).map(([klass,heads])=>`
+    <div class="card" style="margin:8px 0;">
+      <div class="card__header"><h4>${klass}</h4></div>
+      <div style="padding:8px;">
+        ${Object.entries(heads).map(([h,amt])=>`
+          <div class="grid-2">
+            <label><span>${h} (₹)</span><input type="number" min="0" step="1" data-k="${klass}" data-h="${h}" value="${amt}"/></label>
+            <button class="btn btn-ghost small" type="button" data-k="${klass}" data-del="${h}">Delete Head</button>
+          </div>
+        `).join('')}
+        <button class="btn btn-ghost small" type="button" data-add="${klass}">+ Add Head</button>
+      </div>
+    </div>
+  `).join('');
+
+  qsa('#fhEditor input[type="number"]').forEach(inp=>{
+    inp.oninput=()=>{ const k=inp.getAttribute('data-k'); const h=inp.getAttribute('data-h'); AppState.feeHeadsByClass[k][h]=Number(inp.value||0); };
+  });
+  qsa('#fhEditor button[data-del]').forEach(btn=>{
+    btn.onclick=()=>{ const k=btn.getAttribute('data-k'); const h=btn.getAttribute('data-del'); delete AppState.feeHeadsByClass[k][h]; initFeeHeadsModal(); };
+  });
+  qsa('#fhEditor button[data-add]').forEach(btn=>{
+    btn.onclick=()=>{ const k=btn.getAttribute('data-add'); const h=prompt('Head name? (e.g., Tuition)'); const amt=Number(prompt('Monthly amount (₹)?')||0); if(!h) return; AppState.feeHeadsByClass[k][h]=amt; initFeeHeadsModal(); };
+  });
+
+  form.onsubmit=(e)=>{ e.preventDefault(); saveState(); form.parentElement.close(); };
+  qs('#feesBtnLateRules').onclick=(e)=>{ e.preventDefault(); openModal('#modalLateRules'); };
+}
+
+function initLateRulesModal(){
+  qs('#lfCutoffDay').value=AppState.lateFeeRules.cutoffDay;
+  qs('#lfGraceDays').value=AppState.lateFeeRules.graceDays;
+  qs('#lfCap').value=AppState.lateFeeRules.cap;
+  qs('#lfStartAfter').value=AppState.lateFeeRules.startAfter;
+  qs('#lfSkipSat').checked=AppState.lateFeeRules.skipSat;
+  qs('#lfSkipSun').checked=AppState.lateFeeRules.skipSun;
+  qs('#lfHolidays').value=(AppState.lateFeeRules.holidays||[]).join(',');
+  qs('#lfShiftRule').value=AppState.lateFeeRules.shiftRule;
+
+  const wrap=qs('#lfSlabsWrap');
+  wrap.innerHTML=(AppState.lateFeeRules.slabs||[]).map((s,idx)=>`
+    <div class="grid-2">
+      <div><strong>${s.from}–${s.to||'∞'} days</strong></div>
+      <div>₹ ${s.perDay}/day <button class="btn btn-ghost small" data-del="${idx}">Remove</button></div>
+    </div>
+  `).join('');
+  qsa('#lfSlabsWrap button[data-del]').forEach(b=>{
+    b.onclick=()=>{ const i=Number(b.getAttribute('data-del')); AppState.lateFeeRules.slabs.splice(i,1); initLateRulesModal(); };
+  });
+
+  qs('#lfAddSlab').onclick=()=>{
+    const from=Number(prompt('From day (>=1)?')||1);
+    const to=prompt('To day (leave blank for open-ended)');
+    const perDay=Number(prompt('Per day amount (₹)?')||0);
+    AppState.lateFeeRules.slabs.push({from, to: to? Number(to): null, perDay});
+    initLateRulesModal();
+  };
+
+  qs('#lfApplyTuition').checked=!!AppState.lateFeeRules.applyToHeads.Tuition;
+  qs('#lfApplyTransport').checked=!!AppState.lateFeeRules.applyToHeads.Transport;
+  qs('#lfApplyLab').checked=!!AppState.lateFeeRules.applyToHeads.Lab;
+  qs('#lfApplyActivity').checked=!!AppState.lateFeeRules.applyToHeads.Activity;
+  qs('#lfApplyMiscellaneous').checked=!!AppState.lateFeeRules.applyToHeads.Miscellaneous;
+
+  const form=qs('#formLateRules');
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    AppState.lateFeeRules.cutoffDay=Number(qs('#lfCutoffDay').value||1);
+    AppState.lateFeeRules.graceDays=Number(qs('#lfGraceDays').value||0);
+    AppState.lateFeeRules.cap=Number(qs('#lfCap').value||0);
+    AppState.lateFeeRules.startAfter=Number(qs('#lfStartAfter').value||0);
+    AppState.lateFeeRules.skipSat=qs('#lfSkipSat').checked;
+    AppState.lateFeeRules.skipSun=qs('#lfSkipSun').checked;
+    AppState.lateFeeRules.holidays=(qs('#lfHolidays').value||'').split(',').map(x=> x.trim()).filter(Boolean);
+    AppState.lateFeeRules.shiftRule=qs('#lfShiftRule').value;
+    AppState.lateFeeRules.applyToHeads={
+      Tuition: qs('#lfApplyTuition').checked,
+      Transport: qs('#lfApplyTransport').checked,
+      Lab: qs('#lfApplyLab').checked,
+      Activity: qs('#lfApplyActivity').checked,
+      Miscellaneous: qs('#lfApplyMiscellaneous').checked
+    };
+    try{
+      const overrides=JSON.parse(qs('#lfClassOverrides').value||'{}');
+      AppState.lateFeeRules.classOverrides=overrides;
+    } catch{
+      alert('Invalid JSON in per-class overrides.'); return;
+    }
+    saveState(); form.parentElement.close();
+  };
+}
+
+function initConcessionModal(){
+  const form=qs('#formConcession');
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    const roll=qs('#ccRoll').value.trim();
+    const type=qs('#ccType').value;
+    const value=Number(qs('#ccValue').value||0);
+    const note=qs('#ccNote').value.trim();
+    const s=AppState.students.find(x=> x.roll===roll);
+    if(!s){ alert('Invalid roll'); return; }
+    s.concession={type,value,note};
+    saveState();
+    form.parentElement.close();
+    alert('Concession saved for '+s.name);
+  };
+}
+
+// ---------- Print Receipt ----------
+function printReceipt(no){
+  const r=AppState.receipts.find(x=> x.no===no);
+  if(!r){ alert('Receipt not found'); return; }
+
+  // Offer choice for thermal or regular printer
+  const choice = confirm(
+    '🖨️ Print Options:\n\n' +
+    'OK → Thermal Printer (ESC/POS Format)\n' +
+    'Cancel → Regular Printer (Browser Print)\n\n' +
+    'Choose Thermal for petrol pump style thermal printers.'
+  );
+  
+  if (choice) {
+    // Thermal printer
+    printThermalReceipt(
+      r.no,
+      r.name,
+      r.roll,
+      r.amount,
+      r.method,
+      'School Fee'
+    );
+  } else {
+    // Regular browser print
+    const root=qs('#receiptPrintRoot');
+    const sch = AppState.settings.school || {};
+    const headerName  = sch.name || 'KHUSHI PUBLIC SCHOOL';
+    const tagline     = sch.tagline || '';
+    const addressLine = [sch.address, sch.phone, sch.email].filter(Boolean).join(' · ');
+
+    root.innerHTML=`
+      <div class="receipt">
+        <h2 style="margin:0;">${headerName}</h2>
+        ${tagline ? `<div class="muted">${tagline}</div>` : ''}
+        <div class="muted">${addressLine}</div>
+        <hr />
+        <div><strong>Receipt No:</strong> ${r.no}</div>
+        <div><strong>Date:</strong> ${r.date}</div>
+        <div><strong>Student:</strong> ${r.name} (Roll: ${r.roll})</div>
+        <div><strong>Method:</strong> ${r.method} ${r.ref ? '('+r.ref+')' : ''}</div>
+        <div><strong>Amount:</strong> ${fmtINR(r.amount)}</div>
+        <hr />
+        <div class="muted">This is a system-generated receipt.</div>
+      </div>`;
+    root.style.display='block';
+    window.print();
+    setTimeout(()=>{ root.style.display='none'; root.innerHTML=''; }, 500);
+  }
+}
+
+// Generate Receipt PDF with Logo
+function generateReceiptPDF(receiptNo) {
+  const receipt = AppState.receipts.find(x => x.no === receiptNo);
+  if (!receipt) {
+    alert('Receipt not found');
+    return;
+  }
+
+  const sch = AppState.settings.school || {};
+  const headerName = sch.name || 'KHUSHI PUBLIC SCHOOL';
+  const tagline = sch.tagline || 'Admin Portal';
+  const address = sch.address || '';
+  const phone = sch.phone || '';
+  const email = sch.email || '';
+  const logoUrl = sch.logo || 'assets/logo.png';
+  const amount = (receipt.amount || 0).toLocaleString(AppState.settings.locale || 'en-IN');
+  const now = new Date().toLocaleString(AppState.settings.locale || 'en-IN');
+
+  // Build HTML string for PDF
+  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>';
+  html += 'body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#333}';
+  html += '.receipt-container{max-width:600px;margin:0 auto;border:1px solid #ddd;border-radius:8px;padding:30px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.1)}';
+  html += '.receipt-header{text-align:center;margin-bottom:30px;border-bottom:2px solid #2563eb;padding-bottom:20px}';
+  html += '.logo-section{display:flex;align-items:center;justify-content:center;margin-bottom:12px}';
+  html += '.logo-section img{max-width:60px;max-height:60px;margin-right:12px}';
+  html += '.school-info{text-align:center}';
+  html += '.school-name{font-size:20px;font-weight:bold;color:#2563eb;margin:0}';
+  html += '.school-tagline{font-size:13px;color:#666;margin:4px 0 0 0}';
+  html += '.school-address{font-size:11px;color:#999;margin-top:4px;line-height:1.4}';
+  html += '.receipt-title{text-align:center;font-size:18px;font-weight:bold;color:#2563eb;margin:20px 0}';
+  html += '.receipt-body{margin:20px 0}';
+  html += '.receipt-row{display:flex;justify-content:space-between;margin:12px 0;font-size:14px;border-bottom:1px dotted #ddd;padding-bottom:8px}';
+  html += '.receipt-row-label{font-weight:600;color:#333;flex:0 0 40%}';
+  html += '.receipt-row-value{text-align:right;color:#555;flex:1}';
+  html += '.amount-section{background:#f9fafb;border-radius:6px;padding:15px;margin:20px 0;border:1px solid #e5e7eb}';
+  html += '.amount-row{display:flex;justify-content:space-between;font-size:15px;margin:10px 0}';
+  html += '.amount-row-label{font-weight:600;color:#333}';
+  html += '.amount-row-value{text-align:right;font-weight:600;color:#2563eb}';
+  html += '.total-row{display:flex;justify-content:space-between;font-size:18px;font-weight:bold;margin-top:15px;padding-top:15px;border-top:2px solid #2563eb;color:#2563eb}';
+  html += '.collection-note{background:#e0f2fe;border:2px solid #0284c7;border-radius:6px;padding:12px;margin:20px 0;text-align:center;font-weight:600;color:#0284c7;font-size:12px}';
+  html += '.receipt-footer{text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #ddd;font-size:11px;color:#999;line-height:1.6}';
+  html += '.timestamp{margin-top:20px;font-size:10px;color:#ccc;text-align:center}';
+  html += '</style></head><body>';
+  html += '<div class="receipt-container">';
+  html += '<div class="receipt-header"><div class="logo-section">';
+  html += '<img src="' + logoUrl + '" alt="School Logo" onerror="this.style.display=\'none\'">';
+  html += '<div class="school-info">';
+  html += '<p class="school-name">' + headerName + '</p>';
+  html += '<p class="school-tagline">' + tagline + '</p>';
+  html += '<div class="school-address">';
+  if (address) html += address + '<br>';
+  if (phone) html += '📞 ' + phone + '<br>';
+  if (email) html += '✉️ ' + email;
+  html += '</div></div></div></div>';
+  html += '<div class="receipt-title">FEE RECEIPT</div>';
+  html += '<div class="receipt-body">';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Receipt No:</span><span class="receipt-row-value"><strong>' + receipt.no + '</strong></span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Date:</span><span class="receipt-row-value">' + receipt.date + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Student Name:</span><span class="receipt-row-value"><strong>' + receipt.name + '</strong></span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Admission No:</span><span class="receipt-row-value">' + receipt.roll + '</span></div>';
+  html += '<div class="receipt-row"><span class="receipt-row-label">Payment Method:</span><span class="receipt-row-value">' + receipt.method + '</span></div>';
+  if (receipt.ref) html += '<div class="receipt-row"><span class="receipt-row-label">Reference:</span><span class="receipt-row-value">' + receipt.ref + '</span></div>';
+  html += '</div>';
+  html += '<div class="amount-section">';
+  html += '<div class="amount-row"><span class="amount-row-label">Amount Paid</span><span class="amount-row-value">₹ ' + amount + '</span></div>';
+  html += '<div class="total-row"><span>Total</span><span>₹ ' + amount + '</span></div>';
+  html += '</div>';
+  html += '<div class="collection-note">💳 Payment Collected at Cash Counter</div>';
+  html += '<div class="receipt-footer">';
+  html += '<p>✓ Payment received and recorded in system</p>';
+  html += '<p>This is a system-generated receipt. No signature required.</p>';
+  html += '<p style="margin:8px 0 0 0;">For queries, contact the school office</p>';
+  html += '<div class="timestamp">Generated on ' + now + '</div>';
+  html += '</div></div></body></html>';
+
+  const options = {
+    margin: [10, 10, 10, 10],
+    filename: 'receipt_' + receipt.no + '_' + receipt.date + '.pdf',
+    image: { type: 'png', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+  };
+
+  html2pdf().set(options).from(html, 'string').save();
+}
+
+// ---------- Exams View ----------
+function renderExams(){
+  const classFilter = qs('#examFilterClass')?.value || '';
+  const subjectFilter = qs('#examFilterSubject')?.value || '';
+  const searchQuery = qs('#examSearch')?.value?.toLowerCase() || '';
+
+  // Filter exams
+  let filtered = AppState.exams.filter(e => {
+    const matchClass = !classFilter || e.class === classFilter;
+    const matchSubject = !subjectFilter || e.subject === subjectFilter;
+    const matchSearch = !searchQuery || e.name.toLowerCase().includes(searchQuery);
+    return matchClass && matchSubject && matchSearch;
+  });
+
+  // Update KPIs
+  const kpiTotal = qs('#examKpiTotal');
+  if (kpiTotal) kpiTotal.textContent = String(AppState.exams.length);
+
+  const avgScores = [];
+  filtered.forEach(exam => {
+    const examMarks = Object.entries(AppState.marks)
+      .filter(([key]) => key.startsWith(exam.id + '|'))
+      .map(([, val]) => val.obtainedMarks);
+    if (examMarks.length > 0) {
+      const avg = examMarks.reduce((a, b) => a + b, 0) / examMarks.length;
+      avgScores.push((avg / exam.totalMarks) * 100);
+    }
+  });
+  const kpiAvgScore = qs('#examKpiAvgScore');
+  if (kpiAvgScore) kpiAvgScore.textContent = avgScores.length > 0 ? String(Math.round(avgScores.reduce((a, b) => a + b, 0) / avgScores.length)) + '%' : '0%';
+
+  // Update filters
+  const classes = [...new Set(AppState.exams.map(e => e.class))].sort();
+  const classSel = qs('#examFilterClass');
+  if (classSel) {
+    const current = classSel.value;
+    classSel.innerHTML = '<option value="">All Classes</option>';
+    classes.forEach(c => classSel.innerHTML += `<option value="${c}">${c}</option>`);
+    classSel.value = current;
+  }
+
+  const subjects = [...new Set(AppState.exams.map(e => e.subject))].sort();
+  const subjectSel = qs('#examFilterSubject');
+  if (subjectSel) {
+    const current = subjectSel.value;
+    subjectSel.innerHTML = '<option value="">All Subjects</option>';
+    subjects.forEach(s => subjectSel.innerHTML += `<option value="${s}">${s}</option>`);
+    subjectSel.value = current;
+  }
+
+  // Render table
+  const tbody = qs('#examsTableBody');
+  if (tbody) {
+    tbody.innerHTML = filtered.map(exam => {
+      const examMarks = Object.entries(AppState.marks)
+        .filter(([key]) => key.startsWith(exam.id + '|'))
+        .map(([, val]) => val.obtainedMarks);
+      const marksEntered = examMarks.length;
+      const avgScore = marksEntered > 0 ? ((examMarks.reduce((a, b) => a + b, 0) / marksEntered) / exam.totalMarks * 100).toFixed(1) + '%' : '-';
+      
+      return `
+        <tr>
+          <td>${exam.name}</td>
+          <td>${exam.class}</td>
+          <td>${exam.subject}</td>
+          <td>${exam.date}</td>
+          <td>${exam.totalMarks}</td>
+          <td>${marksEntered}/${AppState.students.filter(s => s.class === exam.class).length}</td>
+          <td>${avgScore}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost small" data-act="enterMarks" data-id="${exam.id}">Enter Marks</button>
+            <button class="btn btn-ghost small" data-act="delExam" data-id="${exam.id}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('button[data-act="enterMarks"]').forEach(btn => {
+      btn.onclick = () => {
+        if (openModal('#modalEnterMarks')) initEnterMarksModal(btn.getAttribute('data-id'));
+      };
+    });
+
+    qsa('button[data-act="delExam"]').forEach(btn => {
+      btn.onclick = () => {
+        const examId = btn.getAttribute('data-id');
+        const exam = AppState.exams.find(e => e.id === examId);
+        if (!exam) return;
+        if (!confirm(`Delete exam "${exam.name}"? This will also delete all marks for this exam.`)) return;
+        AppState.exams = AppState.exams.filter(e => e.id !== examId);
+        Object.keys(AppState.marks).forEach(key => {
+          if (key.startsWith(examId + '|')) delete AppState.marks[key];
+        });
+        saveState();
+        renderExams();
+      };
+    });
+  }
+
+  // Bind filter and search
+  const bindFilterChange = () => renderExams();
+  qs('#examFilterClass')?.addEventListener('change', bindFilterChange);
+  qs('#examFilterSubject')?.addEventListener('change', bindFilterChange);
+  qs('#examSearch')?.addEventListener('input', bindFilterChange);
+
+  // Bind buttons
+  if (qs('#examBtnCreate')) qs('#examBtnCreate').onclick = () => {
+    if (openModal('#modalCreateExam')) initCreateExamModal();
+  };
+
+  if (qs('#examBtnExport')) qs('#examBtnExport').onclick = exportExamsCSV;
+}
+
+function initCreateExamModal(){
+  const form = qs('#formCreateExam');
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const examId = 'exam_' + Date.now();
+    const exam = {
+      id: examId,
+      name: qs('#examName').value.trim(),
+      date: qs('#examDate').value,
+      class: qs('#examClass').value,
+      subject: qs('#examSubject').value.trim(),
+      totalMarks: Number(qs('#examTotalMarks').value),
+      passingMarks: Number(qs('#examPassingMarks').value)
+    };
+    AppState.exams.push(exam);
+    saveState();
+    form.parentElement.close();
+    if (AppState.view === 'exams') renderExams();
+  };
+}
+
+function initEnterMarksModal(examId){
+  const exam = AppState.exams.find(e => e.id === examId);
+  if (!exam) return;
+
+  const form = qs('#formEnterMarks');
+  form.dataset.examId = examId;
+
+  // Show exam info
+  const examInfo = qs('#marksExamInfo');
+  if (examInfo) examInfo.textContent = `Exam: ${exam.name} | Class: ${exam.class} | Subject: ${exam.subject} | Total: ${exam.totalMarks}`;
+
+  // Get students in this class
+  const classStudents = AppState.students.filter(s => s.class === exam.class);
+
+  // Render marks table
+  const tbody = qs('#marksTableBody');
+  if (tbody) {
+    tbody.innerHTML = classStudents.map(student => {
+      const key = `${examId}|${student.roll}`;
+      const marks = AppState.marks[key] || { obtainedMarks: 0 };
+      const grade = getGrade(marks.obtainedMarks, exam.totalMarks, exam.passingMarks);
+      return `
+        <tr>
+          <td>${student.roll}</td>
+          <td>${student.name}</td>
+          <td><input type="number" min="0" max="${exam.totalMarks}" step="0.5" class="mark-input" data-roll="${student.roll}" value="${marks.obtainedMarks || ''}" style="width:80px;" /></td>
+          <td><span class="badge" id="grade-${student.roll}">${grade}</span></td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('.mark-input').forEach(inp => {
+      inp.oninput = () => {
+        const grade = getGrade(Number(inp.value) || 0, exam.totalMarks, exam.passingMarks);
+        qs(`#grade-${inp.getAttribute('data-roll')}`).textContent = grade;
+      };
+    });
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    qsa('.mark-input').forEach(inp => {
+      const roll = inp.getAttribute('data-roll');
+      const marks = Number(inp.value);
+      const key = `${examId}|${roll}`;
+      if (marks >= 0) {
+        const grade = getGrade(marks, exam.totalMarks, exam.passingMarks);
+        AppState.marks[key] = { obtainedMarks: marks, grade };
+      }
+    });
+    saveState();
+    form.parentElement.close();
+    if (AppState.view === 'exams') renderExams();
+  };
+}
+
+function getGrade(obtainedMarks, totalMarks, passingMarks){
+  const percentage = (obtainedMarks / totalMarks) * 100;
+  if (percentage >= 90) return 'A+';
+  if (percentage >= 80) return 'A';
+  if (percentage >= 70) return 'B+';
+  if (percentage >= 60) return 'B';
+  if (percentage >= 50) return 'C';
+  if (percentage >= passingMarks) return 'D';
+  return 'F';
+}
+
+function exportExamsCSV(){
+  const header = ['id', 'name', 'date', 'class', 'subject', 'totalMarks', 'passingMarks'];
+  const rows = AppState.exams.map(e => [e.id, e.name, e.date, e.class, e.subject, e.totalMarks, e.passingMarks]);
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('exams.csv', csv);
+}
+
+// ---------- Teachers View ----------
+function renderTeachers(){
+  renderTeachersTable();
+  setupTeacherAttendance();
+  renderSalaryPayments();
+  setupTeacherButtons();
+}
+
+function renderTeachersTable(){
+  const tbody = qs('#teachersTableBody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = AppState.teachers.map(t => `
+    <tr>
+      <td>${t.name}</td>
+      <td>${t.phone}</td>
+      <td>${t.email || '-'}</td>
+      <td>${t.subjects}</td>
+      <td>${t.joinDate}</td>
+      <td>${fmtINR(t.salary)}</td>
+      <td><span class="badge">${t.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editTeacher" data-id="${t.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delTeacher" data-id="${t.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editTeacher"]').forEach(btn => {
+    btn.onclick = () => openEditTeacher(btn.getAttribute('data-id'));
+  });
+
+  qsa('button[data-act="delTeacher"]').forEach(btn => {
+    btn.onclick = () => {
+      const teacherId = btn.getAttribute('data-id');
+      const teacher = AppState.teachers.find(t => t.id === teacherId);
+      if (!teacher) return;
+      if (!confirm(`Delete teacher ${teacher.name}? This cannot be undone.`)) return;
+      AppState.teachers = AppState.teachers.filter(t => t.id !== teacherId);
+      saveState();
+      renderTeachers();
+    };
+  });
+}
+
+function setupTeacherAttendance(){
+  const datePicker = qs('#attDatePicker');
+  if (datePicker && !datePicker.value) datePicker.value = todayYYYYMMDD();
+
+  if (qs('#attBtnLoad')) qs('#attBtnLoad').onclick = () => loadAttendanceForDate(datePicker.value);
+  if (qs('#attBtnMarkAll')) qs('#attBtnMarkAll').onclick = () => {
+    qsa('select.att-status').forEach(sel => sel.value = 'present');
+  };
+  if (qs('#attBtnSave')) qs('#attBtnSave').onclick = () => saveAttendance(datePicker.value);
+
+  loadAttendanceForDate(datePicker.value);
+}
+
+function loadAttendanceForDate(date){
+  const tbody = qs('#attendanceTableBody');
+  if (!tbody) return;
+
+  tbody.innerHTML = AppState.teachers.map(t => {
+    const key = `${t.id}|${date}`;
+    const att = AppState.teacherAttendance[key] || { status: 'absent', remarks: '' };
+    return `
+      <tr>
+        <td>${t.name}</td>
+        <td>
+          <select class="att-status" data-id="${t.id}">
+            <option value="present" ${att.status === 'present' ? 'selected' : ''}>Present</option>
+            <option value="absent" ${att.status === 'absent' ? 'selected' : ''}>Absent</option>
+            <option value="leave" ${att.status === 'leave' ? 'selected' : ''}>Leave</option>
+          </select>
+        </td>
+        <td>
+          <input type="text" class="att-remarks" data-id="${t.id}" value="${att.remarks || ''}" placeholder="Medical, etc." style="width:150px;" />
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function saveAttendance(date){
+  const datePicker = qs('#attDatePicker');
+  qsa('select.att-status').forEach(sel => {
+    const teacherId = sel.getAttribute('data-id');
+    const status = sel.value;
+    const remarks = qs(`.att-remarks[data-id="${teacherId}"]`)?.value || '';
+    const key = `${teacherId}|${date}`;
+    AppState.teacherAttendance[key] = { status, remarks };
+  });
+  saveState();
+  alert('Attendance saved for ' + date);
+}
+
+function renderSalaryPayments(){
+  const tbody = qs('#salaryTableBody');
+  if (!tbody) return;
+
+  const payments = AppState.salaryPayments.sort((a, b) => new Date(b.date) - new Date(a.date));
+  tbody.innerHTML = payments.slice(0, 50).map(p => {
+    const teacher = AppState.teachers.find(t => t.id === p.teacherId);
+    return `
+      <tr>
+        <td>${teacher?.name || 'Unknown'}</td>
+        <td>${p.month}</td>
+        <td>${fmtINR(p.amount)}</td>
+        <td>${p.date}</td>
+        <td><span class="badge">${p.status}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  const monthInput = qs('#salaryMonth');
+  if (monthInput && !monthInput.value) monthInput.value = currentMonth();
+
+  if (qs('#salaryBtnProcess')) qs('#salaryBtnProcess').onclick = () => processMonthlySalary(monthInput.value);
+}
+
+function processMonthlySalary(month){
+  if (!month) { alert('Please select a month'); return; }
+  let count = 0;
+  AppState.teachers.forEach(t => {
+    if (t.status === 'active') {
+      const exists = AppState.salaryPayments.some(p => p.teacherId === t.id && p.month === month);
+      if (!exists) {
+        AppState.salaryPayments.push({
+          id: 'sal_' + Date.now() + '_' + count++,
+          teacherId: t.id,
+          month: month,
+          amount: t.salary,
+          date: todayYYYYMMDD(),
+          status: 'paid'
+        });
+      }
+    }
+  });
+  saveState();
+  renderSalaryPayments();
+  alert(`Salary processed for ${count} teachers in ${month}`);
+}
+
+function openEditTeacher(teacherId){
+  const teacher = AppState.teachers.find(t => t.id === teacherId);
+  if (!teacher) return;
+
+  const form = qs('#formAddTeacher');
+  form.dataset.editId = teacherId;
+
+  qs('#teacherName').value = teacher.name;
+  qs('#teacherPhone').value = teacher.phone;
+  qs('#teacherEmail').value = teacher.email || '';
+  qs('#teacherSubjects').value = teacher.subjects;
+  qs('#teacherJoinDate').value = teacher.joinDate;
+  qs('#teacherSalary').value = teacher.salary;
+  qs('#teacherStatus').value = teacher.status;
+
+  const header = qs('#modalAddTeacher .modal__header h3');
+  header.textContent = 'Edit Teacher';
+  const submitBtn = qs('#modalAddTeacher .modal__footer button[value="submit"]');
+  submitBtn.textContent = 'Update';
+
+  openModal('#modalAddTeacher');
+}
+
+function setupTeacherButtons(){
+  // Tab switching
+  qsa('.tab-btn').forEach(btn => {
+    btn.onclick = () => {
+      qsa('.tab-btn').forEach(b => b.classList.remove('active'));
+      qsa('.tab-content').forEach(c => c.style.display = 'none');
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-tab');
+      qs(`#${tabId}`).style.display = 'block';
+    };
+  });
+
+  if (qs('#teacherBtnAdd')) qs('#teacherBtnAdd').onclick = () => {
+    delete qs('#formAddTeacher').dataset.editId;
+    qs('#modalAddTeacher .modal__header h3').textContent = 'Add Teacher';
+    qs('#modalAddTeacher .modal__footer button[value="submit"]').textContent = 'Save';
+    qs('#formAddTeacher').reset();
+    openModal('#modalAddTeacher');
+  };
+
+  if (qs('#teacherBtnExport')) qs('#teacherBtnExport').onclick = exportTeachersCSV;
+}
+
+function initAddTeacherModal(){
+  const form = qs('#formAddTeacher');
+  const isEditMode = form.dataset.editId;
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const teacher = {
+      name: qs('#teacherName').value.trim(),
+      phone: qs('#teacherPhone').value.trim(),
+      email: qs('#teacherEmail').value.trim(),
+      subjects: qs('#teacherSubjects').value.trim(),
+      joinDate: qs('#teacherJoinDate').value,
+      salary: Number(qs('#teacherSalary').value),
+      status: qs('#teacherStatus').value
+    };
+
+    if (isEditMode) {
+      const idx = AppState.teachers.findIndex(t => t.id === form.dataset.editId);
+      if (idx === -1) { alert('Teacher not found'); return; }
+      AppState.teachers[idx] = { ...AppState.teachers[idx], ...teacher };
+    } else {
+      teacher.id = 'teacher_' + Date.now();
+      AppState.teachers.push(teacher);
+    }
+
+    saveState();
+    delete form.dataset.editId;
+    form.parentElement.close();
+    if (AppState.view === 'teachers') renderTeachers();
+  };
+}
+
+function exportTeachersCSV(){
+  const header = ['id', 'name', 'phone', 'email', 'subjects', 'joinDate', 'salary', 'status'];
+  const rows = AppState.teachers.map(t => [t.id, t.name, t.phone, t.email || '', t.subjects, t.joinDate, t.salary, t.status]);
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('teachers.csv', csv);
+}
+
+function currentMonth(){
+  return new Date().toISOString().slice(0, 7);
+}
+
+// ---------- Classes View ----------
+function renderClasses(){
+  renderClassesTable();
+  setupClassButtons();
+}
+
+function renderClassesTable(){
+  const classFilter = qs('#classFilterGrade')?.value || '';
+  const teacherFilter = qs('#classFilterTeacher')?.value || '';
+  const searchQuery = qs('#classSearch')?.value?.toLowerCase() || '';
+
+  // Filter classes
+  let filtered = AppState.classes.filter(c => {
+    const matchClass = !classFilter || c.class === classFilter;
+    const matchTeacher = !teacherFilter || c.classTeacherId === teacherFilter;
+    const matchSearch = !searchQuery || `${c.class}-${c.section}`.toLowerCase().includes(searchQuery);
+    return matchClass && matchTeacher && matchSearch;
+  });
+
+  // Update filters
+  const grades = [...new Set(AppState.classes.map(c => c.class))].sort();
+  const gradeSel = qs('#classFilterGrade');
+  if (gradeSel) {
+    const current = gradeSel.value;
+    gradeSel.innerHTML = '<option value="">All Grades</option>';
+    grades.forEach(g => gradeSel.innerHTML += `<option value="${g}">${g}</option>`);
+    gradeSel.value = current;
+  }
+
+  const teachers = [...new Set(AppState.classes.map(c => c.classTeacherId))].filter(Boolean);
+  const teacherSel = qs('#classFilterTeacher');
+  if (teacherSel) {
+    const current = teacherSel.value;
+    teacherSel.innerHTML = '<option value="">All Teachers</option>';
+    teachers.forEach(tId => {
+      const teacher = AppState.teachers.find(t => t.id === tId);
+      if (teacher) teacherSel.innerHTML += `<option value="${tId}">${teacher.name}</option>`;
+    });
+    teacherSel.value = current;
+  }
+
+  // Render table
+  const tbody = qs('#classesTableBody');
+  if (tbody) {
+    tbody.innerHTML = filtered.map(cls => {
+      const classTeacher = AppState.teachers.find(t => t.id === cls.classTeacherId);
+      const classStudents = AppState.students.filter(s => s.class === cls.class && s.section === cls.section).length;
+      const subjectCount = Object.keys(cls.subjects || {}).length;
+      
+      return `
+        <tr>
+          <td>${cls.class}</td>
+          <td>${cls.section}</td>
+          <td>${classTeacher?.name || '-'}</td>
+          <td>${classStudents}</td>
+          <td>${subjectCount} subjects</td>
+          <td>${cls.capacity}</td>
+          <td><span class="badge">${cls.status}</span></td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost small" data-act="editClass" data-id="${cls.id}">Edit</button>
+            <button class="btn btn-ghost small" data-act="delClass" data-id="${cls.id}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    qsa('button[data-act="editClass"]').forEach(btn => {
+      btn.onclick = () => openEditClass(btn.getAttribute('data-id'));
+    });
+
+    qsa('button[data-act="delClass"]').forEach(btn => {
+      btn.onclick = () => {
+        const classId = btn.getAttribute('data-id');
+        const cls = AppState.classes.find(c => c.id === classId);
+        if (!cls) return;
+        if (!confirm(`Delete ${cls.class}-${cls.section}? This cannot be undone.`)) return;
+        AppState.classes = AppState.classes.filter(c => c.id !== classId);
+        saveState();
+        renderClasses();
+      };
+    });
+  }
+
+  // Bind filter and search
+  const bindFilterChange = () => renderClasses();
+  qs('#classFilterGrade')?.addEventListener('change', bindFilterChange);
+  qs('#classFilterTeacher')?.addEventListener('change', bindFilterChange);
+  qs('#classSearch')?.addEventListener('input', bindFilterChange);
+}
+
+function setupClassButtons(){
+  if (qs('#classBtnCreate')) qs('#classBtnCreate').onclick = () => {
+    delete qs('#formCreateClass').dataset.editId;
+    qs('#modalCreateClass .modal__header h3').textContent = 'Create Class';
+    qs('#modalCreateClass .modal__footer button[value="submit"]').textContent = 'Create';
+    qs('#formCreateClass').reset();
+    initClassSubjectsForm();
+    openModal('#modalCreateClass');
+  };
+
+  if (qs('#classBtnExport')) qs('#classBtnExport').onclick = exportClassesCSV;
+}
+
+function initClassSubjectsForm(){
+  const wrap = qs('#classSubjectsWrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="grid-2" style="gap:8px;">
+      <input type="text" class="subject-name" placeholder="Subject name" />
+      <select class="subject-teacher">
+        <option value="">Select Teacher</option>
+      </select>
+    </div>
+  `;
+  populateSubjectTeacherSelects();
+
+  if (qs('#classBtnAddSubject')) {
+    qs('#classBtnAddSubject').onclick = (e) => {
+      e.preventDefault();
+      const newRow = document.createElement('div');
+      newRow.className = 'grid-2';
+      newRow.style.gap = '8px';
+      newRow.innerHTML = `
+        <input type="text" class="subject-name" placeholder="Subject name" />
+        <select class="subject-teacher">
+          <option value="">Select Teacher</option>
+        </select>
+      `;
+      wrap.appendChild(newRow);
+      populateSubjectTeacherSelects();
+    };
+  }
+}
+
+function populateSubjectTeacherSelects(){
+  qsa('.subject-teacher').forEach(sel => {
+    const currentValue = sel.value;
+    sel.innerHTML = '<option value="">Select Teacher</option>';
+    AppState.teachers.forEach(t => {
+      sel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+    });
+    sel.value = currentValue;
+  });
+}
+
+function openEditClass(classId){
+  const cls = AppState.classes.find(c => c.id === classId);
+  if (!cls) return;
+
+  const form = qs('#formCreateClass');
+  form.dataset.editId = classId;
+
+  qs('#className').value = cls.class;
+  qs('#classSection').value = cls.section;
+  qs('#classTeacher').value = cls.classTeacherId || '';
+  qs('#classCapacity').value = cls.capacity;
+  qs('#classStatus').value = cls.status;
+
+  // Populate class teacher select
+  const teacherSel = qs('#classTeacher');
+  teacherSel.innerHTML = '';
+  AppState.teachers.forEach(t => {
+    teacherSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+  });
+  teacherSel.value = cls.classTeacherId || '';
+
+  // Populate subjects
+  const wrap = qs('#classSubjectsWrap');
+  wrap.innerHTML = Object.entries(cls.subjects || {}).map(([subject, teacherId]) => `
+    <div class="grid-2" style="gap:8px;">
+      <input type="text" class="subject-name" value="${subject}" placeholder="Subject name" />
+      <select class="subject-teacher" value="${teacherId}">
+        <option value="">Select Teacher</option>
+      </select>
+    </div>
+  `).join('');
+  populateSubjectTeacherSelects();
+
+  const header = qs('#modalCreateClass .modal__header h3');
+  header.textContent = 'Edit Class';
+  const submitBtn = qs('#modalCreateClass .modal__footer button[value="submit"]');
+  submitBtn.textContent = 'Update';
+
+  openModal('#modalCreateClass');
+}
+
+function initCreateClassModal(){
+  const form = qs('#formCreateClass');
+  const isEditMode = form.dataset.editId;
+
+  // Populate class teacher select
+  const teacherSel = qs('#classTeacher');
+  if (!teacherSel.querySelector('option:not(:first-child)')) {
+    AppState.teachers.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      teacherSel.appendChild(opt);
+    });
+  }
+
+  // Setup add subject button and init form
+  if (!form.dataset.subjectsInitialized) {
+    initClassSubjectsForm();
+    form.dataset.subjectsInitialized = 'true';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+
+    // Collect subjects
+    const subjects = {};
+    qsa('#classSubjectsWrap .grid-2').forEach(row => {
+      const subject = row.querySelector('.subject-name').value.trim();
+      const teacherId = row.querySelector('.subject-teacher').value;
+      if (subject && teacherId) {
+        subjects[subject] = teacherId;
+      }
+    });
+
+    const cls = {
+      class: qs('#className').value,
+      section: qs('#classSection').value,
+      classTeacherId: qs('#classTeacher').value,
+      capacity: Number(qs('#classCapacity').value),
+      subjects: subjects,
+      status: qs('#classStatus').value
+    };
+
+    if (isEditMode) {
+      const idx = AppState.classes.findIndex(c => c.id === form.dataset.editId);
+      if (idx === -1) { alert('Class not found'); return; }
+      AppState.classes[idx] = { ...AppState.classes[idx], ...cls };
+    } else {
+      cls.id = 'class_' + Date.now();
+      AppState.classes.push(cls);
+    }
+
+    saveState();
+    delete form.dataset.editId;
+    form.parentElement.close();
+    if (AppState.view === 'classes') renderClasses();
+  };
+}
+
+function exportClassesCSV(){
+  const header = ['class', 'section', 'classTeacher', 'capacity', 'subjects', 'status'];
+  const rows = AppState.classes.map(c => {
+    const teacher = AppState.teachers.find(t => t.id === c.classTeacherId);
+    const subjectsStr = Object.keys(c.subjects || {}).join('; ');
+    return [c.class, c.section, teacher?.name || '', c.capacity, subjectsStr, c.status];
+  });
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('classes.csv', csv);
+}
+
+// ---------- Transport View ----------
+function renderTransport() {
+  // KPIs
+  const trKpiRoutes = qs('#trKpiRoutes');
+  if (trKpiRoutes) trKpiRoutes.textContent = String(AppState.transport.routes.length);
+  const trKpiVehicles = qs('#trKpiVehicles');
+  if (trKpiVehicles) trKpiVehicles.textContent = String(AppState.transport.vehicles.length);
+  const trKpiAssigned = qs('#trKpiAssigned');
+  if (trKpiAssigned) trKpiAssigned.textContent = String(AppState.transport.assignments.length);
+  const feesEl = qs('#trKpiFeesMonth');
+  if (feesEl) feesEl.textContent = fmtINR(AppState.transport.assignments.reduce((sum,a)=> sum + Number(a.fee||0), 0));
+
+  // Filters
+  const routeSel = qs('#trFilterRoute');
+  if (routeSel) {
+    routeSel.innerHTML = `<option value="">All Routes</option>` +
+      AppState.transport.routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  }
+
+  // Buttons
+  const bind = (id, fn) => { const el = qs(id); if (el) el.onclick = fn; };
+  bind('#trBtnAssign',      () => { if (openModal('#modalTrAssign'))  initTrAssignModal(); });
+  bind('#trBtnAddRoute',    () => { if (openModal('#modalTrRoute'))   initTrRouteModal(); });
+  bind('#trBtnAddVehicle',  () => { if (openModal('#modalTrVehicle')) initTrVehicleModal(); });
+  bind('#trBtnImport',      () => { if (openModal('#modalTrImport'))  initTrImportModal(); });
+  bind('#trBtnExport',      () => { if (openModal('#modalTrExport'))  initTrExportModal(); });
+  bind('#trBtnRoutesCSV',   exportRoutesCSV);
+  bind('#trBtnVehiclesCSV', exportVehiclesCSV);
+  bind('#trBtnAssignmentsCSV', exportAssignmentsCSV);
+  bind('#trBtnOpenMap',     () => alert('Route visualization feature is coming soon. For now, please refer to the stops listed in the Assignments table.'));
+
+  // Filters/search triggers
+  const rerenderAll = () => { renderTrRoutesTable(); renderTrVehiclesTable(); renderTrAssignTable(); };
+  const trSearch = qs('#trSearch');
+  const trFilterRoute = qs('#trFilterRoute');
+  const trFilterStatus = qs('#trFilterStatus');
+  if (trSearch) trSearch.oninput = renderTrAssignTable;
+  if (trFilterRoute) trFilterRoute.onchange = rerenderAll;
+  if (trFilterStatus) trFilterStatus.onchange = rerenderAll;
+
+  // Tables
+  renderTrRoutesTable();
+  renderTrVehiclesTable();
+  renderTrAssignTable();
+}
+
+function renderTrRoutesTable() {
+  const body = qs('#trRoutesBody'); if (!body) return;
+  const status = qs('#trFilterStatus')?.value || '';
+  const rows = AppState.transport.routes.filter(r => !status || r.status === status);
+
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${r.name}</td>
+      <td>${(r.stops||[]).join(', ')}</td>
+      <td>${r.pickup || '-'}</td>
+      <td>${r.drop || '-'}</td>
+      <td><span class="badge">${r.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editRoute" data-id="${r.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delRoute" data-id="${r.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editRoute"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalTrRoute')) initTrRouteModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delRoute"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete route?')) return;
+      AppState.transport.routes = AppState.transport.routes.filter(x => x.id !== id);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+function renderTrVehiclesTable() {
+  const body = qs('#trVehiclesBody'); if (!body) return;
+  const status = qs('#trFilterStatus')?.value || '';
+  const routeId = qs('#trFilterRoute')?.value || '';
+  const nameById = id => (AppState.transport.routes.find(r => r.id === id)?.name || '');
+
+  const rows = AppState.transport.vehicles.filter(v =>
+    (!status || v.status === status) && (!routeId || v.routeId === routeId));
+
+  body.innerHTML = rows.map(v => `
+    <tr>
+      <td>${v.label}</td>
+      <td>${v.reg}</td>
+      <td>${v.capacity}</td>
+      <td>${v.driverName}</td>
+      <td>${v.driverPhone}</td>
+      <td>${nameById(v.routeId)}</td>
+      <td><span class="badge">${v.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editVehicle" data-id="${v.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delVehicle" data-id="${v.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editVehicle"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalTrVehicle')) initTrVehicleModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delVehicle"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete vehicle?')) return;
+      AppState.transport.vehicles = AppState.transport.vehicles.filter(x => x.id !== id);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+function renderTrAssignTable() {
+  const body = qs('#trAssignBody'); if (!body) return;
+  const q = (qs('#trSearch')?.value || '').toLowerCase();
+  const routeId = qs('#trFilterRoute')?.value || '';
+  const status = qs('#trFilterStatus')?.value || '';
+  const routeName = id => (AppState.transport.routes.find(r => r.id === id)?.name || '');
+  const student = roll => AppState.students.find(s => s.roll === roll) || {};
+
+  let rows = [...AppState.transport.assignments];
+  rows = rows.filter(a => (!routeId || a.routeId === routeId) && (!status || a.status === status));
+  if (q) {
+    rows = rows.filter(a => {
+      const s = student(a.roll);
+      return (s.name||'').toLowerCase().includes(q) ||
+             (s.roll||'').toLowerCase().includes(q) ||
+             (a.stop||'').toLowerCase().includes(q) ||
+             (routeName(a.routeId).toLowerCase().includes(q));
+    });
+  }
+
+  body.innerHTML = rows.map(a => {
+    const s = student(a.roll);
+    return `
+      <tr>
+        <td>${s.roll || a.roll}</td>
+        <td>${s.name || '-'}</td>
+        <td>${s.class || '-'}</td>
+        <td>${s.phone || '-'}</td>
+        <td>${routeName(a.routeId)}</td>
+        <td>${a.stop}</td>
+        <td>${fmtINR(a.fee)}</td>
+        <td><span class="badge">${a.status}</span></td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost small" data-act="editAssign" data-roll="${a.roll}">Edit</button>
+          <button class="btn btn-ghost small" data-act="delAssign" data-roll="${a.roll}">Remove</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  qsa('button[data-act="editAssign"]').forEach(b => {
+    b.onclick = () => {
+      const roll = b.getAttribute('data-roll');
+      if (openModal('#modalTrAssign')) initTrAssignModal(roll);
+    };
+  });
+  qsa('button[data-act="delAssign"]').forEach(b => {
+    b.onclick = () => {
+      const roll = b.getAttribute('data-roll');
+      if (!confirm('Remove assignment?')) return;
+      AppState.transport.assignments = AppState.transport.assignments.filter(x => x.roll !== roll);
+      saveState();
+      renderTransport();
+    };
+  });
+}
+
+// --- Transport Modals ---
+function initTrAssignModal(editRoll) {
+  const form    = qs('#formTrAssign');
+  const rollEl  = qs('#trAssignRoll');
+  const routeEl = qs('#trAssignRoute');
+  const stopEl  = qs('#trAssignStop');
+  const feeEl   = qs('#trAssignFee');
+  const statusEl= qs('#trAssignStatus');
+
+  // Routes
+  routeEl.innerHTML = AppState.transport.routes
+    .map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  if (!routeEl.value && AppState.transport.routes.length) {
+    routeEl.value = AppState.transport.routes[0].id;
+  }
+
+  function syncStops() {
+    const r = AppState.transport.routes.find(x => x.id === routeEl.value);
+    const stops = (r?.stops || []);
+    stopEl.innerHTML = stops.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (!stopEl.value && stops.length) stopEl.value = stops[0];
+  }
+  routeEl.onchange = syncStops;
+  syncStops();
+
+  // Edit vs new
+  if (editRoll) {
+    const a = AppState.transport.assignments.find(x => x.roll === editRoll);
+    rollEl.value = editRoll; rollEl.disabled = true;
+    if (a?.routeId) { routeEl.value = a.routeId; syncStops(); }
+    if (a?.stop) stopEl.value = a.stop;
+    feeEl.value = a?.fee ?? 0;
+    statusEl.value = a?.status ?? 'active';
+  } else {
+    rollEl.disabled = false; rollEl.value = '';
+    feeEl.value = 0; statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const roll = rollEl.value.trim();
+    if (!roll) { alert('Roll required'); return; }
+    if (!AppState.students.some(s => s.roll === roll)) { alert('Invalid roll'); return; }
+
+    const data = {
+      roll,
+      routeId: routeEl.value,
+      stop: stopEl.value,
+      fee: Number(feeEl.value || 0),
+      status: statusEl.value || 'active'
+    };
+
+    const idx = AppState.transport.assignments.findIndex(x => x.roll === roll);
+    if (idx >= 0) AppState.transport.assignments[idx] = data;
+    else AppState.transport.assignments.push(data);
+
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrRouteModal(editId) {
+  const form = qs('#formTrRoute');
+  const idEl = qs('#trRouteId');
+  const nameEl = qs('#trRouteName');
+  const pickEl = qs('#trRoutePickup');
+  const dropEl = qs('#trRouteDrop');
+  const stopsEl = qs('#trRouteStops');
+  const statusEl = qs('#trRouteStatus');
+
+  if (editId) {
+    const r = AppState.transport.routes.find(x => x.id === editId);
+    if (r) {
+      idEl.value = r.id; idEl.disabled = true;
+      nameEl.value = r.name;
+      pickEl.value = r.pickup || '';
+      dropEl.value = r.drop || '';
+      stopsEl.value = (r.stops || []).join(', ');
+      statusEl.value = r.status || 'active';
+    }
+  } else {
+    idEl.disabled = false; idEl.value = '';
+    nameEl.value = ''; pickEl.value = ''; dropEl.value = '';
+    stopsEl.value = ''; statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const data = {
+      id: idEl.value.trim(),
+      name: nameEl.value.trim(),
+      pickup: pickEl.value,
+      drop: dropEl.value,
+      stops: (stopsEl.value || '').split(',').map(x => x.trim()).filter(Boolean),
+      status: statusEl.value
+    };
+    if (!data.id || !data.name) { alert('Route ID and name are required'); return; }
+    const idx = AppState.transport.routes.findIndex(x => x.id === data.id);
+    if (idx >= 0) AppState.transport.routes[idx] = data;
+    else AppState.transport.routes.push(data);
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrVehicleModal(editId) {
+  const form = qs('#formTrVehicle');
+  const idEl = qs('#trVehicleId');
+  const labelEl = qs('#trVehicleLabel');
+  const regEl = qs('#trVehicleReg');
+  const capEl = qs('#trVehicleCap');
+  const dNameEl = qs('#trDriverName');
+  const dPhoneEl = qs('#trDriverPhone');
+  const routeEl = qs('#trVehicleRoute');
+  const statusEl = qs('#trVehicleStatus');
+
+  routeEl.innerHTML = `<option value="">(none)</option>` +
+    AppState.transport.routes.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+  if (editId) {
+    const v = AppState.transport.vehicles.find(x => x.id === editId);
+    if (v) {
+      idEl.value = v.id; idEl.disabled = true;
+      labelEl.value = v.label; regEl.value = v.reg; capEl.value = v.capacity;
+      dNameEl.value = v.driverName; dPhoneEl.value = v.driverPhone;
+      routeEl.value = v.routeId || ''; statusEl.value = v.status || 'active';
+    }
+  } else {
+    idEl.disabled = false; idEl.value = '';
+    labelEl.value = ''; regEl.value = ''; capEl.value = 40;
+    dNameEl.value = ''; dPhoneEl.value = ''; routeEl.value = '';
+    statusEl.value = 'active';
+  }
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const data = {
+      id: idEl.value.trim(),
+      label: labelEl.value.trim(),
+      reg: regEl.value.trim(),
+      capacity: Number(capEl.value || 0),
+      driverName: dNameEl.value.trim(),
+      driverPhone: dPhoneEl.value.trim(),
+      routeId: routeEl.value || '',
+      status: statusEl.value
+    };
+    if (!data.id || !data.label || !data.reg) { alert('Vehicle ID, label, reg no. required'); return; }
+    const idx = AppState.transport.vehicles.findIndex(x => x.id === data.id);
+    if (idx >= 0) AppState.transport.vehicles[idx] = data;
+    else AppState.transport.vehicles.push(data);
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+// Transport Import / Export
+function initTrImportModal() {
+  const form = qs('#formTrImport');
+  const fileInput = qs('#trImportFile');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const file = fileInput.files?.[0];
+    if (!file) { alert('Select a CSV file'); return; }
+    const text = await file.text();
+    const rows = text.trim().split(/\r?\n/).map(line =>
+      line.split(',').map(cell => cell.replace(/^"|"$/g,'').replace(/""/g,'"'))
+    );
+    const [header, ...dataRows] = rows;
+    const hmap = Object.fromEntries(header.map((h,i)=> [h.trim().toLowerCase(), i]));
+
+    if (hmap['routeid'] && hmap['name']) {
+      // Routes
+      dataRows.forEach(r => {
+        const id = r[hmap['routeid']].trim();
+        const name = r[hmap['name']].trim();
+        const pickup = r[hmap['pickup']] || '';
+        const drop = r[hmap['drop']] || '';
+        const stops = (r[hmap['stops']] || '').split('|').map(x=>x.trim()).filter(Boolean);
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.routes.findIndex(x => x.id === id);
+        const obj = { id, name, pickup, drop, stops, status };
+        if (idx >= 0) AppState.transport.routes[idx] = obj; else AppState.transport.routes.push(obj);
+      });
+    } else if (hmap['vehicleid'] && hmap['reg']) {
+      // Vehicles
+      dataRows.forEach(r => {
+        const id = r[hmap['vehicleid']].trim();
+        const label = r[hmap['label']]?.trim() || id;
+        const reg = r[hmap['reg']].trim();
+        const capacity = Number(r[hmap['capacity']] || 0);
+        const driverName = r[hmap['drivername']] || '';
+        const driverPhone = r[hmap['driverphone']] || '';
+        const routeId = r[hmap['routeid']] || '';
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.vehicles.findIndex(x => x.id === id);
+        const obj = { id, label, reg, capacity, driverName, driverPhone, routeId, status };
+        if (idx >= 0) AppState.transport.vehicles[idx] = obj; else AppState.transport.vehicles.push(obj);
+      });
+    } else if (hmap['roll'] && hmap['routeid'] && hmap['stop']) {
+      // Assignments
+      dataRows.forEach(r => {
+        const roll = r[hmap['roll']].trim();
+        const routeId = r[hmap['routeid']].trim();
+        const stop = r[hmap['stop']].trim();
+        const fee = Number(r[hmap['fee']] || 0);
+        const status = (r[hmap['status']] || 'active').trim();
+        const idx = AppState.transport.assignments.findIndex(x => x.roll === roll);
+        const obj = { roll, routeId, stop, fee, status };
+        if (idx >= 0) AppState.transport.assignments[idx] = obj; else AppState.transport.assignments.push(obj);
+      });
+    } else {
+      alert('Unknown CSV template. Expected routes/vehicles/assignments headers.');
+      return;
+    }
+    saveState();
+    form.parentElement.close();
+    renderTransport();
+  };
+}
+
+function initTrExportModal() {
+  const form = qs('#formTrExport');
+  const chkRoutes = qs('#exportRoutes');
+  const chkVehicles = qs('#exportVehicles');
+  const chkAssignments = qs('#exportAssignments');
+  form.onsubmit = (e)=>{
+    e.preventDefault();
+    if (chkRoutes?.checked)      exportRoutesCSV();
+    if (chkVehicles?.checked)    exportVehiclesCSV();
+    if (chkAssignments?.checked) exportAssignmentsCSV();
+    form.parentElement.close();
+  };
+}
+
+function exportRoutesCSV() {
+  const header = ['routeId','name','pickup','drop','stops','status'];
+  const rows = AppState.transport.routes.map(r =>
+    [r.id, r.name, r.pickup||'', r.drop||'', (r.stops||[]).join('|'), r.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_routes.csv', csv);
+}
+function exportVehiclesCSV() {
+  const header = ['vehicleId','label','reg','capacity','driverName','driverPhone','routeId','status'];
+  const rows = AppState.transport.vehicles.map(v =>
+    [v.id, v.label, v.reg, v.capacity, v.driverName, v.driverPhone, v.routeId||'', v.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_vehicles.csv', csv);
+}
+function exportAssignmentsCSV() {
+  const header = ['roll','routeId','stop','fee','status'];
+  const rows = AppState.transport.assignments.map(a =>
+    [a.roll, a.routeId, a.stop, a.fee, a.status||'active']
+  );
+  const csv = arrayToCSV([header, ...rows]);
+  downloadFile('transport_assignments.csv', csv);
+}
+
+// ---------- Settings ----------
+function renderSettings() {
+  // Grabs
+  const setTheme = qs('#setTheme');
+  const setCurrency = qs('#setCurrency');
+  const setLocale = qs('#setLocale');
+  const setStudentsPageSize = qs('#setStudentsPageSize');
+  const setDefaultFeesMonth = qs('#setDefaultFeesMonth');
+  const setChartAnimation = qs('#setChartAnimation');
+
+  const saveBtn = qs('#settingsSaveBtn');
+  const exportBtn = qs('#settingsExportBackupBtn');
+  const importInput = qs('#settingsImportBackupInput');
+  const resetBtn = qs('#settingsResetBtn');
+
+  // School profile fields
+  const setSchoolName    = qs('#setSchoolName');
+  const setSchoolTagline = qs('#setSchoolTagline');
+  const setSchoolAddress = qs('#setSchoolAddress');
+  const setSchoolPhone   = qs('#setSchoolPhone');
+  const setSchoolEmail   = qs('#setSchoolEmail');
+  const setSchoolLogo    = qs('#setSchoolLogo');
+
+  if (!setTheme || !setCurrency || !setLocale || !setStudentsPageSize || !setChartAnimation) {
+    console.error('Missing required settings elements');
+    return;
+  }
+
+  // Load current values into controls
+  setTheme.value = AppState.settings.theme || 'system';
+  setCurrency.value = AppState.settings.currency || '₹';
+  setLocale.value = AppState.settings.locale || 'en-IN';
+  setStudentsPageSize.value = AppState.settings.studentsPageSize || 10;
+  setChartAnimation.checked = !!AppState.settings.chartAnimation;
+
+  if (setDefaultFeesMonth && AppState.settings.defaultFeesMonth) {
+    setDefaultFeesMonth.value = AppState.settings.defaultFeesMonth;
+  } else {
+    setDefaultFeesMonth.value = '';
+  }
+
+  const sch = AppState.settings.school || {};
+  if (setSchoolName) setSchoolName.value    = sch.name    || '';
+  if (setSchoolTagline) setSchoolTagline.value = sch.tagline || '';
+  if (setSchoolAddress) setSchoolAddress.value = sch.address || '';
+  if (setSchoolPhone) setSchoolPhone.value   = sch.phone   || '';
+  if (setSchoolEmail) setSchoolEmail.value   = sch.email   || '';
+  if (setSchoolLogo) setSchoolLogo.value    = sch.logo    || '';
+
+  // Save settings handler
+  if (saveBtn) saveBtn.onclick = () => {
+    const pageSize = Math.max(5, Number(setStudentsPageSize.value || 10));
+    AppState.settings.theme = setTheme.value;
+    AppState.settings.currency = (setCurrency.value || '₹').trim();
+    AppState.settings.locale = setLocale.value || 'en-IN';
+    AppState.settings.studentsPageSize = pageSize;
+    AppState.settings.defaultFeesMonth = setDefaultFeesMonth?.value || null;
+    AppState.settings.chartAnimation = !!setChartAnimation.checked;
+
+    // School profile
+    AppState.settings.school = {
+      name:    (setSchoolName?.value || '').trim(),
+      tagline: (setSchoolTagline?.value || '').trim(),
+      address: (setSchoolAddress?.value || '').trim(),
+      phone:   (setSchoolPhone?.value || '').trim(),
+      email:   (setSchoolEmail?.value || '').trim(),
+      logo:    (setSchoolLogo?.value || '').trim()
+    };
+
+    // Apply immediately
+    applyThemeFromSettings();
+    applySchoolBranding();
+
+    // Apply student page size immediately if view open
+    if (AppState.view === 'students') {
+      AppState.pagination.students.page = 1;
+      AppState.pagination.students.pageSize = pageSize;
+      renderStudents();
+    }
+
+    // Rebuild dashboard charts if open (for animation toggle)
+    if (AppState.view === 'dashboard') renderDashboard();
+
+    saveState();
+    alert('Settings saved.');
+  };
+
+  // Export backup (as JSON)
+  if (exportBtn) exportBtn.onclick = () => {
+    const now = new Date();
+    const stamp = now.toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const payload = {
+      version: '1.0.0',
+      exportedAt: now.toISOString(),
+      state: AppState
+    };
+    const json = JSON.stringify(payload, null, 2);
+    downloadFile(`khushi_portal_backup_${stamp}.json`, json, 'application/json');
+  };
+
+  // Import backup (JSON)
+  if (importInput) importInput.onchange = async () => {
+    const file = importInput.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload?.state) {
+        alert('Invalid backup file.');
+        return;
+      }
+      Object.assign(AppState, payload.state);
+      saveState();
+      applyThemeFromSettings();
+      applySchoolBranding();
+      switchView(AppState.view || 'dashboard');
+      alert('Backup imported successfully.');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to import backup.');
+    } finally {
+      importInput.value = '';
+    }
+  };
+
+  // Reset data (danger)
+  if (resetBtn) resetBtn.onclick = () => {
+    if (!confirm('This will clear all app data (localStorage). Continue?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    // Re-seed & reload
+    seedDemoData();
+    saveState();
+    applyThemeFromSettings();
+    applySchoolBranding();
+    switchView('dashboard');
+    alert('App data has been reset.');
+  };
+}
+
+// ---------- Notices ----------
+function renderNotices() {
+  // KPIs
+  const noticeKpiTotal = qs('#noticeKpiTotal');
+  if (noticeKpiTotal) noticeKpiTotal.textContent = String(AppState.notices.length);
+  const noticeKpiActive = qs('#noticeKpiActive');
+  if (noticeKpiActive) noticeKpiActive.textContent = String(AppState.notices.filter(n => n.status === 'active').length);
+  const noticeKpiHighPriority = qs('#noticeKpiHighPriority');
+  if (noticeKpiHighPriority) noticeKpiHighPriority.textContent = String(AppState.notices.filter(n => n.priority === 'high').length);
+
+  // Filters
+  const statusSel = qs('#noticeFilterStatus');
+  const prioritySel = qs('#noticeFilterPriority');
+  const audienceSel = qs('#noticeFilterAudience');
+  const searchInput = qs('#noticeSearch');
+
+  // Buttons
+  const bind = (id, fn) => { const el = qs(id); if (el) el.onclick = fn; };
+  bind('#noticeBtnCreate', () => { if (openModal('#modalCreateNotice')) initNoticeModal(); });
+  bind('#noticeBtnExport', exportNoticesCSV);
+
+  // Filters/search triggers
+  const renderTable = () => renderNoticesTable();
+  if (searchInput) searchInput.oninput = renderTable;
+  if (statusSel) statusSel.onchange = renderTable;
+  if (prioritySel) prioritySel.onchange = renderTable;
+  if (audienceSel) audienceSel.onchange = renderTable;
+
+  // Tables
+  renderNoticesTable();
+}
+
+function renderNoticesTable() {
+  const body = qs('#noticesTableBody');
+  if (!body) return;
+
+  const status = qs('#noticeFilterStatus')?.value || '';
+  const priority = qs('#noticeFilterPriority')?.value || '';
+  const audience = qs('#noticeFilterAudience')?.value || '';
+  const searchTerm = (qs('#noticeSearch')?.value || '').toLowerCase();
+
+  let rows = [...AppState.notices];
+  rows = rows.filter(n => (!status || n.status === status) && 
+                          (!priority || n.priority === priority) && 
+                          (!audience || n.audience === audience) &&
+                          (!searchTerm || n.title.toLowerCase().includes(searchTerm) || n.description.toLowerCase().includes(searchTerm)));
+
+  body.innerHTML = rows.map(n => `
+    <tr>
+      <td><strong>${escapedText(n.title)}</strong></td>
+      <td>${escapedText(n.description.substring(0, 50))}${n.description.length > 50 ? '...' : ''}</td>
+      <td>${escapedText(n.author)}</td>
+      <td>${n.date || '-'}</td>
+      <td><span class="badge ${n.priority === 'high' ? 'danger' : n.priority === 'low' ? 'info' : ''}">${n.priority}</span></td>
+      <td>${n.audience}</td>
+      <td><span class="badge">${n.status}</span></td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost small" data-act="editNotice" data-id="${n.id}">Edit</button>
+        <button class="btn btn-ghost small" data-act="delNotice" data-id="${n.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  qsa('button[data-act="editNotice"]').forEach(b => {
+    b.onclick = () => { if (openModal('#modalCreateNotice')) initNoticeModal(b.getAttribute('data-id')); };
+  });
+  qsa('button[data-act="delNotice"]').forEach(b => {
+    b.onclick = () => {
+      const id = b.getAttribute('data-id');
+      if (!confirm('Delete notice?')) return;
+      AppState.notices = AppState.notices.filter(x => x.id !== id);
+      saveState();
+      renderNotices();
+    };
+  });
+}
+
+function initNoticeModal(noticeId = null) {
+  const form = qs('#formCreateNotice');
+  const modal = qs('#modalCreateNotice');
+  if (!form) return;
+
+  const titleInput = qs('#noticeTitle');
+  const descInput = qs('#noticeDescription');
+  const authorInput = qs('#noticeAuthor');
+  const dateInput = qs('#noticeDate');
+  const priorityInput = qs('#noticePriority');
+  const audienceInput = qs('#noticeAudience');
+  const statusInput = qs('#noticeStatus');
+  const header = modal?.querySelector('.modal__header h3');
+
+  if (noticeId) {
+    // Edit mode
+    const notice = AppState.notices.find(n => n.id === noticeId);
+    if (!notice) return;
+
+    if (header) header.textContent = 'Edit Notice';
+    if (titleInput) titleInput.value = notice.title;
+    if (descInput) descInput.value = notice.description;
+    if (authorInput) authorInput.value = notice.author;
+    if (dateInput) dateInput.value = notice.date;
+    if (priorityInput) priorityInput.value = notice.priority;
+    if (audienceInput) audienceInput.value = notice.audience;
+    if (statusInput) statusInput.value = notice.status;
+    form.dataset.noticeId = noticeId;
+  } else {
+    // Create mode
+    if (header) header.textContent = 'Create Notice';
+    if (dateInput) dateInput.value = todayYYYYMMDD();
+    form.reset();
+    form.dataset.noticeId = '';
+  }
+
+  // Handle form submission
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const title = titleInput?.value.trim();
+    const description = descInput?.value.trim();
+    const author = authorInput?.value.trim();
+    const date = dateInput?.value;
+    const priority = priorityInput?.value || 'medium';
+    const audience = audienceInput?.value || 'all';
+    const status = statusInput?.value || 'active';
+
+    if (!title || !description || !author || !date) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    if (form.dataset.noticeId) {
+      // Update existing notice
+      const notice = AppState.notices.find(n => n.id === form.dataset.noticeId);
+      if (notice) {
+        notice.title = title;
+        notice.description = description;
+        notice.author = author;
+        notice.date = date;
+        notice.priority = priority;
+        notice.audience = audience;
+        notice.status = status;
+      }
+    } else {
+      // Create new notice
+      const newNotice = {
+        id: 'notice-' + Date.now(),
+        title,
+        description,
+        author,
+        date,
+        priority,
+        audience,
+        status
+      };
+      AppState.notices.push(newNotice);
+    }
+
+    saveState();
+    renderNotices();
+    modal?.close();
+  };
+}
+
+function exportNoticesCSV() {
+  const rows = [];
+  rows.push(['Title', 'Description', 'Author', 'Date', 'Priority', 'Audience', 'Status']);
+  AppState.notices.forEach(n => {
+    rows.push([n.title, n.description, n.author, n.date, n.priority, n.audience, n.status]);
+  });
+  const csv = arrayToCSV(rows);
+  downloadFile('notices_export.csv', csv);
+}
+
+function escapedText(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ---------- Quick Actions ----------
+function initQuickAdd(){
+  const btnQuickAdd = qs('#btnQuickAdd');
+  if (btnQuickAdd) {
+    btnQuickAdd.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openModal('#modalAddStudent');
+    };
+  }
+}
+
+function initNotifications(){
+  const btnNotifications = qs('#btnNotifications');
+  if (btnNotifications) {
+    btnNotifications.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      alert('No new notifications.');
+    };
+  }
+}
+
+// ---------- Init ----------
+function init(){
+  console.log('🚀 Initializing School Admin Portal...');
+  
+  try {
+    // Initialize authentication FIRST (this sets up basic button handlers)
+    console.log('[init] initializeAuth');
+    initializeAuth();
+    
+    // attach login handlers only if login page is still present
+    if (document.getElementById('loginPage')) {
+      console.log('[init] initLoginHandlers');
+      initLoginHandlers();
+    }
+    
+    // Load state (including data fetch)
+    console.log('[init] loadState');
+    loadState();
+    
+    // Theme setup
+    console.log('[init] applyThemeFromSettings');
+    applyThemeFromSettings();
+    console.log('[init] applySchoolBranding');
+    applySchoolBranding();
+    console.log('[init] initThemeToggle');
+    initThemeToggle();
+    
+    // Role-based initialization
+    if (isAuthenticated()) {
+      const role = getUserRole();
+      console.log('✅ User authenticated as:', role);
+      
+      if (role === 'admin') {
+        console.log('📊 Initializing Admin Portal...');
+        try {
+          initSidebarNavigation();
+        } catch (e) {
+          console.error('⚠️ Sidebar init error:', e);
+        }
+        
+        try {
+          initQuickAdd();
+        } catch (e) {
+          console.error('⚠️ Quick add init error:', e);
+        }
+        
+        try {
+          initNotifications();
+        } catch (e) {
+          console.error('⚠️ Notifications init error:', e);
+        }
+        
+        // Initialize modals with error handling
+        try {
+          initAddStudentModal();
+          initImportCSVModal();
+          initRecordPaymentModal();
+          initFeeHeadsModal();
+          initLateRulesModal();
+          initConcessionModal();
+          console.log('✅ Modals initialized');
+        } catch (e) {
+          console.warn('⚠️ Modal initialization warning:', e.message);
+        }
+      }
+      
+      try {
+        switchRole(role);
+      } catch (e) {
+        console.error('⚠️ switchRole error:', e);
+      }
+      
+      console.log('✅ Portal ready!');
+    }
+  } catch (e) {
+    console.error('❌ Initialization error:', e);
+    console.error('Stack:', e.stack);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    console.log('DOMContentLoaded event fired');
+    init();
+  } catch (err) {
+    console.error('Fatal error during initialization:', err);
+    console.error('Error message:', err.message);
+    console.error('Stack:', err.stack);
+    // Try to make basic buttons clickable as fallback
+    document.querySelectorAll('button').forEach(btn => {
+      if (!btn.onclick && !btn.addEventListener) {
+        btn.onclick = function() { alert('Button clicked'); };
+      }
+    });
+  }
+});
