@@ -310,7 +310,7 @@ async function fetchFeesFromBackend() {
   }
 }
 
-async function syncPaymentToBackend({ studentId, amount, paymentDate, method, ref, purpose, discount, lateFee }) {
+async function syncPaymentToBackend({ studentId, amount, paymentDate, method, ref, purpose, discount, lateFee, adminFee }) {
   if (!studentId) return { ok: false, reason: 'missing-student-id' };
 
   const payload = {
@@ -323,7 +323,8 @@ async function syncPaymentToBackend({ studentId, amount, paymentDate, method, re
     status: 'Completed',
     remarks: '',
     discount: Number(discount || 0),
-    late_fee: Number(lateFee || 0)
+    late_fee: Number(lateFee || 0),
+    admin_fee: Number(adminFee || 0)
   };
 
   try {
@@ -4038,6 +4039,7 @@ function initRecordPaymentModal(){
   const rpHeadsWrap=qs('#rpHeads');
   const rpDiscount=qs('#rpDiscount');
   const rpLateFee=qs('#rpLateFee');
+  const rpAdminFee=qs('#rpAdminFee');
   const rpSubtotal=qs('#rpSubtotal');
   const rpTotalDue=qs('#rpTotalDue');
   const rpPayNow=qs('#rpPayNow');
@@ -4077,9 +4079,10 @@ function initRecordPaymentModal(){
     recalcBtn.onclick=()=> autoCalcLateFee();
   }
 
-  // Wire discounts/late fee/pay-now inputs to update totals immediately
+  // Wire discounts/late fee/admin fee/pay-now inputs to update totals immediately
   if (rpDiscount) rpDiscount.oninput = () => updateTotals();
   if (rpLateFee) rpLateFee.oninput = () => updateTotals();
+  if (rpAdminFee) rpAdminFee.oninput = () => updateTotals();
   if (rpPayNow) rpPayNow.oninput = () => validatePayNow();
 
   qs('#rpBtnExact').onclick = () => {
@@ -4310,7 +4313,8 @@ function initRecordPaymentModal(){
     const subtotal = amounts.reduce((a,b)=> a+b,0);
     const discount = safeAmount(rpDiscount.value);
     const lateFee = safeAmount(rpLateFee.value);
-    const totalDue = Math.max(0, subtotal + lateFee - discount);
+    const adminFee = safeAmount(rpAdminFee.value);
+    const totalDue = Math.max(0, subtotal + lateFee - discount + adminFee);
 
     const roll = rpRoll.value.trim();
     const month = resolvePaymentMonth();
@@ -4318,7 +4322,7 @@ function initRecordPaymentModal(){
     const paidSoFar = key ? safeAmount(AppState.fees[key]?.paid || 0) : 0;
     const outstanding = Math.max(0, totalDue - paidSoFar);
 
-    return { subtotal, discount, lateFee, totalDue, paidSoFar, outstanding };
+    return { subtotal, discount, lateFee, adminFee, totalDue, paidSoFar, outstanding };
   }
 
   function updateTotals(){
@@ -4395,12 +4399,13 @@ function initRecordPaymentModal(){
 
     const discount=safeAmount(rpDiscount.value);
     const lateFee=safeAmount(rpLateFee.value);
+    const adminFee=safeAmount(rpAdminFee.value);
     const payNow=safeAmount(rpPayNow.value);
     if(payNow<0){ rpError.textContent='Pay Now cannot be negative.'; rpError.style.display='block'; return false; }
 
     const key=`${roll}|${month}`;
     const subtotal=Object.values(heads).reduce((a,b)=> a+b,0);
-    const netDue=Math.max(0, subtotal+lateFee-discount);
+    const netDue=Math.max(0, subtotal+lateFee-discount+adminFee);
 
     const paidAlready=safeAmount(AppState.fees[key]?.paid || 0);
     const outstandingBefore=Math.max(0, netDue - paidAlready);
@@ -4415,10 +4420,11 @@ function initRecordPaymentModal(){
       return false;
     }
 
-    AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0 };
+    AppState.fees[key]=AppState.fees[key]||{ heads:{}, paid:0, discount:0, lateFee:0, adminFee:0 };
     AppState.fees[key].heads=heads;
     AppState.fees[key].discount=discount;
     AppState.fees[key].lateFee=lateFee;
+    AppState.fees[key].adminFee=adminFee;
     AppState.fees[key].paid=(AppState.fees[key].paid||0)+payNow;
 
     if(payNow>0){
@@ -4439,7 +4445,8 @@ function initRecordPaymentModal(){
         ref: (rpRef.value || '').trim(),
         purpose: `School Fee (${month})`,
         discount,
-        lateFee
+        lateFee,
+        adminFee
       }).then((result) => {
         if (!result.ok) {
           rpStatus.textContent = 'Saved locally. Backend sync pending (student id or network issue).';
